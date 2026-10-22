@@ -269,3 +269,42 @@ Les réponses ne contiennent jamais : secrets, clés d'idempotence, lease owner,
   racine workspace inscriptible, `git` présent ; sortie JSON + code retour ≠ 0 si un point bloque.
 - CI GitHub Actions `.github/workflows/tests.yml`, job **`tests`** : `go vet`, `go test ./...` avec
   service Postgres, `npm ci && npm run build && npm test` dans `web/`.
+
+## 12. Précisions d'implémentation V1 (ajouts au contrat)
+
+Ajouts introduits par l'implémentation du backend ; ils complètent les sections précédentes sans les
+contredire.
+
+**Machines à états**
+- Ticket : état initial `PLANNED` (créé par le job `open_issues`), événement `ready` PLANNED → READY_FOR_DEV
+  lors de l'approbation `dev_gate`.
+- Feature : événement générique `fail` depuis SPEC, TECH_DESIGN, ISSUES_OPENED → BLOCKED (échec de job) ;
+  `dev_gate` rejeté → CANCELLED (tickets annulés) ; READY_FOR_DEV → DONE si tous les tickets sont terminaux.
+- Ticket : `cancel` depuis tout état non terminal ; `fail` aussi depuis READY_FOR_DEV et PR_OPENED ;
+  `publish_pr` rejeté → CANCELLED ; `rework` approuvé avec `attempt ≥ AOS_MAX_REWORK` → `rework_exhausted`
+  (CHANGES_REQUESTED → BLOCKED, approbation `execution_failed`) ; `retry` vers CHANGES_REQUESTED recrée
+  l'approbation `rework`.
+- `attempt` = nombre de reworks effectués (0 au premier développement). Clé Hermes des jobs de feature : `a0`.
+- L'état avant blocage est conservé dans `previous_state` (features, tickets) pour `retry`.
+
+**Schéma** : colonnes ajoutées `features.previous_state`, `tickets.previous_state`, `tickets.seq`,
+`jobs.project_id` (sérialisation develop|review|qa par index unique partiel), `approvals.decision`
+(décision conservée après exécution) ; `jobs.subject_type` accepte `system` (sync_agents).
+Agents initialisés avec les profils `aos-po`, `aos-tech-lead`, `aos-developer`, `aos-reviewer`, `aos-qa`.
+
+**Git** : copie bare `<root>/<slug>/_repo.git` ; worktree de dev `<root>/<slug>/<key>` sur la branche
+`aos/<key>` ; reviewer/QA en worktrees détachés `<key>-review`, `<key>-qa`. Toutes les commandes git
+passent `-c core.hooksPath=/dev/null -c credential.helper=`. La propreté inclut les fichiers non suivis
+(les fichiers ignorés par `.gitignore` ne sont pas comptés). Une suppression de test n'est autorisée que si
+le chemin supprimé figure tel quel dans le corps du ticket.
+
+**Configuration** (en plus du §3) : `AOS_ADMIN_LOGIN` (défaut `admin`), `AOS_GIT_BINARY` (`/usr/bin/git`),
+`AOS_GITHUB_API_URL`, `AOS_GITHUB_WEB_URL`, `AOS_TELEGRAM_API_URL` (tests), `AOS_COOKIE_SECURE=1`,
+`AOS_ALLOW_NON_LOOPBACK=1` (sinon `serve` refuse une adresse non loopback). Secrets de déploiement
+supplémentaires : `database_url`, `postgres_password`.
+
+**API** : `PATCH /api/agents/{role}` accepte aussi `hermes_profile`. Les projets sont créés désactivés
+(`enabled` via PATCH ; confirmation exigée seulement pour `product`). Codes supplémentaires : 429
+`too_many_attempts` (rate-limit login), 405, 500 `internal`. Le webhook renvoie 503 si
+`github_webhook_secret` est absent. Les détails feature/ticket incluent `jobs` (sans clé d'idempotence ni
+lease owner) et le ticket expose `worktree` relatif (`<slug>/<key>`).
