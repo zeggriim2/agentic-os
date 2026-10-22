@@ -1,0 +1,102 @@
+# Agentic OS — déploiement mono-hôte.
+# Prérequis (une fois) :
+#   install -d -m 0700 /home/hermes/agentic-os-data/secrets /home/hermes/agentic-os-data/secrets/hermes
+#   install -d -m 0750 /home/hermes/agentic-os-data/workspaces
+#   secrets (fichiers 0600) : postgres_password, database_url
+#     (postgres://agentic_os:<mdp>@127.0.0.1:55433/agentic_os?sslmode=disable), session_key (32+ octets),
+#     admin_password_hash (agentic-os admin-password), github_token, github_webhook_secret,
+#     telegram_bot_token, telegram_chat_id, hermes/<profil>.key
+# Usage : docker compose -f deploy/compose.yaml up -d --build
+
+name: agentic-os
+
+x-secrets: &secrets
+  type: bind
+  source: /home/hermes/agentic-os-data/secrets
+  target: /run/secrets/agentic-os
+  read_only: true
+
+x-app-env: &app-env
+  AOS_DATABASE_URL_FILE: /run/secrets/agentic-os/database_url
+  AOS_SECRETS_DIR: /run/secrets/agentic-os
+  AOS_WORKSPACE_ROOT: /home/hermes/agentic-os-data/workspaces
+  AOS_HERMES_URL: ${AOS_HERMES_URL:-http://127.0.0.1:8642}
+  AOS_WORKERS: ${AOS_WORKERS:-2}
+  AOS_LEASE_SECONDS: ${AOS_LEASE_SECONDS:-60}
+  AOS_MAX_REWORK: ${AOS_MAX_REWORK:-3}
+  AOS_PUBLIC_TZ: ${AOS_PUBLIC_TZ:-Europe/Paris}
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agentic_os
+      POSTGRES_USER: agentic_os
+      POSTGRES_PASSWORD_FILE: /run/secrets/agentic-os/postgres_password
+    ports:
+      - "127.0.0.1:55433:5432"
+    volumes:
+      - aos-pgdata:/var/lib/postgresql/data
+      - *secrets
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentic_os -d agentic_os"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    image: agentic-os:${AOS_IMAGE_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        VERSION: ${AOS_VERSION:-dev}
+        REVISION: ${AOS_REVISION:-unknown}
+    command: ["migrate"]
+    network_mode: host
+    restart: "no"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    environment: *app-env
+    volumes:
+      - *secrets
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    image: agentic-os:${AOS_IMAGE_TAG:-dev}
+    command: ["serve"]
+    network_mode: host
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=0700
+    environment:
+      <<: *app-env
+      AOS_HTTP_ADDR: 127.0.0.1:${AOS_HTTP_PORT:-8788}
+    volumes:
+      - *secrets
+      - type: bind
+        source: /home/hermes/agentic-os-data/workspaces
+        target: /home/hermes/agentic-os-data/workspaces
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:${AOS_HTTP_PORT:-8788}/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  aos-pgdata:
+    name: aos-pgdata

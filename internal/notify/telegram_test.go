@@ -1,0 +1,61 @@
+package notify
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+func static(v string) func() (string, error) { return func() (string, error) { return v, nil } }
+
+func TestSendMessage(t *testing.T) {
+	var got map[string]any
+	var path string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	tg := New(srv.URL, static("123:SECRET"), static("42"), slog.Default())
+	if err := tg.Send(context.Background(), "bonjour"); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/bot123:SECRET/sendMessage" || got["chat_id"] != "42" || got["text"] != "bonjour" {
+		t.Fatalf("requête: %s %v", path, got)
+	}
+}
+
+func TestFailureIsLoggedWithoutToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }))
+	defer srv.Close()
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
+	tg := New(srv.URL, static("123:SECRET"), static("42"), log)
+	tg.Async = false
+	tg.Notify(context.Background(), "x") // ne doit ni paniquer ni bloquer
+	if !strings.Contains(buf.String(), "HTTP 500") || strings.Contains(buf.String(), "SECRET") {
+		t.Fatalf("log: %s", buf.String())
+	}
+	// injoignable : l'URL (qui contient le token) ne doit pas fuiter
+	buf.Reset()
+	tg2 := New("http://127.0.0.1:1", static("123:SECRET"), static("42"), log)
+	tg2.Async = false
+	tg2.Notify(context.Background(), "x")
+	if !strings.Contains(buf.String(), "injoignable") || strings.Contains(buf.String(), "SECRET") {
+		t.Fatalf("log: %s", buf.String())
+	}
+}
+
+func TestNotConfigured(t *testing.T) {
+	tg := New("http://x", func() (string, error) { return "", errors.New("absent") }, static("1"), slog.Default())
+	if err := tg.Send(context.Background(), "x"); !errors.Is(err, ErrNotConfigured) {
+		t.Fatal(err)
+	}
+}
