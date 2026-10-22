@@ -1,0 +1,14 @@
+# binaires
+/agentic-os
+/bin/
+*.test
+coverage.out
+
+# UI : seul le marqueur de web/dist est versionné (go:embed exige un dossier non vide)
+web/node_modules/
+web/dist/*
+!web/dist/.gitkeep
+
+# local
+.env
+*.local
