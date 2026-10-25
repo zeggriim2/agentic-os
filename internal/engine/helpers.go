@@ -94,6 +94,22 @@ func jobKey(kind, subjectType string, id int64, discriminator string) string {
 	return fmt.Sprintf("%s:%s:%d:%s", kind, subjectType, id, discriminator)
 }
 
+func projectSnapshot(p *store.Project) map[string]any {
+	return map[string]any{
+		"project_id":      p.ID,
+		"repository":      p.Repository,
+		"base_branch":     p.BaseBranch,
+		"required_checks": append([]string(nil), p.RequiredChecks...),
+	}
+}
+
+func withProjectSnapshot(p *store.Project, details map[string]any) map[string]any {
+	for key, value := range projectSnapshot(p) {
+		details[key] = value
+	}
+	return details
+}
+
 // createApproval crée une approbation pending (idempotent par kind/sujet).
 func (e *Engine) createApproval(ctx context.Context, tx pgx.Tx, a store.NewApproval) (*store.Approval, error) {
 	ap, created, err := store.CreateApproval(ctx, tx, a)

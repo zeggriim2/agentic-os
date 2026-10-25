@@ -84,6 +84,12 @@ func TestParseTechDesign(t *testing.T) {
 	if _, err := ParseTechDesign(mk(`{"title":"T","body":"B","acceptance_criteria":["c"],"extra":1}`)); err == nil {
 		t.Fatal("clé inconnue imbriquée acceptée")
 	}
+	if _, err := ParseTechDesign(mk(`{"title":"T","body":"B","acceptance_criteria":[" "]}`)); err == nil {
+		t.Fatal("critère vide accepté")
+	}
+	if _, err := ParseTechDesign(mk(`{"title":"T","body":"B","acceptance_criteria":["c"," c "]}`)); err == nil {
+		t.Fatal("critère dupliqué après normalisation accepté")
+	}
 }
 
 func TestParseReview(t *testing.T) {
@@ -139,17 +145,25 @@ func TestParseQA(t *testing.T) {
 		{"bad status", mk("failed", okCheck, `{"criterion":"c","status":"maybe","evidence":""}`), false},
 		{"bad verdict", mk("ok", okCheck, met), false},
 		{"exit code string", mk("passed", `{"command":"x","exit_code":"0"}`, met), false},
+		{"criterion missing", mk("failed", badCheck, ""), false},
+		{"criterion invented", mk("failed", badCheck, `{"criterion":"x","status":"not_met","evidence":""}`), false},
+		{"criterion whitespace changed", mk("passed", okCheck, `{"criterion":" c ","status":"met","evidence":"test"}`), false},
+		{"criterion duplicated", mk("passed", okCheck, met+","+met), false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := ParseQA(c.in, sha1)
+			_, err := ParseQA(c.in, sha1, []string{"c"})
 			if c.ok != (err == nil) {
 				t.Fatalf("ok=%v err=%v", c.ok, err)
 			}
 		})
 	}
-	if _, err := ParseQA(mk("passed", okCheck, met), "abc"); err == nil {
+	if _, err := ParseQA(mk("passed", okCheck, met), "abc", []string{"c"}); err == nil {
 		t.Fatal("sha attendu invalide accepté")
+	}
+	two := met + `,{"criterion":"d","status":"met","evidence":"test Y"}`
+	if _, err := ParseQA(mk("passed", okCheck, two), sha1, []string{"c", "d"}); err != nil {
+		t.Fatalf("couverture exacte de deux critères refusée: %v", err)
 	}
 }
 

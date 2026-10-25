@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/zeggriim2/agentic-os/internal/audit"
 	"github.com/zeggriim2/agentic-os/internal/domain"
 	gh "github.com/zeggriim2/agentic-os/internal/github"
 	"github.com/zeggriim2/agentic-os/internal/gitops"
@@ -353,6 +354,23 @@ func (e *Engine) blockSubject(ctx context.Context, tx pgx.Tx, j *store.Job, reas
 			return "", err
 		}
 		return fmt.Sprintf("⛔ Ticket %s bloqué : %s", t.Key, reason), nil
+	case "approval":
+		ap, err := store.LockApproval(ctx, tx, j.SubjectID)
+		if err != nil {
+			return "", err
+		}
+		if ap.Status == domain.ApprovalExecuted || ap.Status == domain.ApprovalExecutionFailed {
+			return "", nil
+		}
+		result := map[string]any{"error": truncate(reason, 500)}
+		if err := store.MarkApprovalExecuted(ctx, tx, ap.ID, false, result); err != nil {
+			return "", err
+		}
+		if err := audit.Write(ctx, tx, audit.Entry{Actor: audit.System, Action: "approval.execution_failed", SubjectType: ap.SubjectType,
+			SubjectID: ap.SubjectID, After: map[string]any{"approval_id": ap.ID, "error": result["error"]}}); err != nil {
+			return "", err
+		}
+		return "", store.Notify(ctx, tx, "approval.updated", ap.ID)
 	}
 	return "", nil
 }
