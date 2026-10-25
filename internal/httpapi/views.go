@@ -157,12 +157,14 @@ type runView struct {
 	HasArtifact   bool            `json:"has_artifact"`
 	StartedAt     string          `json:"started_at"`
 	FinishedAt    *string         `json:"finished_at"`
+	StopAttempts  int             `json:"stop_attempts"`
+	StopError     *string         `json:"stop_error"`
 	Artifact      json.RawMessage `json:"artifact,omitempty"`
 }
 
 func viewRun(r *store.Run, withArtifact bool) runView {
 	v := runView{r.ID, r.JobID, r.AgentRole, r.HermesProfile, r.HermesRunID, r.Status, r.InputTokens, r.OutputTokens, r.TotalTokens,
-		r.Model, r.Provider, r.Error, len(r.Artifact) > 0, ts(r.StartedAt), tsp(r.FinishedAt), nil}
+		r.Model, r.Provider, r.Error, len(r.Artifact) > 0, ts(r.StartedAt), tsp(r.FinishedAt), r.StopAttempts, r.StopError, nil}
 	if withArtifact {
 		v.Artifact = rawOrNull(r.Artifact)
 	}

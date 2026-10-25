@@ -313,6 +313,21 @@ ligne `run_events` persistée avant diffusion. Après une reconnexion, l'UI rech
 - Push : la branche distante doit être absente (premier push), égale au `head_sha` vérifié, ou égale au HEAD
   local (push d'une tentative interrompue) ; toute autre valeur (push externe) → ticket BLOCKED, sans push.
 
+**Arrêt des runs** (migration 0003) : un arrêt n'est jamais présumé. Le run passe en `stopping`
+(`stop_requested_at`, `stop_attempts`, `stop_error`), le job est annulé et le sujet bloqué atomiquement ; puis
+`POST …/stop` est envoyé et le statut est relu chez Hermes. Seul un statut terminal relu finalise le run
+(`stopped`, ou l'issue réelle si le run s'est terminé entre-temps ; 404 → `lost`). Sinon la réconciliation
+(30 s) retente ; alerte sur la vue d'ensemble après 3 tentatives. `POST /api/runs/{id}/stop` renvoie le run
+(`stopping` si non confirmé) au lieu d'un 503.
+
+**Webhooks retraitables** (migration 0003) : après vérification HMAC, le corps est conservé dans
+`github_deliveries.payload` ; statuts `received → processing → processed | failed`. Échec de réconciliation →
+`failed` avec `next_attempt_at` (backoff exponentiel, 8 tentatives max), repris toutes les 30 s ; une
+redélivrance GitHub (même `X-GitHub-Delivery`) d'une livraison non traitée est retraitée immédiatement ; un
+traitement abandonné (> 5 min en `processing`) est repris. Réponses : 200 `processed|duplicate`, 202
+`retry_scheduled`. Corps invalide : `failed` sans reprise. Les livraisons antérieures à 0003 n'ont pas de corps
+et ne sont pas retraitables.
+
 **QA** : le livrable doit contenir chaque critère d'acceptation persistant exactement une fois ; critères omis,
 inventés ou dupliqués sont refusés. Une PR réutilisée doit rester ouverte et draft, pas seulement une PR créée
 pendant le job courant.

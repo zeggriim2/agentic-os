@@ -371,10 +371,31 @@ func TestNotifyDeliveredOnCommit(t *testing.T) {
 func TestDeliveriesDedup(t *testing.T) {
 	s := pgtest.New(t)
 	ctx := context.Background()
-	if ok, _ := store.RecordDelivery(ctx, s.Pool, "d1", "pull_request"); !ok {
+	if ok, _ := store.InsertDelivery(ctx, s.Pool, "d1", "pull_request", []byte(`{}`)); !ok {
 		t.Fatal("1re livraison refusée")
 	}
-	if ok, _ := store.RecordDelivery(ctx, s.Pool, "d1", "pull_request"); ok {
+	if ok, _ := store.InsertDelivery(ctx, s.Pool, "d1", "pull_request", []byte(`{}`)); ok {
 		t.Fatal("doublon accepté")
+	}
+	d, err := store.ClaimDelivery(ctx, s.Pool, "d1")
+	if err != nil || d == nil || d.Attempts != 1 || d.Status != "processing" {
+		t.Fatalf("réservation: %+v %v", d, err)
+	}
+	if again, _ := store.ClaimDelivery(ctx, s.Pool, "d1"); again != nil {
+		t.Fatal("livraison en cours réservée deux fois")
+	}
+	past := time.Now().Add(-time.Second)
+	if err := store.FinishDelivery(ctx, s.Pool, d.ID, false, "panne", &past); err != nil {
+		t.Fatal(err)
+	}
+	due, err := store.ClaimDueDelivery(ctx, s.Pool, nil)
+	if err != nil || due == nil || due.Attempts != 2 {
+		t.Fatalf("reprise: %+v %v", due, err)
+	}
+	if err := store.FinishDelivery(ctx, s.Pool, due.ID, true, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if done, _ := store.ClaimDelivery(ctx, s.Pool, "d1"); done != nil {
+		t.Fatal("livraison traitée réservée à nouveau")
 	}
 }

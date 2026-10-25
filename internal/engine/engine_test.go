@@ -33,7 +33,9 @@ type fakeHermes struct {
 	creates  int
 	stops    int
 	respond  func(profile string, req hermes.RunRequest) (string, int64)
-	hold     bool // les runs restent "running" (jamais terminés)
+	hold     bool  // les runs restent "running" (jamais terminés)
+	stopErr  error // erreur renvoyée par StopRun
+	stopEnds bool  // un StopRun réussi termine le run (statut "cancelled")
 	sequence int
 }
 
@@ -81,10 +83,17 @@ func (f *fakeHermes) StreamEvents(_ context.Context, _, id string, fn func(herme
 	return nil
 }
 
-func (f *fakeHermes) StopRun(context.Context, string, string) error {
+func (f *fakeHermes) StopRun(_ context.Context, _, id string) error {
 	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.stops++
-	f.mu.Unlock()
+	if f.stopErr != nil {
+		return &hermes.Error{Status: 502, Class: domain.ErrClassProvider, Msg: f.stopErr.Error()}
+	}
+	if st, ok := f.runs[id]; ok && f.stopEnds && !st.Terminal() {
+		st.Status = "cancelled"
+		f.runs[id] = st
+	}
 	return nil
 }
 func (f *fakeHermes) Capabilities(context.Context, string) error       { return nil }
@@ -98,6 +107,7 @@ type fakeGitHub struct {
 	prs       map[string]*gh.PR
 	ci        string
 	merged    bool
+	prErr     error
 }
 
 func (f *fakeGitHub) EnsureIssue(_ context.Context, repo, key, title, body string) (gh.Issue, bool, error) {
@@ -142,6 +152,9 @@ func (f *fakeGitHub) EnsureDraftPR(ctx context.Context, repo, head, base, title,
 func (f *fakeGitHub) GetPR(_ context.Context, _ string, n int) (gh.PR, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.prErr != nil {
+		return gh.PR{}, &gh.Error{Status: 502, Class: domain.ErrClassExternal, Msg: f.prErr.Error()}
+	}
 	for _, pr := range f.prs {
 		if pr.Number == n {
 			out := *pr
@@ -931,4 +944,205 @@ func TestHeartbeatFailuresAbandonJobBeforeLeaseExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect(t, "job après recovery", ev.job(domain.JobPOSpec).Status, domain.JobQueued)
+}
+
+// ------------------------------------------------------------------ arrêt Hermes
+
+// runningPOJob prépare une feature en SPEC avec un run Hermes en cours.
+func (ev *env) runningPOJob() (*store.Feature, *store.Run) {
+	ev.t.Helper()
+	ctx := context.Background()
+	p := ev.project()
+	f, _ := store.CreateFeature(ctx, ev.s.Pool, p.ID, "Arrêt", "")
+	if _, err := ev.e.FeatureAction(ctx, f.ID, "start_spec", "admin"); err != nil {
+		ev.t.Fatal(err)
+	}
+	j, err := store.Dequeue(ctx, ev.s.Pool, "worker-x", time.Minute)
+	if err != nil || j == nil {
+		ev.t.Fatal(err)
+	}
+	r, _ := store.CreateRun(ctx, ev.s.Pool, j.ID, "po", "aos-po")
+	ev.h.mu.Lock()
+	ev.h.runs["run_live"] = hermes.RunStatus{Status: "running"}
+	ev.h.mu.Unlock()
+	if err := store.SetRunHermesID(ctx, ev.s.Pool, r.ID, "run_live"); err != nil {
+		ev.t.Fatal(err)
+	}
+	return f, r
+}
+
+func TestStopRunIsNotPresumedWhenHermesFails(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	f, r := ev.runningPOJob()
+	ev.h.stopErr = errors.New("hermes indisponible")
+	got, err := ev.e.StopRun(ctx, r.ID, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expect(t, "run après échec de l'arrêt", got.Status, domain.RunStopping)
+	if got.StopAttempts != 1 || got.StopError == nil || got.FinishedAt != nil {
+		t.Fatalf("tentative non tracée: %+v", got)
+	}
+	expect(t, "job", ev.job(domain.JobPOSpec).Status, domain.JobCancelled)
+	expect(t, "feature", ev.feature(f.ID).State, string(domain.FeatureBlocked))
+	// Hermes répond mais le run tourne encore : toujours pas confirmé.
+	ev.h.stopErr = nil
+	if err := ev.e.ReconcileStops(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = store.GetRun(ctx, ev.s.Pool, r.ID)
+	expect(t, "run sans confirmation", got.Status, domain.RunStopping)
+	// Hermes confirme l'arrêt.
+	ev.h.stopEnds = true
+	if err := ev.e.ReconcileStops(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = store.GetRun(ctx, ev.s.Pool, r.ID)
+	expect(t, "run confirmé", got.Status, domain.RunStopped)
+	if got.FinishedAt == nil || got.StopAttempts != 3 || got.StopError != nil {
+		t.Fatalf("finalisation: %+v", got)
+	}
+}
+
+func TestStopRunKeepsRealHermesOutcome(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	_, r := ev.runningPOJob()
+	// Le run s'est terminé chez Hermes juste avant l'arrêt : on garde l'issue réelle.
+	ev.h.mu.Lock()
+	ev.h.runs["run_live"] = hermes.RunStatus{Status: "completed", Output: poOK, Completed: true, Usage: hermes.Usage{TotalTokens: 42}}
+	ev.h.mu.Unlock()
+	got, err := ev.e.StopRun(ctx, r.ID, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expect(t, "statut réel", got.Status, domain.RunCompleted)
+	expect(t, "tokens", got.TotalTokens, int64(42))
+	if _, err := ev.e.StopRun(ctx, r.ID, "admin"); err == nil {
+		t.Fatal("arrêt d'un run terminé accepté")
+	}
+}
+
+func TestCancelFeatureLeavesUnconfirmedStopsPending(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	f, r := ev.runningPOJob()
+	ev.h.stopErr = errors.New("timeout")
+	if _, err := ev.e.FeatureAction(ctx, f.ID, "cancel", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetRun(ctx, ev.s.Pool, r.ID)
+	expect(t, "run", got.Status, domain.RunStopping)
+	ev.h.stopErr, ev.h.stopEnds = nil, true
+	_ = ev.e.ReconcileStops(ctx)
+	got, _ = store.GetRun(ctx, ev.s.Pool, r.ID)
+	expect(t, "run après réconciliation", got.Status, domain.RunStopped)
+}
+
+// ------------------------------------------------------------------ webhooks
+
+func mergedPayload(prNumber int) []byte {
+	return []byte(fmt.Sprintf(`{"action":"closed","repository":{"full_name":"o/r"},"pull_request":{"number":%d,"head":{"sha":"x","ref":"y"}}}`, prNumber))
+}
+
+func TestWebhookFailureIsRetriedUntilProcessed(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	f, _ := ev.startToDev()
+	ev.drain()
+	ev.decide(domain.ApprovalPublishPR, "approved", "")
+	ev.drain()
+	expect(t, "ticket", ev.ticket(f.ID).State, string(domain.TicketPROpened))
+	ev.g.merged = true
+	ev.g.prErr = errors.New("GitHub 502")
+	status, _, err := ev.e.ReceiveDelivery(ctx, "del-1", "pull_request", mergedPayload(42))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expect(t, "réponse", status, engine.DeliveryRetry)
+	d, _ := store.GetDelivery(ctx, ev.s.Pool, "del-1")
+	if d.Status != "failed" || d.Attempts != 1 || d.NextAttemptAt == nil || d.LastError == nil {
+		t.Fatalf("livraison: %+v", d)
+	}
+	expect(t, "ticket inchangé", ev.ticket(f.ID).State, string(domain.TicketPROpened))
+	// Encore en panne : nouvelle tentative, toujours en échec.
+	time.Sleep(10 * time.Millisecond)
+	if err := ev.e.RetryDeliveries(ctx); err != nil {
+		t.Fatal(err)
+	}
+	d, _ = store.GetDelivery(ctx, ev.s.Pool, "del-1")
+	expect(t, "tentatives", d.Attempts, 2)
+	// GitHub revient : la reprise traite la livraison et fait évoluer le ticket.
+	ev.g.prErr = nil
+	time.Sleep(10 * time.Millisecond)
+	if err := ev.e.RetryDeliveries(ctx); err != nil {
+		t.Fatal(err)
+	}
+	d, _ = store.GetDelivery(ctx, ev.s.Pool, "del-1")
+	expect(t, "livraison", d.Status, "processed")
+	expect(t, "ticket mergé", ev.ticket(f.ID).State, string(domain.TicketDone))
+	expect(t, "feature", ev.feature(f.ID).State, string(domain.FeatureDone))
+	// Un doublon d'une livraison traitée n'est pas rejoué.
+	status, _, _ = ev.e.ReceiveDelivery(ctx, "del-1", "pull_request", mergedPayload(42))
+	expect(t, "doublon", status, engine.DeliveryDuplicate)
+	d, _ = store.GetDelivery(ctx, ev.s.Pool, "del-1")
+	expect(t, "tentatives après doublon", d.Attempts, 3)
+}
+
+func TestWebhookRedeliveryRetriesImmediatelyAndRetriesAreBounded(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	f, _ := ev.startToDev()
+	ev.drain()
+	ev.decide(domain.ApprovalPublishPR, "approved", "")
+	ev.drain()
+	ev.g.prErr = errors.New("GitHub 502")
+	ev.e.Backoff = time.Hour // pas de reprise automatique pendant le test
+	if status, _, _ := ev.e.ReceiveDelivery(ctx, "del-2", "pull_request", mergedPayload(42)); status != engine.DeliveryRetry {
+		t.Fatalf("1re réception: %s", status)
+	}
+	if err := ev.e.RetryDeliveries(ctx); err != nil {
+		t.Fatal(err)
+	}
+	d, _ := store.GetDelivery(ctx, ev.s.Pool, "del-2")
+	expect(t, "pas encore échue", d.Attempts, 1)
+	// Redélivrance manuelle depuis GitHub (même X-GitHub-Delivery) : retraitée tout de suite.
+	ev.g.prErr, ev.g.merged = nil, true
+	status, _, err := ev.e.ReceiveDelivery(ctx, "del-2", "pull_request", mergedPayload(42))
+	if err != nil || status != engine.DeliveryProcessed {
+		t.Fatalf("redélivrance: %s %v", status, err)
+	}
+	expect(t, "ticket", ev.ticket(f.ID).State, string(domain.TicketDone))
+	// Plafond : après MaxDeliveryAttempts échecs, plus de reprise automatique.
+	ev.g.prErr = errors.New("panne durable")
+	ev.e.Backoff = time.Millisecond
+	if _, err := ev.s.Pool.Exec(ctx, `UPDATE tickets SET state='PR_OPENED', version=version+1, head_sha='x'`); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _ = ev.e.ReceiveDelivery(ctx, "del-3", "check_run", []byte(`{"repository":{"full_name":"o/r"},"check_run":{"head_sha":"x","check_suite":{"head_branch":"y"}}}`))
+	for i := 0; i < engine.MaxDeliveryAttempts+2; i++ {
+		_, _ = ev.s.Pool.Exec(ctx, `UPDATE github_deliveries SET next_attempt_at=now() WHERE delivery_id='del-3' AND next_attempt_at IS NOT NULL`)
+		if err := ev.e.RetryDeliveries(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, _ = store.GetDelivery(ctx, ev.s.Pool, "del-3")
+	if d.Status != "failed" || d.Attempts != engine.MaxDeliveryAttempts || d.NextAttemptAt != nil {
+		t.Fatalf("plafond: %+v", d)
+	}
+}
+
+func TestWebhookInvalidPayloadIsNotRetried(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	status, _, err := ev.e.ReceiveDelivery(ctx, "del-bad", "pull_request", []byte(`{"pull_request":"pas un objet"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expect(t, "statut", status, engine.DeliveryFailed)
+	d, _ := store.GetDelivery(ctx, ev.s.Pool, "del-bad")
+	if d.Status != "failed" || d.NextAttemptAt != nil {
+		t.Fatalf("livraison: %+v", d)
+	}
 }

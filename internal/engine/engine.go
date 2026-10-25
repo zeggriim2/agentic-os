@@ -194,8 +194,10 @@ func (e *Engine) Start(ctx context.Context) {
 			e.workerLoop(ctx, fmt.Sprintf("%s-w%d", e.ownerPrefix, i))
 		}(i)
 	}
-	wg.Add(2)
+	wg.Add(4)
 	go func() { defer wg.Done(); e.every(ctx, 30*time.Second, e.Recover) }()
+	go func() { defer wg.Done(); e.every(ctx, 30*time.Second, e.ReconcileStops) }()
+	go func() { defer wg.Done(); e.every(ctx, 30*time.Second, e.RetryDeliveries) }()
 	go func() { defer wg.Done(); e.every(ctx, 60*time.Second, e.PollPRs) }()
 	wg.Wait()
 }
