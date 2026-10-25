@@ -39,6 +39,7 @@ export const STATE_META: Record<string, StateMeta> = {
   running: { label: "En cours", tone: "progress" },
   completed: { label: "Terminé", tone: "success" },
   failed: { label: "Échec", tone: "danger" },
+  stopping: { label: "Arrêt en cours", tone: "warning" },
   stopped: { label: "Arrêté", tone: "warning" },
   lost: { label: "Perdu", tone: "danger" },
   // Jobs
@@ -113,4 +114,4 @@ export const approvalKindLabel = (k: string) => APPROVAL_KIND_LABELS[k] ?? k;
 
 export const FEATURE_TERMINAL = new Set(["DONE", "CANCELLED"]);
 export const TICKET_TERMINAL = new Set(["DONE", "CANCELLED"]);
-export const RUN_ACTIVE = new Set(["submitted", "running"]);
+export const RUN_ACTIVE = new Set(["submitted", "running", "stopping"]);

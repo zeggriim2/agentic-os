@@ -57,6 +57,13 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if stopping, err := store.ListStoppingRuns(ctx, s.Store.Pool); err == nil {
+		for _, r := range stopping {
+			if r.StopAttempts >= 3 {
+				alerts = append(alerts, map[string]any{"level": "error", "message": "Arrêt du run #" + itoa(r.ID) + " non confirmé par Hermes", "link": "/runs/" + itoa(r.ID)})
+			}
+		}
+	}
 	tickets, err := store.ListTicketsByStates(ctx, s.Store.Pool, []string{"PR_OPENED", "HUMAN_MERGE"})
 	if err == nil {
 		for _, t := range tickets {

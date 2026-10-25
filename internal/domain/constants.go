@@ -42,6 +42,7 @@ const (
 const (
 	RunSubmitted = "submitted"
 	RunRunning   = "running"
+	RunStopping  = "stopping" // arrêt demandé, pas encore confirmé par Hermes
 	RunCompleted = "completed"
 	RunFailed    = "failed"
 	RunStopped   = "stopped"

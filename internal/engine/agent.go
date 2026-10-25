@@ -136,8 +136,10 @@ func (e *Engine) runAgent(ctx context.Context, j *store.Job, role string, subjec
 			}
 		}
 		if time.Now().After(deadline) {
-			_ = e.Hermes.StopRun(context.Background(), profile, hid)
-			_ = store.SetRunStatus(context.Background(), e.Store.Pool, run.ID, domain.RunStopped, "délai maximal du run dépassé")
+			bg := context.Background()
+			if _, err := store.RequestRunStop(bg, e.Store.Pool, run.ID, "délai maximal du run dépassé"); err == nil {
+				_, _ = e.tryStop(bg, run.ID)
+			}
 			return nil, permanent(domain.ErrClassTimeout, "délai maximal du run dépassé")
 		}
 		select {

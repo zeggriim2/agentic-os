@@ -61,7 +61,7 @@ export const TICKET_STATES = [
 ] as const;
 export type TicketState = (typeof TICKET_STATES)[number];
 
-export const RUN_STATUSES = ["submitted", "running", "completed", "failed", "stopped", "lost"] as const;
+export const RUN_STATUSES = ["submitted", "running", "stopping", "completed", "failed", "stopped", "lost"] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
 export type JobStatus = "queued" | "leased" | "succeeded" | "failed" | "cancelled";
@@ -223,6 +223,8 @@ export interface Run extends Timestamps {
   error: string | null;
   started_at: ISODate | null;
   finished_at: ISODate | null;
+  stop_attempts?: number;
+  stop_error?: string | null;
   // Champs de contexte non garantis par le contrat (jointure job → sujet).
   job_kind?: string;
   subject_type?: SubjectType;

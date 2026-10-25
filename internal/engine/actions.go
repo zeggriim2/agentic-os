@@ -28,20 +28,18 @@ type runRef struct {
 	Hermes  string
 }
 
-func (e *Engine) stopRuns(ctx context.Context, runs []runRef, reason string) {
+// stopRuns tente l'arrêt des runs déjà marqués « stopping » ; un échec est retenté par
+// ReconcileStops, jamais présumé réussi.
+func (e *Engine) stopRuns(ctx context.Context, runs []runRef) {
 	for _, r := range runs {
-		if r.Hermes != "" {
-			sctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			if err := e.Hermes.StopRun(sctx, r.Profile, r.Hermes); err != nil {
-				e.Log.Warn("arrêt du run Hermes impossible", "run_id", r.ID, "error", err.Error())
-			}
-			cancel()
+		if _, err := e.tryStop(ctx, r.ID); err != nil {
+			e.Log.Warn("arrêt du run en échec, nouvelle tentative plus tard", "run_id", r.ID, "error", err.Error())
 		}
-		_ = store.SetRunStatus(ctx, e.Store.Pool, r.ID, domain.RunStopped, reason)
-		_ = store.Notify(ctx, e.Store.Pool, "run.updated", r.ID)
 	}
 }
 
+// collectRuns marque « stopping » les runs actifs des sujets (dans la transaction
+// d'annulation) et renvoie ceux à arrêter après commit.
 func collectRuns(ctx context.Context, tx pgx.Tx, subjectType string, ids []int64) ([]runRef, error) {
 	if len(ids) == 0 {
 		return nil, nil
@@ -52,6 +50,9 @@ func collectRuns(ctx context.Context, tx pgx.Tx, subjectType string, ids []int64
 	}
 	out := make([]runRef, 0, len(rs))
 	for _, r := range rs {
+		if err := requestStop(ctx, tx, r.ID, "arrêté (annulation)"); err != nil {
+			return nil, err
+		}
 		out = append(out, runRef{ID: r.ID, Profile: r.HermesProfile, Hermes: str(r.HermesRunID)})
 	}
 	return out, nil
@@ -143,7 +144,7 @@ func (e *Engine) FeatureAction(ctx context.Context, id int64, action, login stri
 	if err != nil {
 		return nil, err
 	}
-	e.stopRuns(ctx, toStop, "arrêté (annulation)")
+	e.stopRuns(ctx, toStop)
 	return store.GetFeature(ctx, e.Store.Pool, id)
 }
 
@@ -204,7 +205,7 @@ func (e *Engine) TicketAction(ctx context.Context, id int64, action, login strin
 	if err != nil {
 		return nil, err
 	}
-	e.stopRuns(ctx, toStop, "arrêté (annulation)")
+	e.stopRuns(ctx, toStop)
 	return store.GetTicket(ctx, e.Store.Pool, id)
 }
 
@@ -218,18 +219,12 @@ func (e *Engine) StopRun(ctx context.Context, runID int64, login string) (*store
 	if domain.RunTerminal(r.Status) {
 		return nil, userErr(409, "run_finished", "le run est déjà terminé")
 	}
-	if r.HermesRunID != nil {
-		sctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		err := e.Hermes.StopRun(sctx, r.HermesProfile, *r.HermesRunID)
-		cancel()
-		if err != nil {
-			return nil, userErr(503, "hermes_unavailable", "Hermes n'a pas pu arrêter le run")
-		}
-	}
 	actor := audit.User(login)
 	var notice string
+	// 1) arrêt demandé, job annulé et sujet bloqué atomiquement ; 2) arrêt envoyé à Hermes et
+	// statut relu. Si Hermes ne confirme pas, le run reste « stopping » et ReconcileStops retente.
 	err = e.Store.InTx(ctx, func(tx pgx.Tx) error {
-		if err := store.SetRunStatus(ctx, tx, r.ID, domain.RunStopped, "arrêté par "+actor); err != nil {
+		if err := requestStop(ctx, tx, r.ID, "arrêté par "+actor); err != nil {
 			return err
 		}
 		j, err := store.GetJob(ctx, tx, r.JobID)
@@ -239,7 +234,7 @@ func (e *Engine) StopRun(ctx context.Context, runID int64, login string) (*store
 		if err := store.CancelJob(ctx, tx, j.ID); err != nil {
 			return err
 		}
-		if err := audit.Write(ctx, tx, audit.Entry{Actor: actor, Action: "run.stopped", SubjectType: j.SubjectType, SubjectID: j.SubjectID,
+		if err := audit.Write(ctx, tx, audit.Entry{Actor: actor, Action: "run.stop_requested", SubjectType: j.SubjectType, SubjectID: j.SubjectID,
 			RunID: &r.ID, After: map[string]any{"run_id": r.ID, "job_id": j.ID}}); err != nil {
 			return err
 		}
@@ -257,6 +252,9 @@ func (e *Engine) StopRun(ctx context.Context, runID int64, login string) (*store
 	}
 	if notice != "" {
 		e.Notifier.Notify(ctx, notice)
+	}
+	if _, err := e.tryStop(ctx, r.ID); err != nil {
+		e.Log.Warn("arrêt du run non confirmé, nouvelle tentative plus tard", "run_id", r.ID, "error", err.Error())
 	}
 	return store.GetRun(ctx, e.Store.Pool, runID)
 }
