@@ -24,9 +24,9 @@ git fetch origin && git switch -c release/1.0.0 origin/develop
 
 - [ ] CI verte (mêmes checks que §1).
 - [ ] Image construite localement : `make docker`, puis `docker run --rm agentic-os:dev version`.
-- [ ] Scan ponctuel des paquets système de l'image (aucun scanner tiers en CI) :
-      `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:<version épinglée> image --severity HIGH,CRITICAL --ignore-unfixed agentic-os:dev`
-      → aucune vulnérabilité HIGH/CRITICAL corrigeable.
+- [ ] Scan ponctuel des paquets de l'image (aucun scanner tiers en CI) :
+      `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock anchore/grype:<version épinglée> agentic-os:dev --only-fixed`
+      → aucune vulnérabilité corrigeable ; les vulnérabilités sans correctif sont listées dans la PR de release.
 - [ ] Exercice de restauration : `make ops-test`, et restauration réelle de la dernière sauvegarde sur
       une instance de test (voir sauvegarde-restauration.md).
 - [ ] Recette manuelle courte sur une instance de test reliée au **vrai Hermes** et à un dépôt
