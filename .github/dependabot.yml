@@ -1,0 +1,25 @@
+version: 2
+# Mises à jour proposées en PR vers develop ; jamais mergées automatiquement.
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    target-branch: develop
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      go-minor-patch: { update-types: [minor, patch] }
+  - package-ecosystem: npm
+    directory: /web
+    target-branch: develop
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch: { update-types: [minor, patch] }
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule: { interval: weekly, day: monday }
+  - package-ecosystem: docker
+    directory: /deploy
+    target-branch: develop
+    schedule: { interval: weekly, day: monday }
