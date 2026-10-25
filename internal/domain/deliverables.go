@@ -8,6 +8,7 @@ import (
 	"io"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -318,6 +319,18 @@ func ParseTechDesign(output string) (*TechDesign, error) {
 		if len(t.AcceptanceCriteria) == 0 {
 			return nil, invalid("tickets[%d].acceptance_criteria ne doit pas être vide", i)
 		}
+		seen := make(map[string]struct{}, len(t.AcceptanceCriteria))
+		for j, criterion := range t.AcceptanceCriteria {
+			criterion = strings.TrimSpace(criterion)
+			if criterion == "" {
+				return nil, invalid("tickets[%d].acceptance_criteria[%d] vide", i, j)
+			}
+			if _, duplicate := seen[criterion]; duplicate {
+				return nil, invalid("tickets[%d].acceptance_criteria[%d] dupliqué", i, j)
+			}
+			seen[criterion] = struct{}{}
+			v.Tickets[i].AcceptanceCriteria[j] = criterion
+		}
 	}
 	for i, d := range v.Decisions {
 		if strings.TrimSpace(d.Decision) == "" {
@@ -385,8 +398,9 @@ func ParseReview(output, expectedSHA string) (*ReviewResult, error) {
 	return &v, nil
 }
 
-// ParseQA extrait et valide le livrable QA (fail-closed).
-func ParseQA(output, expectedSHA string) (*QAResult, error) {
+// ParseQA extrait et valide le livrable QA (fail-closed). Chaque critère
+// persistant doit apparaître exactement une fois dans le livrable.
+func ParseQA(output, expectedSHA string, expectedAcceptance []string) (*QAResult, error) {
 	raw, err := ExtractLastJSON(output)
 	if err != nil {
 		return nil, err
@@ -405,6 +419,19 @@ func ParseQA(output, expectedSHA string) (*QAResult, error) {
 		return nil, err
 	}
 	allOK := true
+	expected := make(map[string]struct{}, len(expectedAcceptance))
+	for i, criterion := range expectedAcceptance {
+		if criterion == "" {
+			return nil, invalid("critère attendu [%d] vide", i)
+		}
+		if _, duplicate := expected[criterion]; duplicate {
+			return nil, invalid("critère attendu dupliqué : %q", criterion)
+		}
+		expected[criterion] = struct{}{}
+	}
+	if len(expected) == 0 {
+		return nil, invalid("aucun critère d'acceptation attendu")
+	}
 	for i, c := range v.Checks {
 		if strings.TrimSpace(c.Command) == "" {
 			return nil, invalid("checks[%d].command vide", i)
@@ -413,7 +440,16 @@ func ParseQA(output, expectedSHA string) (*QAResult, error) {
 			allOK = false
 		}
 	}
+	seen := make(map[string]struct{}, len(v.Acceptance))
 	for i, a := range v.Acceptance {
+		criterion := a.Criterion
+		if _, ok := expected[criterion]; !ok {
+			return nil, invalid("acceptance[%d].criterion %q inattendu", i, a.Criterion)
+		}
+		if _, duplicate := seen[criterion]; duplicate {
+			return nil, invalid("acceptance[%d].criterion %q dupliqué", i, a.Criterion)
+		}
+		seen[criterion] = struct{}{}
 		if a.Status != "met" && a.Status != "not_met" {
 			return nil, invalid("acceptance[%d].status %q hors allowlist", i, a.Status)
 		}
@@ -423,6 +459,16 @@ func ParseQA(output, expectedSHA string) (*QAResult, error) {
 		if a.Status == "met" && strings.TrimSpace(a.Evidence) == "" {
 			return nil, invalid("acceptance[%d] : preuve manquante", i)
 		}
+	}
+	if len(seen) != len(expected) {
+		missing := make([]string, 0, len(expected)-len(seen))
+		for criterion := range expected {
+			if _, ok := seen[criterion]; !ok {
+				missing = append(missing, criterion)
+			}
+		}
+		slices.Sort(missing)
+		return nil, invalid("critères d'acceptation manquants : %s", strings.Join(missing, ", "))
 	}
 	if v.Verdict == "passed" {
 		if len(v.Checks) == 0 || len(v.Acceptance) == 0 {

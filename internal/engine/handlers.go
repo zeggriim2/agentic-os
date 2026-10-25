@@ -26,7 +26,7 @@ func payloadOf(j *store.Job) jobPayload {
 }
 
 func (e *Engine) handle(ctx context.Context, j *store.Job, owner string) error {
-	if j.Kind != domain.JobSyncAgents {
+	if j.Kind != domain.JobSyncAgents && j.Kind != domain.JobExecuteApproval {
 		p, err := e.projectFor(ctx, e.Store.Pool, j)
 		if err != nil {
 			return err
@@ -50,6 +50,8 @@ func (e *Engine) handle(ctx context.Context, j *store.Job, owner string) error {
 		return e.handleQA(ctx, j, owner)
 	case domain.JobPublishPR:
 		return e.handlePublishPR(ctx, j, owner)
+	case domain.JobExecuteApproval:
+		return e.handleExecuteApproval(ctx, j, owner)
 	case domain.JobSyncAgents:
 		return e.handleSyncAgents(ctx, j, owner)
 	}
@@ -166,7 +168,7 @@ func (e *Engine) handleTechDesign(ctx context.Context, j *store.Job, owner strin
 		_, err = e.createApproval(ctx, tx, store.NewApproval{Kind: domain.ApprovalDesignReview, SubjectType: "feature", SubjectID: f.ID,
 			Title:   "Conception : " + f.Title,
 			Effect:  fmt.Sprintf("Créer %d issues sur %s (marqueur agentic-os, aucune autre écriture).", len(design.Tickets), p.Repository),
-			Details: map[string]any{"design": design, "tickets": titles, "repository": p.Repository, "run_id": o.Run.ID}})
+			Details: withProjectSnapshot(p, map[string]any{"design": design, "tickets": titles, "run_id": o.Run.ID})})
 		notice = fmt.Sprintf("🧭 Conception prête pour « %s » : approbation requise.", f.Title)
 		return err
 	})
@@ -262,7 +264,7 @@ func (e *Engine) handleOpenIssues(ctx context.Context, j *store.Job, owner strin
 			Title: "Feu vert développement : " + f.Title,
 			Effect: fmt.Sprintf("Autoriser le développement autonome de %d ticket(s) sur %s : branches aos/<ticket>, commits et push par Agentic OS, sans PR ni merge.",
 				len(tickets), p.Repository),
-			Details: map[string]any{"tickets": issues, "repository": p.Repository}})
+			Details: withProjectSnapshot(p, map[string]any{"tickets": issues})})
 		notice = fmt.Sprintf("🚦 Issues créées pour « %s » : feu vert développement requis.", f.Title)
 		return err
 	})
@@ -563,12 +565,16 @@ func (e *Engine) handleQA(ctx context.Context, j *store.Job, owner string) error
 	if err != nil {
 		return err
 	}
+	var expectedAcceptance []string
+	if err := json.Unmarshal(t.Acceptance, &expectedAcceptance); err != nil || len(expectedAcceptance) == 0 {
+		return permanent(domain.ErrClassInternal, "critères d'acceptation du ticket absents ou illisibles")
+	}
 	instr, input := qaPrompt(p, t, wt, sha)
 	o, err := e.runAgent(ctx, j, domain.RoleQA, t.Attempt, hermes.RunRequest{Input: input, Instructions: instr})
 	if err != nil {
 		return err
 	}
-	art, err := e.evaluate(ctx, o, func(s string) (any, error) { return domain.ParseQA(s, sha) })
+	art, err := e.evaluate(ctx, o, func(s string) (any, error) { return domain.ParseQA(s, sha, expectedAcceptance) })
 	if err != nil {
 		return err
 	}
@@ -594,7 +600,7 @@ func (e *Engine) handleQA(ctx context.Context, j *store.Job, owner string) error
 				Title: "Publier la PR : " + t.Title,
 				Effect: fmt.Sprintf("Créer une PR draft sur %s de %s vers %s au SHA %s (aucun merge, aucun déploiement).",
 					p.Repository, str(lt.Branch), p.BaseBranch, short(sha)),
-				Details: map[string]any{"repository": p.Repository, "head": str(lt.Branch), "base": p.BaseBranch, "sha": sha, "qa": qa}})
+				Details: withProjectSnapshot(p, map[string]any{"head": str(lt.Branch), "sha": sha, "qa": qa})})
 			return err
 		}
 		if _, err := e.ticketEvent(ctx, tx, lt, domain.TicketEvQAFailed, audit.Agent(domain.RoleQA), qa.Summary); err != nil {
@@ -707,7 +713,7 @@ func (e *Engine) handlePublishPR(ctx context.Context, j *store.Job, owner string
 	if err != nil {
 		return err
 	}
-	if pr.Head.SHA != sha || pr.Base.Ref != p.BaseBranch || (created && !pr.Draft) || pr.Number <= 0 {
+	if pr.Head.SHA != sha || pr.Base.Ref != p.BaseBranch || pr.State != "open" || !pr.Draft || pr.Number <= 0 {
 		return permanent(domain.ErrClassPolicy, "relecture de la PR incohérente (head/base/draft)")
 	}
 	err = e.finish(ctx, j, owner, func(tx pgx.Tx) error {

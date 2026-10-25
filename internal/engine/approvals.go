@@ -2,8 +2,10 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -26,8 +28,8 @@ func userErr(status int, code, format string, a ...any) error {
 	return &UserError{Status: status, Code: code, Message: fmt.Sprintf(format, a...)}
 }
 
-// DecideApproval enregistre la décision (transaction 1) puis exécute son effet (transaction 2).
-// Une décision répétée renvoie store.ErrAlreadyDecided.
+// DecideApproval enregistre la décision et programme son exécution durable dans
+// la même transaction. Une décision répétée renvoie store.ErrAlreadyDecided.
 func (e *Engine) DecideApproval(ctx context.Context, id int64, decision, comment, login string) (*store.Approval, error) {
 	e.Init()
 	if decision != domain.ApprovalApproved && decision != domain.ApprovalRejected {
@@ -48,8 +50,13 @@ func (e *Engine) DecideApproval(ctx context.Context, id int64, decision, comment
 		if err != nil {
 			return err
 		}
+		job, err := e.enqueue(ctx, tx, store.NewJob{Kind: domain.JobExecuteApproval, SubjectType: "approval", SubjectID: ap.ID,
+			IdempotencyKey: jobKey(domain.JobExecuteApproval, "approval", ap.ID, "decision")})
+		if err != nil {
+			return err
+		}
 		if err := audit.Write(ctx, tx, audit.Entry{Actor: actor, Action: "approval." + decision, SubjectType: ap.SubjectType, SubjectID: ap.SubjectID,
-			After: map[string]any{"approval_id": ap.ID, "kind": ap.Kind, "comment": comment}}); err != nil {
+			After: map[string]any{"approval_id": ap.ID, "kind": ap.Kind, "comment": comment, "execution_job_id": job.ID}}); err != nil {
 			return err
 		}
 		return store.Notify(ctx, tx, "approval.updated", ap.ID)
@@ -57,12 +64,48 @@ func (e *Engine) DecideApproval(ctx context.Context, id int64, decision, comment
 	if err != nil {
 		return nil, err
 	}
-	var result map[string]any
-	var ok bool
+	return store.GetApproval(ctx, e.Store.Pool, ap.ID)
+}
+
+// handleExecuteApproval applique une décision depuis la file durable. Le verrou
+// sur l'approbation rend l'effet idempotent même si le job est repris.
+func (e *Engine) handleExecuteApproval(ctx context.Context, j *store.Job, owner string) error {
 	var notices []string
-	execErr := e.Store.InTx(ctx, func(tx pgx.Tx) error {
-		var err error
-		result, ok, notices, err = e.executeApproval(ctx, tx, ap, actor)
+	err := e.finish(ctx, j, owner, func(tx pgx.Tx) error {
+		current, err := store.GetApproval(ctx, tx, j.SubjectID)
+		if err != nil {
+			return err
+		}
+		// Toujours verrouiller le sujet avant l'approbation. Les actions
+		// d'annulation prennent les verrous dans le même ordre, ce qui évite
+		// une inversion feature/ticket -> approval.
+		switch current.SubjectType {
+		case "feature":
+			if _, err := store.LockFeature(ctx, tx, current.SubjectID); err != nil {
+				return err
+			}
+		case "ticket":
+			if _, err := store.LockTicket(ctx, tx, current.SubjectID); err != nil {
+				return err
+			}
+		default:
+			return permanent(domain.ErrClassPolicy, "type de sujet d'approbation inconnu %q", current.SubjectType)
+		}
+		ap, err := store.LockApproval(ctx, tx, j.SubjectID)
+		if err != nil {
+			return err
+		}
+		if ap.Status == domain.ApprovalExecuted || ap.Status == domain.ApprovalExecutionFailed {
+			return nil
+		}
+		if ap.Status != domain.ApprovalApproved && ap.Status != domain.ApprovalRejected {
+			return permanent(domain.ErrClassPolicy, "approbation %d non décidée (statut %s)", ap.ID, ap.Status)
+		}
+		actor := str(ap.DecidedBy)
+		if actor == "" {
+			actor = audit.System
+		}
+		result, ok, ns, err := e.executeApproval(ctx, tx, ap, actor)
 		if err != nil {
 			return err
 		}
@@ -73,26 +116,15 @@ func (e *Engine) DecideApproval(ctx context.Context, id int64, decision, comment
 			After: map[string]any{"approval_id": ap.ID, "ok": ok, "result": result}}); err != nil {
 			return err
 		}
+		notices = ns
 		return store.Notify(ctx, tx, "approval.updated", ap.ID)
 	})
-	if execErr != nil {
-		e.Log.Warn("exécution d'approbation en échec", "approval_id", ap.ID, "error", execErr.Error())
-		_ = e.Store.InTx(ctx, func(tx pgx.Tx) error {
-			res := map[string]any{"error": truncate(execErr.Error(), 500)}
-			if err := store.MarkApprovalExecuted(ctx, tx, ap.ID, false, res); err != nil {
-				return err
-			}
-			if err := audit.Write(ctx, tx, audit.Entry{Actor: audit.System, Action: "approval.execution_failed", SubjectType: ap.SubjectType,
-				SubjectID: ap.SubjectID, After: map[string]any{"approval_id": ap.ID, "error": res["error"]}}); err != nil {
-				return err
-			}
-			return store.Notify(ctx, tx, "approval.updated", ap.ID)
-		})
+	if err == nil {
+		for _, notice := range notices {
+			e.Notifier.Notify(ctx, notice)
+		}
 	}
-	for _, n := range notices {
-		e.Notifier.Notify(ctx, n)
-	}
-	return store.GetApproval(ctx, e.Store.Pool, ap.ID)
+	return err
 }
 
 func (e *Engine) executeApproval(ctx context.Context, tx pgx.Tx, ap *store.Approval, actor string) (map[string]any, bool, []string, error) {
@@ -128,11 +160,17 @@ func (e *Engine) executeApproval(ctx context.Context, tx pgx.Tx, ap *store.Appro
 			}
 			return next(domain.FeatureEvSpecRejected, domain.JobPOSpec, comment)
 		case domain.ApprovalDesignReview:
+			if err := verifyApprovedProject(ap, p); err != nil {
+				return nil, false, nil, err
+			}
 			if approved {
 				return next(domain.FeatureEvDesignApproved, domain.JobOpenIssues, "")
 			}
 			return next(domain.FeatureEvDesignRejected, domain.JobTechDesign, comment)
 		case domain.ApprovalDevGate:
+			if err := verifyApprovedProject(ap, p); err != nil {
+				return nil, false, nil, err
+			}
 			tickets, err := store.ListTicketsByFeature(ctx, tx, f.ID)
 			if err != nil {
 				return nil, false, nil, err
@@ -230,6 +268,13 @@ func (e *Engine) executeApproval(ctx context.Context, tx pgx.Tx, ap *store.Appro
 			if want := detailString(ap, "sha"); want == "" || want != str(t.HeadSHA) {
 				return nil, false, nil, errors.New("le SHA approuvé ne correspond plus au head_sha du ticket")
 			}
+			p, err := store.GetProject(ctx, tx, t.ProjectID)
+			if err != nil {
+				return nil, false, nil, err
+			}
+			if err := verifyApprovedProject(ap, p); err != nil {
+				return nil, false, nil, err
+			}
 			nt, err := e.ticketEvent(ctx, tx, t, domain.TicketEvPRApproved, actor, comment)
 			if err != nil {
 				return nil, false, nil, err
@@ -243,6 +288,28 @@ func (e *Engine) executeApproval(ctx context.Context, tx pgx.Tx, ap *store.Appro
 		}
 	}
 	return nil, false, nil, fmt.Errorf("approbation %s/%s non prise en charge", ap.SubjectType, ap.Kind)
+}
+
+type approvedProjectSnapshot struct {
+	ProjectID      int64    `json:"project_id"`
+	Repository     string   `json:"repository"`
+	BaseBranch     string   `json:"base_branch"`
+	RequiredChecks []string `json:"required_checks"`
+}
+
+func verifyApprovedProject(ap *store.Approval, p *store.Project) error {
+	var snapshot approvedProjectSnapshot
+	if err := json.Unmarshal(ap.Details, &snapshot); err != nil {
+		return permanent(domain.ErrClassPolicy, "snapshot projet de l'approbation %d illisible", ap.ID)
+	}
+	if snapshot.ProjectID == 0 || snapshot.Repository == "" || snapshot.BaseBranch == "" {
+		return permanent(domain.ErrClassPolicy, "snapshot projet absent de l'approbation %d", ap.ID)
+	}
+	if snapshot.ProjectID != p.ID || snapshot.Repository != p.Repository || snapshot.BaseBranch != p.BaseBranch ||
+		!slices.Equal(snapshot.RequiredChecks, p.RequiredChecks) {
+		return permanent(domain.ErrClassPolicy, "le projet a changé depuis l'approbation %d ; une nouvelle validation humaine est requise", ap.ID)
+	}
+	return nil
 }
 
 func detailString(ap *store.Approval, key string) string {

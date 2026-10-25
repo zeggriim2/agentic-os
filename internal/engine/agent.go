@@ -81,7 +81,7 @@ func (e *Engine) runAgent(ctx context.Context, j *store.Job, role string, subjec
 				return nil
 			}
 			if ins, err := store.InsertRunEvent(sctx, e.Store.Pool, run.ID, ev.Seq, ev.Event, ev.Raw); err == nil && ins {
-				_ = store.Notify(sctx, e.Store.Pool, "run.event", run.ID)
+				_ = store.NotifyRunEvent(sctx, e.Store.Pool, run.ID, ev.Seq)
 			}
 			return nil
 		})

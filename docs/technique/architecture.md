@@ -163,7 +163,8 @@ Règles fail-closed :
   rattache au run existant (poll du statut). La clé d'idempotence Hermes = `aos-job-<job_id>-a<attempt du sujet>`.
 - `dispatch_paused` (settings) : aucune nouvelle prise de job ; les runs en cours continuent.
 - Stop d'un run : `POST /p/<profil>/v1/runs/<id>/stop`, job `cancelled`, sujet BLOCKED (raison « arrêté »).
-- Kinds : `po_spec`, `tech_design`, `open_issues`, `develop`, `review`, `qa`, `publish_pr`, `sync_agents`.
+- Kinds : `po_spec`, `tech_design`, `open_issues`, `develop`, `review`, `qa`, `publish_pr`,
+  `execute_approval`, `sync_agents`.
 - Un seul job `develop|review|qa` actif par projet (sérialisation simple V1).
 
 ## 7. Contrat Hermes (vérifié en live sur v0.21.5)
@@ -237,11 +238,11 @@ Dates : ISO-8601 UTC ; l'UI formate en Europe/Paris.
 | POST | `/api/runs/{id}/stop` | arrêt |
 | GET | `/api/approvals` | `?status=pending` |
 | GET | `/api/approvals/{id}` | détail (title, effect, details) |
-| POST | `/api/approvals/{id}/decision` | `{"decision":"approved|rejected","comment":str}` (comment requis si rejected) ; 409 si déjà décidée |
+| POST | `/api/approvals/{id}/decision` | `{"decision":"approved|rejected","comment":str}` (comment requis si rejected) ; décision et job durable `execute_approval` créés atomiquement ; 409 si déjà décidée |
 | GET | `/api/audit` | `?subject_type=&subject_id=&actor=` |
 | GET | `/api/system/health` | `{database, hermes, github, telegram, profiles:[{profile,status}], workers, schema_version, version, revision}` |
 | POST | `/api/system/dispatch` | `{"paused":bool}` |
-| GET | `/api/events` | SSE : `event: <type>\ndata: {json}` types `job.updated`, `run.updated`, `run.event`, `approval.updated`, `feature.updated`, `ticket.updated`, `overview.invalidate` ; heartbeat `: ping` toutes les 15 s |
+| GET | `/api/events` | SSE : `event: <type>\ndata: {json}` types `job.updated`, `run.updated`, `run.event`, `approval.updated`, `feature.updated`, `ticket.updated`, `overview.invalidate` ; heartbeat `: ping` toutes les 15 s. Payload `{id}` sauf `run.event` : `{id, run_id, seq, event, data, created_at}` (même forme que `events[]` de `GET /api/runs/{id}`) |
 | GET | `/healthz` | 200 si le process vit (sans auth) |
 | GET | `/readyz` | 200 si DB ok et migrations à jour (sans auth) |
 | POST | `/webhooks/github` | HMAC, sans session |
@@ -291,6 +292,20 @@ contredire.
 `jobs.project_id` (sérialisation develop|review|qa par index unique partiel), `approvals.decision`
 (décision conservée après exécution) ; `jobs.subject_type` accepte `system` (sync_agents).
 Agents initialisés avec les profils `aos-po`, `aos-tech-lead`, `aos-developer`, `aos-reviewer`, `aos-qa`.
+
+**Approbations** : la décision humaine et le job `execute_approval` sont persistés dans la même transaction.
+Le worker verrouille le sujet puis l'approbation, applique l'effet de façon idempotente et renseigne
+`executed|execution_failed`. Les approbations de design, de mise en développement et de publication figent
+`project_id`, dépôt, branche de base et checks requis ; toute divergence refuse l'effet. L'API refuse aussi de
+modifier ces champs tant qu'une feature du projet est non terminale. Une annulation expire les approbations
+encore actionnables et annule leurs jobs d'exécution.
+
+**SSE `run.event`** : le NOTIFY PostgreSQL ne transporte que `run_id`/`seq` (limite 8000 octets) ; l'écouteur relit la
+ligne `run_events` persistée avant diffusion. Après une reconnexion, l'UI recharge le détail et déduplique par `seq`.
+
+**QA** : le livrable doit contenir chaque critère d'acceptation persistant exactement une fois ; critères omis,
+inventés ou dupliqués sont refusés. Une PR réutilisée doit rester ouverte et draft, pas seulement une PR créée
+pendant le job courant.
 
 **Git** : copie bare `<root>/<slug>/_repo.git` ; worktree de dev `<root>/<slug>/<key>` sur la branche
 `aos/<key>` ; reviewer/QA en worktrees détachés `<key>-review`, `<key>-qa`. Toutes les commandes git

@@ -300,8 +300,8 @@ func (c *Client) EnsureDraftPR(ctx context.Context, repo, head, base, title, bod
 	if err != nil {
 		return PR{}, created, err
 	}
-	if back.Number != number || back.Head.Ref != head || back.Base.Ref != base {
-		return PR{}, created, &Error{Class: domain.ErrClassExternal, Msg: "relecture de la PR incohérente"}
+	if back.Number != number || back.Head.Ref != head || back.Base.Ref != base || back.State != "open" || !back.Draft {
+		return PR{}, created, &Error{Class: domain.ErrClassPolicy, Msg: "la PR relue doit être ouverte, draft et correspondre exactement aux branches approuvées"}
 	}
 	return back, created, nil
 }

@@ -2,8 +2,10 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/zeggriim2/agentic-os/internal/audit"
 	"github.com/zeggriim2/agentic-os/internal/store"
 	"github.com/zeggriim2/agentic-os/internal/testutil/pgtest"
+	"github.com/zeggriim2/agentic-os/migrations"
 )
 
 func mkProject(t *testing.T, s *store.Store, slug string) *store.Project {
@@ -52,6 +55,52 @@ func TestMigrationsIdempotent(t *testing.T) {
 	agents, err := store.ListAgents(ctx, s.Pool)
 	if err != nil || len(agents) != 5 {
 		t.Fatalf("agents: %d %v", len(agents), err)
+	}
+}
+
+func TestApprovalMigrationRequiresFreshHumanDecision(t *testing.T) {
+	s := pgtest.New(t)
+	ctx := context.Background()
+	p := mkProject(t, s, "upgrade")
+	f, err := store.CreateFeature(ctx, s.Pool, p.ID, "Upgrade", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetFeatureDesign(ctx, s.Pool, f.ID, map[string]any{"tickets": []map[string]any{{"title": "T"}}}); err != nil {
+		t.Fatal(err)
+	}
+	ap, _, err := store.CreateApproval(ctx, s.Pool, store.NewApproval{Kind: "design_review", SubjectType: "feature", SubjectID: f.ID,
+		Title: "Ancienne conception", Effect: "Ancien effet", Details: map[string]any{"legacy": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DecideApproval(ctx, s.Pool, ap.ID, "approved", "user:admin", "ancienne décision"); err != nil {
+		t.Fatal(err)
+	}
+	sql, err := migrations.FS.ReadFile("0002_durable_approval_execution.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Pool.Exec(ctx, string(sql)); err != nil {
+		t.Fatal(err)
+	}
+	ap, err = store.GetApproval(ctx, s.Pool, ap.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ap.Status != "pending" || ap.Decision != nil || ap.DecidedBy != nil || ap.DecidedAt != nil {
+		t.Fatalf("une nouvelle décision humaine doit être requise: %+v", ap)
+	}
+	var details map[string]any
+	if err := json.Unmarshal(ap.Details, &details); err != nil {
+		t.Fatal(err)
+	}
+	if details["repository"] != p.Repository || details["base_branch"] != p.BaseBranch || !strings.Contains(ap.Effect, p.Repository) {
+		t.Fatalf("snapshot migré incohérent: details=%s effect=%s", ap.Details, ap.Effect)
+	}
+	jobs, err := store.ListActiveJobs(ctx, s.Pool)
+	if err != nil || len(jobs) != 0 {
+		t.Fatalf("ancienne décision exécutée silencieusement: %+v err=%v", jobs, err)
 	}
 }
 
