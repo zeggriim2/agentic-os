@@ -1,0 +1,70 @@
+name: release
+
+# Publication d'une version : déclenchée par un tag annoté vX.Y.Z posé sur main (GitFlow).
+# Construit l'image, la publie sur GHCR (tag de version + digest), crée la release GitHub avec la
+# section correspondante du CHANGELOG. Ne déploie rien : le déploiement reste manuel (upgrade.sh).
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write   # release GitHub
+      packages: write   # ghcr.io
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: tag annoté, SemVer, sur main
+        id: v
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          git fetch --tags --force origin   # garde l'objet tag annoté (checkout peut l'aplatir)
+          [ "$(git cat-file -t "$tag")" = tag ] || { echo "::error::$tag n'est pas un tag annoté"; exit 1; }
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$tag n'est pas sur main"; exit 1; }
+          version="${tag#v}"
+          grep -q "^## \[$version\]" CHANGELOG.md || { echo "::error::section [$version] absente du CHANGELOG"; exit 1; }
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "revision=$(git rev-parse --short HEAD)" >>"$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: image
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: true
+          provenance: mode=max
+          sbom: true
+          build-args: |
+            VERSION=${{ steps.v.outputs.version }}
+            REVISION=${{ steps.v.outputs.revision }}
+          tags: ghcr.io/${{ github.repository }}:${{ steps.v.outputs.version }}
+
+      - name: release GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.v.outputs.version }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" {p=1; next} /^## \[/ {p=0} p' CHANGELOG.md >notes.md
+          printf '\n---\nImage : `ghcr.io/%s:%s`\nDigest : `%s`\n' "$GITHUB_REPOSITORY" "$VERSION" "$DIGEST" >>notes.md
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "Agentic OS $VERSION" --notes-file notes.md
