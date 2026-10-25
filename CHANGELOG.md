@@ -2,7 +2,7 @@
 
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [SemVer](https://semver.org/lang/fr/).
 
-## [Non publié] — 1.0.0
+## [1.0.0] — 2026-10-25
 
 Première version publiée. Le périmètre est figé dans `docs/produit/fonctionnalites.md` et le contrat
 dans `docs/technique/architecture.md`.
@@ -19,7 +19,7 @@ dans `docs/technique/architecture.md`.
 - Webhooks GitHub signés (HMAC), conservés et retraités en cas d'échec ; poller de secours (#3).
 - Notifications Telegram ; `agentic-os doctor` ; déploiement Docker Compose mono-hôte.
 - Sauvegarde vérifiée, restauration, mise à jour et retour arrière scriptés et testés (#6).
-- Tests de bout en bout navigateur, responsive et accessibilité (PR e2e).
+- Tests de bout en bout navigateur, responsive et accessibilité (#9).
 - Workflow `security` (govulncheck, npm audit) et Dependabot (#5).
 - Guide d'utilisation et runbook d'exploitation (#7).
 
@@ -35,3 +35,6 @@ dans `docs/technique/architecture.md`.
 ### Corrigé
 - Validations identiques entre l'interface et l'API (fixture partagée) ; listes paginées sans
   troncature silencieuse ; faux `DRIFT_DETECTED` sans modèle souhaité (#4).
+- Défauts trouvés par la suite e2e : interface encore affichée après déconnexion, rejet exécuté
+  présenté comme « Exécutée », défilement horizontal mobile, contrastes en thème clair, zones
+  défilantes inaccessibles au clavier, livrable d'un run terminé non affiché sans rechargement (#9).
