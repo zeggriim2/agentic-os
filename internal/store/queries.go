@@ -508,7 +508,10 @@ func LatestRunForJob(ctx context.Context, q Q, jobID int64) (*Run, error) {
 
 // SetRunHermesID rattache l'identifiant Hermes.
 func SetRunHermesID(ctx context.Context, q Q, id int64, hermesID string) error {
-	_, err := q.Exec(ctx, `UPDATE runs SET hermes_run_id=$2, status='running', updated_at=now() WHERE id=$1`, id, hermesID)
+	// Un arrêt demandé entre-temps est conservé : le run sera arrêté par la réconciliation.
+	_, err := q.Exec(ctx, `UPDATE runs SET hermes_run_id=$2,
+		status = CASE status WHEN 'submitted' THEN 'running' WHEN 'stopped' THEN 'stopping' ELSE status END,
+		updated_at=now() WHERE id=$1`, id, hermesID)
 	return err
 }
 
@@ -544,6 +547,29 @@ func FinishRun(ctx context.Context, q Q, id int64, r RunResult) error {
 	return err
 }
 
+// RequestRunStop passe un run actif en « stopping » (idempotent). false si le run est déjà terminé.
+func RequestRunStop(ctx context.Context, q Q, id int64, reason string) (bool, error) {
+	tag, err := q.Exec(ctx, `UPDATE runs SET status='stopping', stop_requested_at=COALESCE(stop_requested_at, now()),
+		error=COALESCE(NULLIF($2,''), error), updated_at=now()
+		WHERE id=$1 AND status IN ('submitted','running','stopping')`, id, truncate(reason, 500))
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// RecordStopAttempt compte une tentative d'arrêt et son erreur éventuelle.
+func RecordStopAttempt(ctx context.Context, q Q, id int64, errMsg string) error {
+	_, err := q.Exec(ctx, `UPDATE runs SET stop_attempts=stop_attempts+1, stop_error=NULLIF($2,''), updated_at=now() WHERE id=$1`,
+		id, truncate(errMsg, 500))
+	return err
+}
+
+// ListStoppingRuns liste les runs dont l'arrêt n'est pas encore confirmé.
+func ListStoppingRuns(ctx context.Context, q Q) ([]Run, error) {
+	return many[Run](ctx, q, `SELECT `+runCols+` FROM runs WHERE status='stopping' ORDER BY id LIMIT 200`)
+}
+
 // SetRunStatus change uniquement le statut (stop/lost).
 func SetRunStatus(ctx context.Context, q Q, id int64, status, errMsg string) error {
 	_, err := q.Exec(ctx, `UPDATE runs SET status=$2, error=COALESCE(NULLIF($3,''), error),
@@ -574,7 +600,7 @@ func ListRunsForSubject(ctx context.Context, q Q, subjectType string, id int64) 
 // ListActiveRunsForSubjects liste les runs non terminés pour des sujets.
 func ListActiveRunsForSubjects(ctx context.Context, q Q, subjectType string, ids []int64) ([]Run, error) {
 	return many[Run](ctx, q, `SELECT `+prefixed("r", runCols)+` FROM runs r JOIN jobs j ON j.id=r.job_id
-		WHERE j.subject_type=$1 AND j.subject_id = ANY($2) AND r.status IN ('submitted','running')`, subjectType, ids)
+		WHERE j.subject_type=$1 AND j.subject_id = ANY($2) AND r.status IN ('submitted','running','stopping')`, subjectType, ids)
 }
 
 // InsertRunEvent persiste un événement (ignoré si déjà présent).
@@ -726,19 +752,64 @@ func ListAuditForSubjects(ctx context.Context, q Q, featureID int64, ticketIDs [
 
 // ================================================================== deliveries
 
-// RecordDelivery enregistre une livraison webhook ; false si déjà reçue.
-func RecordDelivery(ctx context.Context, q Q, deliveryID, event string) (bool, error) {
-	tag, err := q.Exec(ctx, `INSERT INTO github_deliveries (delivery_id, event) VALUES ($1,$2) ON CONFLICT (delivery_id) DO NOTHING`, deliveryID, event)
+// InsertDelivery enregistre une livraison (corps vérifié par HMAC) ; false si elle existait déjà.
+func InsertDelivery(ctx context.Context, q Q, deliveryID, event string, payload []byte) (bool, error) {
+	tag, err := q.Exec(ctx, `INSERT INTO github_deliveries (delivery_id, event, payload) VALUES ($1,$2,$3)
+		ON CONFLICT (delivery_id) DO NOTHING`, deliveryID, event, payload)
 	if err != nil {
 		return false, err
 	}
 	return tag.RowsAffected() == 1, nil
 }
 
-// MarkDeliveryProcessed marque une livraison traitée.
-func MarkDeliveryProcessed(ctx context.Context, q Q, deliveryID string) error {
-	_, err := q.Exec(ctx, `UPDATE github_deliveries SET processed=true, updated_at=now() WHERE delivery_id=$1`, deliveryID)
+// deliveryStale : une livraison « processing » plus ancienne est considérée abandonnée (crash).
+const deliveryStale = `(status='processing' AND claimed_at < now() - interval '5 minutes')`
+
+// ClaimDelivery réserve une livraison précise (première réception ou redélivrance GitHub
+// d'une livraison non traitée). nil si elle est déjà traitée ou en cours.
+func ClaimDelivery(ctx context.Context, q Q, deliveryID string) (*Delivery, error) {
+	d, err := one[Delivery](ctx, q, `UPDATE github_deliveries SET status='processing', attempts=attempts+1, claimed_at=now(), updated_at=now()
+		WHERE delivery_id=$1 AND payload IS NOT NULL AND (status IN ('received','failed') OR `+deliveryStale+`)
+		RETURNING `+deliveryCols, deliveryID)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	return d, err
+}
+
+// ClaimDueDelivery réserve la prochaine livraison à retraiter (échec dont l'échéance est
+// passée, ou traitement abandonné), hors des ids déjà traités dans la passe. nil si aucune.
+func ClaimDueDelivery(ctx context.Context, q Q, exclude []int64) (*Delivery, error) {
+	if exclude == nil {
+		exclude = []int64{}
+	}
+	d, err := one[Delivery](ctx, q, `UPDATE github_deliveries SET status='processing', attempts=attempts+1, claimed_at=now(), updated_at=now()
+		WHERE id = (SELECT id FROM github_deliveries WHERE payload IS NOT NULL
+			AND ((status='failed' AND next_attempt_at <= now()) OR `+deliveryStale+`)
+			AND id <> ALL($1)
+			ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1)
+		RETURNING `+deliveryCols, exclude)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	return d, err
+}
+
+// FinishDelivery termine le traitement : processed, ou failed avec prochaine échéance
+// (nil = plus de reprise automatique ; une redélivrance GitHub reste possible).
+func FinishDelivery(ctx context.Context, q Q, id int64, ok bool, errMsg string, next *time.Time) error {
+	status := "processed"
+	if !ok {
+		status = "failed"
+	}
+	_, err := q.Exec(ctx, `UPDATE github_deliveries SET status=$2, processed=$3, last_error=NULLIF($4,''), next_attempt_at=$5,
+		claimed_at=NULL, updated_at=now() WHERE id=$1`, id, status, ok, truncate(errMsg, 1000), next)
 	return err
+}
+
+// GetDelivery lit une livraison.
+func GetDelivery(ctx context.Context, q Q, deliveryID string) (*Delivery, error) {
+	return one[Delivery](ctx, q, `SELECT `+deliveryCols+` FROM github_deliveries WHERE delivery_id=$1`, deliveryID)
 }
 
 // ================================================================== settings
@@ -807,7 +878,7 @@ func GetOverview(ctx context.Context, q Q) (*Overview, error) {
 		(SELECT count(*) FROM approvals WHERE status='pending'),
 		(SELECT count(*) FROM features WHERE state='BLOCKED'),
 		(SELECT count(*) FROM tickets WHERE state='BLOCKED'),
-		(SELECT count(*) FROM runs WHERE status IN ('submitted','running')),
+		(SELECT count(*) FROM runs WHERE status IN ('submitted','running','stopping')),
 		(SELECT COALESCE(sum(total_tokens),0) FROM runs WHERE started_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')`).
 		Scan(&o.PendingApprovals, &o.BlockedFeatures, &o.BlockedTickets, &o.ActiveRuns, &o.TokensToday)
 	if err != nil {

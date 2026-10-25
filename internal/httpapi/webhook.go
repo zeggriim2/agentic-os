@@ -5,38 +5,12 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/zeggriim2/agentic-os/internal/audit"
+	"github.com/zeggriim2/agentic-os/internal/engine"
 	gh "github.com/zeggriim2/agentic-os/internal/github"
-	"github.com/zeggriim2/agentic-os/internal/store"
 )
 
-type webhookPayload struct {
-	Repository struct {
-		FullName string `json:"full_name"`
-	} `json:"repository"`
-	Number      int `json:"number"`
-	PullRequest *struct {
-		Number int `json:"number"`
-		Head   struct {
-			SHA string `json:"sha"`
-			Ref string `json:"ref"`
-		} `json:"head"`
-	} `json:"pull_request"`
-	CheckRun *struct {
-		HeadSHA    string `json:"head_sha"`
-		CheckSuite struct {
-			HeadBranch string `json:"head_branch"`
-		} `json:"check_suite"`
-	} `json:"check_run"`
-	CheckSuite *struct {
-		HeadSHA    string `json:"head_sha"`
-		HeadBranch string `json:"head_branch"`
-	} `json:"check_suite"`
-	SHA string `json:"sha"`
-}
-
-// githubWebhook vérifie la signature HMAC sur le corps brut AVANT tout parsing, déduplique
-// X-GitHub-Delivery puis réconcilie les tickets concernés.
+// githubWebhook vérifie la signature HMAC sur le corps brut AVANT tout parsing, puis
+// confie la livraison au moteur (persistance du corps, déduplication, reprise sur échec).
 func (s *Server) githubWebhook(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 5<<20))
 	if err != nil {
@@ -59,54 +33,21 @@ func (s *Server) githubWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid_delivery", "en-têtes de livraison manquants")
 		return
 	}
-	ctx := r.Context()
-	fresh, err := store.RecordDelivery(ctx, s.Store.Pool, delivery, event)
+	if !json.Valid(body) {
+		writeError(w, 400, "invalid_json", "corps JSON invalide")
+		return
+	}
+	status, n, err := s.Engine.ReceiveDelivery(r.Context(), delivery, event, body)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	if !fresh {
-		writeJSON(w, 200, map[string]any{"status": "duplicate"})
-		return
-	}
-	var p webhookPayload
-	if err := json.Unmarshal(body, &p); err != nil {
-		writeError(w, 400, "invalid_json", "corps JSON invalide")
-		return
-	}
-	var pr int
-	var sha, branch string
-	switch event {
-	case "pull_request":
-		if p.PullRequest != nil {
-			pr, sha, branch = p.PullRequest.Number, p.PullRequest.Head.SHA, p.PullRequest.Head.Ref
-		}
-	case "check_run":
-		if p.CheckRun != nil {
-			sha, branch = p.CheckRun.HeadSHA, p.CheckRun.CheckSuite.HeadBranch
-		}
-	case "check_suite":
-		if p.CheckSuite != nil {
-			sha, branch = p.CheckSuite.HeadSHA, p.CheckSuite.HeadBranch
-		}
-	case "status":
-		sha = p.SHA
+	switch status {
+	case engine.DeliveryProcessed:
+		writeJSON(w, 200, map[string]any{"status": status, "tickets": n})
+	case engine.DeliveryRetry:
+		writeJSON(w, 202, map[string]any{"status": status})
 	default:
-		_ = store.MarkDeliveryProcessed(ctx, s.Store.Pool, delivery)
-		writeJSON(w, 200, map[string]any{"status": "ignored"})
-		return
+		writeJSON(w, 200, map[string]any{"status": status})
 	}
-	n := 0
-	if p.Repository.FullName != "" && s.Engine != nil {
-		n, err = s.Engine.HandleGitHubEvent(ctx, p.Repository.FullName, pr, sha, branch)
-		if err != nil {
-			s.Log.Warn("webhook : réconciliation en échec (le poller reprendra)", "delivery", delivery, "error", err.Error())
-			writeJSON(w, 200, map[string]any{"status": "accepted", "processed": false})
-			return
-		}
-	}
-	_ = store.MarkDeliveryProcessed(ctx, s.Store.Pool, delivery)
-	_ = audit.Write(ctx, s.Store.Pool, audit.Entry{Actor: audit.System, Action: "webhook.github", SubjectType: "system",
-		After: map[string]any{"event": event, "delivery": delivery, "tickets": n}})
-	writeJSON(w, 200, map[string]any{"status": "processed", "tickets": n})
 }
