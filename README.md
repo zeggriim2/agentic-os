@@ -15,6 +15,7 @@ Control plane Go permettant d’orchestrer des agents Hermes — Product Owner, 
 - [Vision produit](docs/produit/fonctionnalites.md)
 - [Contrat d’architecture V1](docs/technique/architecture.md)
 - [Workflow GitFlow et politique de maintenance](docs/technique/gitflow.md)
+- [Sécurité des dépendances](docs/technique/securite-dependances.md)
 - [Interface web](web/README.md)
 
 ## Vérifications locales
@@ -43,3 +44,10 @@ Le dépôt utilise GitFlow :
 - `support/X.Y` pour maintenir d’anciennes lignes de versions.
 
 Aucun merge ou déploiement n’est effectué automatiquement par Agentic OS : les gates et le merge final restent humains.
+
+## Utilisation et exploitation
+
+- [Guide d’utilisation](docs/produit/guide-utilisateur.md) : parcours d’une feature et d’un ticket, écrans, blocages.
+- [Exploitation](docs/technique/exploitation.md) : installation, secrets, isolation des profils Hermes, surveillance, incidents.
+- [Sauvegarde, restauration, mise à jour et retour arrière](docs/technique/sauvegarde-restauration.md).
+- [Tests de bout en bout et gates de release](docs/technique/tests-e2e.md).

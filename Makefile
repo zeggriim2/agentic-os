@@ -6,9 +6,8 @@ REVISION ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 TEST_PG := aos-test-pg
 TEST_PG_PORT := 55499
 TEST_DB_URL := postgres://postgres:test@127.0.0.1:$(TEST_PG_PORT)/postgres?sslmode=disable
-BACKUP_DIR := $(HOME)/.agentic-os-backups
 
-.PHONY: test test-integration lint web-build web-test build docker up down backup
+.PHONY: test test-integration lint web-build web-test build docker up down backup restore ops-test
 
 ## test : tests Go unitaires (les tests PostgreSQL sont ignorés sans AOS_TEST_DATABASE_URL)
 test:
@@ -46,7 +45,15 @@ up:
 down:
 	$(COMPOSE) down
 
-## backup : pg_dump (0600) dans ~/.agentic-os-backups
+## backup : sauvegarde vérifiée (0600, SHA-256, rétention) — voir docs/technique/sauvegarde-restauration.md
 backup:
-	@umask 077; mkdir -p $(BACKUP_DIR); f=$(BACKUP_DIR)/agentic-os-$$(date -u +%Y%m%dT%H%M%SZ).sql; \
-	  $(COMPOSE) exec -T db pg_dump -U agentic_os -d agentic_os --no-owner > $$f && chmod 600 $$f && echo "sauvegarde : $$f"
+	deploy/ops/backup.sh manual
+
+## restore : make restore FILE=<archive.dump> CONFIRM=yes (destructif ; sauvegarde pre-restore automatique)
+restore:
+	@test -n "$(FILE)" && test "$(CONFIRM)" = yes || { echo "usage : make restore FILE=<archive.dump> CONFIRM=yes"; exit 2; }
+	deploy/ops/restore.sh "$(FILE)" --yes
+
+## ops-test : test des scripts backup/restore/upgrade/rollback contre un PostgreSQL jetable
+ops-test:
+	deploy/ops/test-ops.sh

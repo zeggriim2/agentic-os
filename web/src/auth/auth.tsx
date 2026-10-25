@@ -59,8 +59,10 @@ export function useLogout() {
     mutationFn: () => apiRequest("/api/auth/logout", { method: "POST", body: {}, skipUnauthorizedHandler: true }),
     onSettled: () => {
       setCsrfToken(null);
-      qc.clear();
+      // Ne pas utiliser qc.clear() : il retire la requête « me » observée par RequireAuth, qui ne
+      // serait alors jamais notifiée du null (l'UI restait affichée après la déconnexion).
       qc.setQueryData(qk.me, null);
+      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "me" });
     },
   });
 }

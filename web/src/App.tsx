@@ -73,7 +73,7 @@ export default function App({ client }: { client: QueryClient }) {
   return (
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <BrowserRouter>
           <Suspense fallback={<FullScreenLoader />}>
             <AppRoutes />
           </Suspense>
