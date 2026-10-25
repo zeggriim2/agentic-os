@@ -435,7 +435,7 @@ func TestWorkflowEndToEnd(t *testing.T) {
 	expect(t, "runs soumis", ev.h.creates, 5)
 	runs, _ := store.ListRuns(ctx, ev.s.Pool, store.RunFilter{}, store.Page{Limit: 50})
 	for _, r := range runs {
-		evs, _ := store.ListRunEvents(ctx, ev.s.Pool, r.ID)
+		evs, _, _ := store.ListRunEvents(ctx, ev.s.Pool, r.ID)
 		if r.Status != "completed" || len(evs) != 1 || evs[0].Event != "tool.started" || len(r.Artifact) == 0 {
 			t.Fatalf("run %d: statut %s, %d événements", r.ID, r.Status, len(evs))
 		}

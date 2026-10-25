@@ -13,6 +13,8 @@ import { DegradedBanner, EmptyState, ErrorState, ListSkeleton } from "@/componen
 import { Time } from "@/components/ui/Time";
 import { useToast } from "@/components/ui/Toast";
 import { stateMeta } from "@/lib/states";
+import { formatNumber } from "@/lib/format";
+import { LIMITS, validFeatureDescription, validFeatureTitle } from "@/lib/validation";
 
 export function projectLabel(f: Pick<Feature, "project" | "project_id">, projects: Project[] | undefined): string {
   if (typeof f.project === "string") return f.project;
@@ -33,8 +35,12 @@ function CreateFeatureDialog({ open, onClose, projects }: { open: boolean; onClo
   const pid = projectId || (enabled[0] ? String(enabled[0].id) : "");
   const errors = {
     project: !pid ? "Choisissez un projet actif." : undefined,
-    title: !title.trim() ? "Le titre est requis." : title.length > 200 ? "200 caractères maximum." : undefined,
-    description: !description.trim() ? "Décrivez l'idée pour le PO." : undefined,
+    title: !title.trim() ? "Le titre est requis." : !validFeatureTitle(title) ? `${LIMITS.featureTitle} caractères maximum.` : undefined,
+    description: !description.trim()
+      ? "Décrivez l'idée pour le PO."
+      : !validFeatureDescription(description)
+        ? `${formatNumber(LIMITS.featureDescription)} caractères maximum.`
+        : undefined,
   };
   const submit = (e: FormEvent) => {
     e.preventDefault();

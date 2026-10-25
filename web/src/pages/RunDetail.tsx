@@ -5,7 +5,7 @@ import { errorMessage } from "@/api/client";
 import { subscribeEvents, useStreamStatus } from "@/api/events";
 import { useRun, useStopRun } from "@/api/queries";
 import type { RunEvent } from "@/api/types";
-import { SubjectLink } from "@/components/domain";
+import { SubjectLink, TruncatedNotice } from "@/components/domain";
 import { Button } from "@/components/ui/Button";
 import { CodeBlock, prettyJson } from "@/components/ui/CodeBlock";
 import { ConfirmDialog } from "@/components/ui/Dialog";
@@ -27,7 +27,7 @@ function eventTone(name: string): string {
   return "text-fg-muted";
 }
 
-function EventStream({ events, live }: { events: RunEvent[]; live: boolean }) {
+function EventStream({ events, live, truncated }: { events: RunEvent[]; live: boolean; truncated?: boolean }) {
   const ref = useRef<HTMLOListElement>(null);
   const [follow, setFollow] = useState(true);
   useEffect(() => {
@@ -36,6 +36,7 @@ function EventStream({ events, live }: { events: RunEvent[]; live: boolean }) {
   if (!events.length) return <EmptyState title={live ? "En attente d'événements…" : "Aucun événement persisté"} />;
   return (
     <div>
+      {truncated && <TruncatedNotice what="2 000 événements" />}
       <div className="mb-2 flex items-center justify-between text-xs text-fg-subtle">
         <span>{events.length} événement(s)</span>
         <label className="inline-flex cursor-pointer items-center gap-1.5">
@@ -153,7 +154,7 @@ export default function RunDetailPage() {
               { id: "artifact", label: "Livrable" },
             ]}
           >
-            {tab === "events" && <EventStream events={events} live={active} />}
+            {tab === "events" && <EventStream events={events} live={active} truncated={r.events_truncated} />}
             {tab === "output" && (r.output ? <CodeBlock value={r.output} json={false} maxHeight="max-h-[600px]" className="[&_pre]:whitespace-pre-wrap" /> : <EmptyState title="Aucune sortie" />)}
             {tab === "artifact" &&
               (r.artifact !== null && r.artifact !== undefined ? <CodeBlock value={r.artifact} maxHeight="max-h-[600px]" /> : <EmptyState title="Aucun livrable" description="Le livrable est le dernier bloc JSON de la sortie, validé par schéma strict." />)}

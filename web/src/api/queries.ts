@@ -76,6 +76,27 @@ function withArrays<T extends object>(obj: T, keys: string[]): T {
   return obj;
 }
 
+/**
+ * Lit toutes les pages d'une liste (curseur) : aucune troncature silencieuse. Borne de
+ * sécurité : au-delà de maxPages, une erreur est levée plutôt que de masquer des éléments.
+ */
+export async function fetchAllPages<T>(
+  path: string,
+  params: Record<string, QueryValue>,
+  signal?: AbortSignal,
+  maxPages = 100,
+): Promise<T[]> {
+  const out: T[] = [];
+  let cursor: string | null = null;
+  for (let i = 0; i < maxPages; i++) {
+    const page: Page<T> = asPage<T>(await api.get(`${path}${buildQuery({ ...params, limit: 200, cursor })}`, signal));
+    out.push(...page.items);
+    if (!page.next_cursor) return out;
+    cursor = page.next_cursor;
+  }
+  throw new Error(`Liste ${path} trop longue (plus de ${maxPages} pages).`);
+}
+
 // ---------- Lectures ----------
 export const useOverview = () =>
   useQuery({ queryKey: qk.overview, queryFn: ({ signal }) => api.get<Overview>("/api/overview", signal) });
@@ -86,7 +107,7 @@ export const usePipeline = () =>
 export const useProjects = () =>
   useQuery({
     queryKey: qk.projects,
-    queryFn: async ({ signal }) => asPage<Project>(await api.get("/api/projects?limit=200", signal)).items,
+    queryFn: ({ signal }) => fetchAllPages<Project>("/api/projects", {}, signal),
   });
 
 export const useAgents = () =>
@@ -113,8 +134,7 @@ export const useAudit = (p: Record<string, QueryValue>) => useInfiniteList<Audit
 export const useApprovals = (p: Record<string, QueryValue>) =>
   useQuery({
     queryKey: qk.approvals(p),
-    queryFn: async ({ signal }) =>
-      asPage<Approval>(await api.get(`/api/approvals${buildQuery({ ...p, limit: 200 })}`, signal)).items,
+    queryFn: ({ signal }) => fetchAllPages<Approval>("/api/approvals", p, signal),
   });
 
 export const useFeature = (id: number) =>

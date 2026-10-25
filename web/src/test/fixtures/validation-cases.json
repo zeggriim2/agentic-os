@@ -1,0 +1,184 @@
+{
+  "_doc": "Contrat de validation partagé : testé par internal/domain (Go) et web/src/test/validation.test.ts. {\"repeat\": s, \"count\": n} = s répété n fois.",
+  "slug": {
+    "valid": [
+      "a",
+      "demo",
+      "demo-2",
+      "0abc",
+      {
+        "repeat": "a",
+        "count": 40
+      }
+    ],
+    "invalid": [
+      "",
+      "-demo",
+      "Demo",
+      "dé",
+      "a_b",
+      "a b",
+      "../x",
+      {
+        "repeat": "a",
+        "count": 41
+      }
+    ]
+  },
+  "repository": {
+    "valid": [
+      "owner/repo",
+      "o-1/r.e_p",
+      "a/b"
+    ],
+    "invalid": [
+      "",
+      "owner",
+      "owner/",
+      "/repo",
+      "o/r/x",
+      "o/..",
+      "../r",
+      "o w/r",
+      "o/r?x"
+    ]
+  },
+  "branch": {
+    "valid": [
+      "main",
+      "develop",
+      "release/1.0",
+      "aos/demo-F1-T1"
+    ],
+    "invalid": [
+      "",
+      "-x",
+      "a..b",
+      "x.lock",
+      "a/",
+      "a b",
+      "a~b"
+    ]
+  },
+  "project_name": {
+    "valid": [
+      "Demo",
+      "é",
+      {
+        "repeat": "é",
+        "count": 200
+      }
+    ],
+    "invalid": [
+      "",
+      "   ",
+      {
+        "repeat": "é",
+        "count": 201
+      }
+    ]
+  },
+  "test_command": {
+    "valid": [
+      "",
+      "make test",
+      {
+        "repeat": "é",
+        "count": 500
+      }
+    ],
+    "invalid": [
+      {
+        "repeat": "é",
+        "count": 501
+      }
+    ]
+  },
+  "required_check": {
+    "valid": [
+      "tests",
+      "Tests Backend",
+      "ci / lint",
+      {
+        "repeat": "x",
+        "count": 200
+      }
+    ],
+    "invalid": [
+      "",
+      "   ",
+      "a\tb",
+      {
+        "repeat": "x",
+        "count": 201
+      }
+    ]
+  },
+  "required_checks_max": 20,
+  "feature_title": {
+    "valid": [
+      "Export CSV",
+      {
+        "repeat": "é",
+        "count": 200
+      }
+    ],
+    "invalid": [
+      "",
+      "  ",
+      {
+        "repeat": "é",
+        "count": 201
+      }
+    ]
+  },
+  "feature_description": {
+    "valid": [
+      "Exporter les frais en CSV",
+      {
+        "repeat": "é",
+        "count": 20000
+      }
+    ],
+    "invalid": [
+      "",
+      "   ",
+      {
+        "repeat": "é",
+        "count": 20001
+      }
+    ]
+  },
+  "model": {
+    "valid": [
+      "",
+      "gpt-5",
+      "anthropic/claude-sonnet-4.5",
+      "qwen3:32b",
+      "m@v1"
+    ],
+    "invalid": [
+      " gpt",
+      "-x",
+      "a b",
+      "é",
+      {
+        "repeat": "a",
+        "count": 201
+      }
+    ]
+  },
+  "max_tokens": {
+    "valid": [
+      1000,
+      400000,
+      50000000
+    ],
+    "invalid": [
+      0,
+      -1,
+      999,
+      50000001
+    ]
+  }
+}
