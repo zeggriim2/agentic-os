@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -220,6 +221,9 @@ func (e *Engine) handleOpenIssues(ctx context.Context, j *store.Job, owner strin
 		if t.IssueNumber != nil {
 			continue
 		}
+		if err := e.fence(ctx, "création d'issue"); err != nil {
+			return err
+		}
 		is, created, err := e.GitHub.EnsureIssue(ctx, p.Repository, t.Key, t.Title, issueBody(dt, f.Title))
 		if err != nil {
 			return err
@@ -338,6 +342,10 @@ func (e *Engine) handleDevelop(ctx context.Context, j *store.Job, owner string) 
 			return permanent(domain.ErrClassPolicy, "worktree non propre avant le run : %v", err)
 		}
 	}
+	// La branche distante ne doit contenir que ce qu'Agentic OS y a poussé.
+	if err := e.checkRemoteBranch(ctx, p, t, wt, branch); err != nil {
+		return err
+	}
 	instr, input := developerPrompt(p, t, wt, branch, payloadOf(j).Feedback)
 	o, err := e.runAgent(ctx, j, domain.RoleDeveloper, t.Attempt, hermes.RunRequest{Input: input, Instructions: instr})
 	if err != nil {
@@ -376,6 +384,12 @@ func (e *Engine) handleDevelop(ctx context.Context, j *store.Job, owner string) 
 	if len(forbidden) > 0 {
 		return permanent(domain.ErrClassPolicy, "suppression de tests non autorisée : %s", strings.Join(forbidden, ", "))
 	}
+	if err := e.checkRemoteBranch(ctx, p, t, wt, branch); err != nil {
+		return err
+	}
+	if err := e.fence(ctx, "push Git"); err != nil {
+		return err
+	}
 	if err := e.Git.Push(ctx, wt, branch); err != nil {
 		return err
 	}
@@ -405,6 +419,33 @@ func (e *Engine) handleDevelop(ctx context.Context, j *store.Job, owner string) 
 			IdempotencyKey: jobKey(domain.JobReview, "ticket", t.ID, fmt.Sprintf("after-job-%d", j.ID))})
 		return err
 	})
+}
+
+// checkRemoteBranch refuse une branche distante modifiée hors d'Agentic OS. Valeurs
+// admises : absente si rien n'a encore été poussé, le head_sha vérifié du ticket, ou le
+// HEAD local (push déjà effectué par une tentative interrompue avant sa finalisation).
+func (e *Engine) checkRemoteBranch(ctx context.Context, p *store.Project, t *store.Ticket, wt, branch string) error {
+	expected := str(t.HeadSHA)
+	remote, err := e.GitHub.BranchSHA(ctx, p.Repository, branch)
+	if errors.Is(err, gh.ErrNotFound) {
+		if expected == "" {
+			return nil
+		}
+		return permanent(domain.ErrClassPolicy, "la branche distante %s a disparu (attendu %s)", branch, short(expected))
+	}
+	if err != nil {
+		return err
+	}
+	if remote == expected {
+		return nil
+	}
+	if local, err := e.Git.HeadSHA(ctx, wt); err == nil && local == remote {
+		return nil
+	}
+	if expected == "" {
+		return permanent(domain.ErrClassPolicy, "la branche distante %s existe déjà (%s) sans avoir été poussée par Agentic OS", branch, short(remote))
+	}
+	return permanent(domain.ErrClassPolicy, "la branche distante %s a été modifiée hors d'Agentic OS (%s au lieu de %s)", branch, short(remote), short(expected))
 }
 
 func short(s string) string {
@@ -707,6 +748,9 @@ func (e *Engine) handlePublishPR(ctx context.Context, j *store.Job, owner string
 	}
 	f, err := store.GetFeature(ctx, e.Store.Pool, t.FeatureID)
 	if err != nil {
+		return err
+	}
+	if err := e.fence(ctx, "publication de la PR"); err != nil {
 		return err
 	}
 	pr, created, err := e.GitHub.EnsureDraftPR(ctx, p.Repository, *t.Branch, p.BaseBranch, t.Title, e.prBody(ctx, f, t))

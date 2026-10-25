@@ -199,9 +199,12 @@ func TestLeaseExpiryAndRecovery(t *testing.T) {
 		t.Fatal("heartbeat d'un autre worker accepté")
 	}
 	time.Sleep(1200 * time.Millisecond)
-	n, exhausted, err := store.RecoverExpired(ctx, s.Pool)
-	if err != nil || n != 1 || len(exhausted) != 0 {
-		t.Fatalf("recovery 1: %d %v %v", n, exhausted, err)
+	n, err := store.RecoverExpired(ctx, s.Pool)
+	if err != nil || n != 1 {
+		t.Fatalf("recovery 1: %d %v", n, err)
+	}
+	if none, err := store.FailOneExhausted(ctx, s.Pool); err != nil || none != nil {
+		t.Fatalf("aucun job épuisé attendu: %+v %v", none, err)
 	}
 	if ok, _ := store.Heartbeat(ctx, s.Pool, j.ID, "w1", time.Second); ok {
 		t.Fatal("lease perdu non détecté")
@@ -214,9 +217,12 @@ func TestLeaseExpiryAndRecovery(t *testing.T) {
 		t.Fatalf("reprise: %+v", j)
 	}
 	time.Sleep(1200 * time.Millisecond)
-	_, exhausted, err = store.RecoverExpired(ctx, s.Pool)
-	if err != nil || len(exhausted) != 1 || exhausted[0].Status != "failed" {
-		t.Fatalf("épuisement: %+v %v", exhausted, err)
+	if n, err := store.RecoverExpired(ctx, s.Pool); err != nil || n != 0 {
+		t.Fatalf("un job épuisé ne doit pas être remis en file: %d %v", n, err)
+	}
+	failed, err := store.FailOneExhausted(ctx, s.Pool)
+	if err != nil || failed == nil || failed.Status != "failed" || failed.ID != j.ID {
+		t.Fatalf("épuisement: %+v %v", failed, err)
 	}
 }
 
