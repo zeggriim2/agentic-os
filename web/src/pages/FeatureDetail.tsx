@@ -301,7 +301,7 @@ export default function FeatureDetailPage() {
             {tab === "design" && <DesignTab f={f} />}
             {tab === "tickets" && <TicketsTab f={f} />}
             {tab === "runs" && <RunsTable runs={f.runs} />}
-            {tab === "timeline" && <Timeline entries={f.timeline} />}
+            {tab === "timeline" && <Timeline entries={f.timeline} truncatedLink={f.timeline_truncated ? `/audit?subject_type=feature&subject_id=${f.id}` : undefined} />}
           </Tabs>
         </Card>
         <div className="space-y-4">

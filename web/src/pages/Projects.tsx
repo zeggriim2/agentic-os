@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/Switch";
 import { EmptyState, QueryView } from "@/components/ui/States";
 import { Time } from "@/components/ui/Time";
 import { useToast } from "@/components/ui/Toast";
+import { LIMITS, validBranch, validCheckName, validProjectName, validRepository, validSlug, validTestCommand } from "@/lib/validation";
 
 interface FormState {
   slug: string;
@@ -27,18 +28,23 @@ const EMPTY: FormState = { slug: "", name: "", repository: "", base_branch: "mai
 
 export function validateProject(f: FormState, isCreate: boolean): Partial<Record<keyof FormState, string>> {
   const e: Partial<Record<keyof FormState, string>> = {};
-  if (isCreate && !/^[a-z0-9][a-z0-9-]{1,39}$/.test(f.slug)) e.slug = "2 à 40 caractères : minuscules, chiffres, tirets.";
-  if (!f.name.trim()) e.name = "Le nom est requis.";
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(f.repository.trim())) e.repository = "Format attendu : owner/repo.";
-  if (!f.base_branch.trim()) e.base_branch = "La branche de base est requise.";
+  if (isCreate && !validSlug(f.slug)) e.slug = "1 à 40 caractères : minuscules, chiffres, tirets (pas de tiret en tête).";
+  if (!validProjectName(f.name)) e.name = f.name.trim() ? `${LIMITS.projectName} caractères maximum.` : "Le nom est requis.";
+  if (!validRepository(f.repository.trim())) e.repository = "Format attendu : owner/repo.";
+  if (!validBranch(f.base_branch.trim())) e.base_branch = f.base_branch.trim() ? "Nom de branche invalide." : "La branche de base est requise.";
+  if (!validTestCommand(f.test_command)) e.test_command = `${LIMITS.testCommand} caractères maximum.`;
+  const checks = parseChecks(f.required_checks);
+  if (checks.length > LIMITS.requiredChecks) e.required_checks = `${LIMITS.requiredChecks} checks maximum.`;
+  else if (checks.some((c) => !validCheckName(c))) e.required_checks = `Nom de check invalide (${LIMITS.checkName} caractères maximum, sans tabulation).`;
   return e;
 }
 
-const parseChecks = (s: string) =>
-  s
+function parseChecks(s: string): string[] {
+  return s
     .split(/[\n,]/)
     .map((x) => x.trim())
     .filter(Boolean);
+}
 
 function ProjectDialog({ open, project, onClose }: { open: boolean; project: Project | null; onClose: () => void }) {
   const isCreate = !project;
@@ -132,10 +138,10 @@ function ProjectDialog({ open, project, onClose }: { open: boolean; project: Pro
             </Select>
           )}
         </Field>
-        <Field label="Commande de test" hint="Indicative pour les agents.">
+        <Field label="Commande de test" error={err("test_command")} hint="Indicative pour les agents.">
           {(p) => <Input {...p} value={f.test_command} onChange={(e) => set("test_command", e.target.value)} className="font-mono" placeholder="go test ./..." />}
         </Field>
-        <Field label="Checks CI requis" className="sm:col-span-2" hint="Un par ligne (ou séparés par des virgules). CI verte = chacun completed/success sur le SHA exact.">
+        <Field label="Checks CI requis" error={err("required_checks")} className="sm:col-span-2" hint="Un par ligne (ou séparés par des virgules). CI verte = chacun completed/success sur le SHA exact.">
           {(p) => (
             <textarea
               {...p}

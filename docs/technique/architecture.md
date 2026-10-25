@@ -55,7 +55,6 @@ lucide-react. Aucun appel externe depuis le navigateur (tout passe par `/api`).
 | `AOS_SECRETS_DIR` | `/run/secrets/agentic-os` | dossier des secrets |
 | `AOS_WORKSPACE_ROOT` | `/home/hermes/agentic-os-data/workspaces` | clones et worktrees |
 | `AOS_HERMES_URL` | `http://127.0.0.1:8642` | API Hermes |
-| `AOS_PUBLIC_TZ` | `Europe/Paris` | affichage |
 | `AOS_WORKERS` | `2` | concurrence |
 | `AOS_LEASE_SECONDS` | `60` | durée de lease (heartbeat toutes les 20 s) |
 | `AOS_MAX_REWORK` | `3` | reworks max par ticket |
@@ -327,6 +326,22 @@ redélivrance GitHub (même `X-GitHub-Delivery`) d'une livraison non traitée es
 traitement abandonné (> 5 min en `processing`) est repris. Réponses : 200 `processed|duplicate`, 202
 `retry_scheduled`. Corps invalide : `failed` sans reprise. Les livraisons antérieures à 0003 n'ont pas de corps
 et ne sont pas retraitables.
+
+**Validations de saisie** : règles uniques côté API (`internal/domain/validation.go`) et UI
+(`web/src/lib/validation.ts`), verrouillées par la fixture `web/src/test/fixtures/validation-cases.json`
+testée des deux côtés. Longueurs en caractères (pas en octets) : slug 1–40, nom de projet 200, commande de
+test 500, 20 checks requis de 200 caractères, titre de feature 200, description **obligatoire** 20 000,
+budget 1 000–50 000 000 tokens, modèle vide (aucun imposé) ou `[A-Za-z0-9][A-Za-z0-9._:/@-]{0,199}`.
+
+**Listes et troncature** : l'UI lit toutes les pages des projets et approbations (curseur) au lieu de
+tronquer à 200. Les détails bornés le signalent explicitement et gardent les éléments **les plus récents** :
+`events_truncated` (2 000 derniers événements d'un run), `timeline_truncated` (1 000 dernières entrées
+d'audit d'une feature/d'un ticket, lien vers `/api/audit`). Les approbations d'un sujet ne sont pas bornées.
+
+**Agents** : sans `desired_model`, un agent observé est `SYNCED` (plus de faux `DRIFT_DETECTED`) ; un PATCH ne
+masque plus un état `UNREACHABLE`.
+
+**Fuseau** : `AOS_PUBLIC_TZ` est supprimée ; l'affichage est toujours en Europe/Paris (UI), les API restent en UTC.
 
 **QA** : le livrable doit contenir chaque critère d'acceptation persistant exactement une fois ; critères omis,
 inventés ou dupliqués sont refusés. Une PR réutilisée doit rester ouverte et draft, pas seulement une PR créée

@@ -120,10 +120,37 @@ export function AuditDiff({ entry }: { entry: AuditEntry }) {
 }
 
 /** Chronologie d'audit (feature, ticket, activité récente). */
-export function Timeline({ entries, showSubject, emptyLabel = "Aucun événement." }: { entries: AuditEntry[]; showSubject?: boolean; emptyLabel?: string }) {
+/** Signale qu'une liste ne montre que les éléments les plus récents. */
+export function TruncatedNotice({ what, to }: { what: string; to?: string }) {
+  return (
+    <p role="note" data-testid="truncated-notice" className="mb-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-1.5 text-xs text-warning">
+      Seuls les {what} les plus récents sont affichés.{" "}
+      {to && (
+        <Link to={to} className="underline">
+          Voir l'historique complet
+        </Link>
+      )}
+    </p>
+  );
+}
+
+export function Timeline({
+  entries,
+  showSubject,
+  emptyLabel = "Aucun événement.",
+  truncatedLink,
+}: {
+  entries: AuditEntry[];
+  showSubject?: boolean;
+  emptyLabel?: string;
+  /** Si défini, la timeline est tronquée : lien vers l'audit complet. */
+  truncatedLink?: string;
+}) {
   const [open, setOpen] = useState<number | null>(null);
   if (!entries.length) return <EmptyState title={emptyLabel} />;
   return (
+    <>
+    {truncatedLink && <TruncatedNotice what="événements" to={truncatedLink} />}
     <ol className="relative space-y-0">
       {entries.map((e, i) => {
         const isOpen = open === e.id;
@@ -166,6 +193,7 @@ export function Timeline({ entries, showSubject, emptyLabel = "Aucun événement
         );
       })}
     </ol>
+    </>
   );
 }
 
