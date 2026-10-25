@@ -264,7 +264,7 @@ Les réponses ne contiennent jamais : secrets, clés d'idempotence, lease owner,
 - `deploy/Dockerfile` multi-stage : node:22-alpine (build web) → golang:1.23-alpine (build, `-trimpath`,
   `CGO_ENABLED=0`, ldflags version/revision) → alpine:3.20 + git + ca-certificates, user 1000.
 - `Makefile` : `test`, `test-integration` (Postgres jetable via Docker), `lint` (`go vet`, `gofmt -l`),
-  `web-build`, `web-test`, `build`, `up`, `down`, `backup` (pg_dump 0600 dans `~/.agentic-os-backups`).
+  `web-build`, `web-test`, `build`, `up`, `down`, `backup` / `restore` / `ops-test` (voir sauvegarde-restauration.md).
 - `agentic-os doctor` : vérifie DB, migrations, Hermes par profil, GitHub (token, accès dépôts), Telegram,
   racine workspace inscriptible, `git` présent ; sortie JSON + code retour ≠ 0 si un point bloque.
 - CI GitHub Actions `.github/workflows/tests.yml`, job **`tests`** : `go vet`, `go test ./...` avec
