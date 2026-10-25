@@ -78,7 +78,9 @@ type Engine struct {
 	RunTimeout   time.Duration
 	IdleInterval time.Duration
 	Backoff      time.Duration
-	ownerPrefix  string
+	// HeartbeatFn prolonge le lease (store.Heartbeat par défaut ; injectable pour les tests).
+	HeartbeatFn func(ctx context.Context, id int64, owner string, lease time.Duration) (bool, error)
+	ownerPrefix string
 
 	mu     sync.Mutex
 	active int
@@ -109,6 +111,11 @@ func (e *Engine) Init() {
 	}
 	if e.Backoff <= 0 {
 		e.Backoff = 30 * time.Second
+	}
+	if e.HeartbeatFn == nil {
+		e.HeartbeatFn = func(ctx context.Context, id int64, owner string, lease time.Duration) (bool, error) {
+			return store.Heartbeat(ctx, e.Store.Pool, id, owner, lease)
+		}
 	}
 	if e.ownerPrefix == "" {
 		host, _ := os.Hostname()
@@ -246,7 +253,7 @@ func (e *Engine) process(ctx context.Context, j *store.Job, owner string) {
 		e.mu.Unlock()
 	}()
 	log := e.Log.With("job_id", j.ID, "kind", j.Kind, "subject_type", j.SubjectType, "subject_id", j.SubjectID)
-	jctx, cancel := context.WithCancel(ctx)
+	jctx, cancel := context.WithCancel(withLease(ctx, j.ID, owner))
 	defer cancel()
 	lost := make(chan struct{})
 	hbDone := make(chan struct{})
@@ -254,16 +261,33 @@ func (e *Engine) process(ctx context.Context, j *store.Job, owner string) {
 		defer close(hbDone)
 		t := time.NewTicker(e.Lease / 3)
 		defer t.Stop()
+		lastOK := time.Now()
 		for {
 			select {
 			case <-jctx.Done():
 				return
 			case <-t.C:
-				ok, err := store.Heartbeat(jctx, e.Store.Pool, j.ID, owner, e.Lease)
-				if err == nil && !ok {
+				ok, err := e.HeartbeatFn(jctx, j.ID, owner, e.Lease)
+				switch {
+				case err == nil && ok:
+					lastOK = time.Now()
+				case err == nil && !ok:
 					close(lost)
 					cancel()
 					return
+				default:
+					if jctx.Err() != nil {
+						return
+					}
+					// Sans heartbeat réussi depuis 2/3 du lease, un autre worker peut
+					// bientôt reprendre le job : on s'arrête avant l'expiration.
+					log.Warn("heartbeat en échec", "error", err.Error())
+					if time.Since(lastOK) >= e.Lease*2/3 {
+						log.Error("heartbeat impossible depuis trop longtemps : abandon du job avant expiration du lease")
+						close(lost)
+						cancel()
+						return
+					}
 				}
 			}
 		}
@@ -332,6 +356,9 @@ func (e *Engine) blockSubject(ctx context.Context, tx pgx.Tx, j *store.Job, reas
 	switch j.SubjectType {
 	case "feature":
 		f, err := store.LockFeature(ctx, tx, j.SubjectID)
+		if errors.Is(err, store.ErrNotFound) {
+			return "", nil
+		}
 		if err != nil {
 			return "", err
 		}
@@ -344,6 +371,9 @@ func (e *Engine) blockSubject(ctx context.Context, tx pgx.Tx, j *store.Job, reas
 		return fmt.Sprintf("⛔ Feature #%d « %s » bloquée : %s", f.ID, f.Title, reason), nil
 	case "ticket":
 		t, err := store.LockTicket(ctx, tx, j.SubjectID)
+		if errors.Is(err, store.ErrNotFound) {
+			return "", nil
+		}
 		if err != nil {
 			return "", err
 		}
@@ -397,10 +427,12 @@ func (e *Engine) finish(ctx context.Context, j *store.Job, owner string, fn func
 	})
 }
 
-// Recover remet en file les jobs au lease expiré et bloque les sujets des jobs épuisés.
+// Recover remet en file les jobs au lease expiré. Chaque job épuisé est marqué failed
+// et son sujet bloqué dans UNE transaction : un crash ou une erreur laisse le job leased
+// (expiré) et la recovery suivante recommence, sans job failed à sujet non bloqué.
 func (e *Engine) Recover(ctx context.Context) error {
 	e.Init()
-	n, exhausted, err := store.RecoverExpired(ctx, e.Store.Pool)
+	n, err := store.RecoverExpired(ctx, e.Store.Pool)
 	if err != nil {
 		return err
 	}
@@ -408,22 +440,57 @@ func (e *Engine) Recover(ctx context.Context) error {
 		e.Log.Info("jobs remis en file après expiration du lease", "count", n)
 		_ = store.Notify(ctx, e.Store.Pool, "overview.invalidate", 0)
 	}
-	for i := range exhausted {
-		j := exhausted[i]
+	for i := 0; i < 100; i++ {
 		var msg string
+		var j *store.Job
 		err := e.Store.InTx(ctx, func(tx pgx.Tx) error {
-			m, err := e.blockSubject(ctx, tx, &j, "lease expiré, tentatives épuisées")
-			msg = m
-			if err != nil {
+			var err error
+			if j, err = store.FailOneExhausted(ctx, tx); err != nil || j == nil {
+				return err
+			}
+			if msg, err = e.blockSubject(ctx, tx, j, "lease expiré, tentatives épuisées"); err != nil {
 				return err
 			}
 			return store.Notify(ctx, tx, "job.updated", j.ID)
 		})
 		if err != nil {
-			e.Log.Error("blocage après épuisement impossible", "job_id", j.ID, "error", err.Error())
-		} else if msg != "" {
+			return fmt.Errorf("blocage après épuisement (réessayé à la prochaine recovery) : %w", err)
+		}
+		if j == nil {
+			return nil
+		}
+		if msg != "" {
 			e.Notifier.Notify(ctx, msg)
 		}
+	}
+	return nil
+}
+
+type leaseKey struct{}
+
+type leaseRef struct {
+	jobID int64
+	owner string
+}
+
+func withLease(ctx context.Context, jobID int64, owner string) context.Context {
+	return context.WithValue(ctx, leaseKey{}, leaseRef{jobID, owner})
+}
+
+// fence vérifie (et prolonge) le lease juste avant un effet externe : push Git, issue,
+// PR, soumission Hermes. Un worker qui a perdu son lease n'écrit plus rien dehors.
+func (e *Engine) fence(ctx context.Context, effect string) error {
+	ref, ok := ctx.Value(leaseKey{}).(leaseRef)
+	if !ok {
+		return permanent(domain.ErrClassInternal, "effet externe %s hors d'un job leasé", effect)
+	}
+	held, err := e.HeartbeatFn(ctx, ref.jobID, ref.owner, e.Lease)
+	if err != nil {
+		return retryable(domain.ErrClassInternal, "vérification du lease avant %s impossible : %v", effect, err)
+	}
+	if !held {
+		e.Log.Warn("lease perdu : effet externe annulé", "job_id", ref.jobID, "effect", effect)
+		return store.ErrLeaseLost
 	}
 	return nil
 }

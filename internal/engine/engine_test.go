@@ -33,6 +33,7 @@ type fakeHermes struct {
 	creates  int
 	stops    int
 	respond  func(profile string, req hermes.RunRequest) (string, int64)
+	hold     bool // les runs restent "running" (jamais terminés)
 	sequence int
 }
 
@@ -53,6 +54,11 @@ func (f *fakeHermes) CreateRun(_ context.Context, profile, key string, req herme
 	f.mu.Unlock()
 	out, total := f.respond(profile, req)
 	f.mu.Lock()
+	if f.hold {
+		f.runs[id] = hermes.RunStatus{Status: "running"}
+		f.mu.Unlock()
+		return hermes.CreateResult{RunID: id, Status: "started"}, nil
+	}
 	f.runs[id] = hermes.RunStatus{Status: "completed", Output: out, Completed: true,
 		Usage: hermes.Usage{InputTokens: total / 2, OutputTokens: total - total/2, TotalTokens: total}, Runtime: hermes.Runtime{Provider: "p", Model: "m1"}}
 	f.mu.Unlock()
@@ -198,6 +204,8 @@ type env struct {
 	po     func() (string, int64)
 	calls  map[string]int
 	mu     sync.Mutex
+	// devHook est appelé après le commit du développeur (simule un événement concurrent).
+	devHook func(worktree string)
 }
 
 const poOK = "Voici la spec.\n```json\n{\"summary\":\"s\",\"user_stories\":[\"en tant que…\"],\"acceptance_criteria\":[\"c1\"],\"open_questions\":[]}\n```"
@@ -243,6 +251,9 @@ func newEnv(t *testing.T) *env {
 			_ = os.WriteFile(filepath.Join(wt, "hello.txt"), []byte(fmt.Sprintf("hello %d\n", call)), 0o644)
 			gitRun(t, wt, "add", "hello.txt")
 			gitRun(t, wt, "commit", "-m", fmt.Sprintf("feat: hello %d", call))
+			if ev.devHook != nil {
+				ev.devHook(wt)
+			}
 			return "fait\n```json\n{\"summary\":\"hello\",\"files_changed\":[\"hello.txt\"],\"tests\":[{\"command\":\"go test ./...\",\"exit_code\":0}],\"notes\":\"\"}\n```", 2000
 		case "aos-reviewer":
 			return ev.review(reviewRe.FindStringSubmatch(req.Input)[1], call), 500
@@ -765,4 +776,159 @@ func str(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// ------------------------------------------------------------------ P1 fiabilité
+
+func (ev *env) job(kind string) store.Job {
+	ev.t.Helper()
+	var id int64
+	if err := ev.s.Pool.QueryRow(context.Background(), `SELECT id FROM jobs WHERE kind=$1 ORDER BY id DESC LIMIT 1`, kind).Scan(&id); err != nil {
+		ev.t.Fatalf("job %s: %v", kind, err)
+	}
+	j, err := store.GetJob(context.Background(), ev.s.Pool, id)
+	if err != nil {
+		ev.t.Fatal(err)
+	}
+	return *j
+}
+
+func TestRecoveryFailsJobAndBlocksSubjectAtomically(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	p := ev.project()
+	f, _ := store.CreateFeature(ctx, ev.s.Pool, p.ID, "Atomique", "")
+	if _, err := ev.e.FeatureAction(ctx, f.ID, "start_spec", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	j, err := store.Dequeue(ctx, ev.s.Pool, "dead-worker", time.Millisecond)
+	if err != nil || j == nil {
+		t.Fatal(err)
+	}
+	if _, err := ev.s.Pool.Exec(ctx, `UPDATE jobs SET attempts=max_attempts WHERE id=$1`, j.ID); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	// Panne simulée au milieu de la transaction : l'écriture d'audit du blocage échoue.
+	if _, err := ev.s.Pool.Exec(ctx, `CREATE FUNCTION fail_block() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN IF NEW.action = 'feature.fail' THEN RAISE EXCEPTION 'panne simulée'; END IF; RETURN NEW; END; $$;
+		CREATE TRIGGER fail_block BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION fail_block();`); err != nil {
+		t.Fatal(err)
+	}
+	if err := ev.e.Recover(ctx); err == nil {
+		t.Fatal("la recovery devait signaler l'échec du blocage")
+	}
+	got, _ := store.GetJob(ctx, ev.s.Pool, j.ID)
+	expect(t, "job après panne (rollback)", got.Status, domain.JobLeased)
+	expect(t, "feature après panne", ev.feature(f.ID).State, string(domain.FeatureSpec))
+	if _, err := ev.s.Pool.Exec(ctx, `DROP TRIGGER fail_block ON audit_log`); err != nil {
+		t.Fatal(err)
+	}
+	if err := ev.e.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = store.GetJob(ctx, ev.s.Pool, j.ID)
+	expect(t, "job", got.Status, domain.JobFailed)
+	nf := ev.feature(f.ID)
+	expect(t, "feature", nf.State, string(domain.FeatureBlocked))
+	expect(t, "état précédent", str(nf.PreviousState), string(domain.FeatureSpec))
+}
+
+func TestFencingCancelsPushAfterLeaseLoss(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	f, _ := ev.startToDev()
+	// Pendant le run développeur, un autre worker récupère le lease.
+	ev.devHook = func(string) {
+		if _, err := ev.s.Pool.Exec(ctx, `UPDATE jobs SET lease_owner='other-worker' WHERE kind='develop' AND status='leased'`); err != nil {
+			t.Error(err)
+		}
+	}
+	ev.drain()
+	tk := ev.ticket(f.ID)
+	if _, err := ev.g.BranchSHA(ctx, "o/r", "aos/"+tk.Key); err == nil {
+		t.Fatal("le worker sans lease a poussé la branche")
+	}
+	expect(t, "ticket", tk.State, string(domain.TicketDev))
+	j := ev.job(domain.JobDevelop)
+	expect(t, "job develop", j.Status, domain.JobLeased)
+	expect(t, "propriétaire", str(j.LeaseOwner), "other-worker")
+}
+
+func TestExternalPushOnBranchBlocksDevelop(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	f, _ := ev.startToDev()
+	tk := ev.ticket(f.ID)
+	branch := "aos/" + tk.Key
+	var foreign string
+	ev.devHook = func(string) {
+		dir := filepath.Join(t.TempDir(), "intrus")
+		gitRun(t, filepath.Dir(dir), "clone", ev.g.bare, dir)
+		gitRun(t, dir, "checkout", "-b", branch)
+		_ = os.WriteFile(filepath.Join(dir, "intrus.txt"), []byte("x"), 0o644)
+		gitRun(t, dir, "add", "intrus.txt")
+		gitRun(t, dir, "commit", "-m", "push externe")
+		gitRun(t, dir, "push", "origin", branch)
+		foreign = gitRun(t, dir, "rev-parse", "HEAD")
+	}
+	ev.drain()
+	remote, _ := ev.g.BranchSHA(ctx, "o/r", branch)
+	expect(t, "branche distante intacte", remote, foreign)
+	tk = ev.ticket(f.ID)
+	expect(t, "ticket", tk.State, string(domain.TicketBlocked))
+	expect(t, "état précédent", str(tk.PreviousState), string(domain.TicketDev))
+	if !strings.Contains(tk.StateReason, "sans avoir été poussée par Agentic OS") {
+		t.Fatalf("raison: %s", tk.StateReason)
+	}
+	j := ev.job(domain.JobDevelop)
+	expect(t, "classe", str(j.ErrorClass), domain.ErrClassPolicy)
+}
+
+func TestHeartbeatFailuresAbandonJobBeforeLeaseExpiry(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	ev.e.Lease = 600 * time.Millisecond
+	ev.h.hold = true
+	var calls int
+	var mu sync.Mutex
+	ev.e.HeartbeatFn = func(ctx context.Context, id int64, owner string, lease time.Duration) (bool, error) {
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+		if n == 1 { // la vérification avant soumission Hermes passe
+			return store.Heartbeat(ctx, ev.s.Pool, id, owner, lease)
+		}
+		return false, errors.New("base injoignable")
+	}
+	p := ev.project()
+	f, _ := store.CreateFeature(ctx, ev.s.Pool, p.ID, "Heartbeat", "")
+	if _, err := ev.e.FeatureAction(ctx, f.ID, "start_spec", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := ev.e.RunOnce(ctx, "test-worker"); err != nil {
+			t.Error(err)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("le worker n'a pas abandonné le job malgré l'échec des heartbeats")
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("abandon trop tardif: %v", elapsed)
+	}
+	j := ev.job(domain.JobPOSpec)
+	expect(t, "job laissé à la recovery", j.Status, domain.JobLeased)
+	expect(t, "feature", ev.feature(f.ID).State, string(domain.FeatureSpec))
+	time.Sleep(700 * time.Millisecond)
+	if err := ev.e.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	expect(t, "job après recovery", ev.job(domain.JobPOSpec).Status, domain.JobQueued)
 }

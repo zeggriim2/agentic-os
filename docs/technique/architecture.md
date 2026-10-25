@@ -303,6 +303,16 @@ encore actionnables et annule leurs jobs d'exécution.
 **SSE `run.event`** : le NOTIFY PostgreSQL ne transporte que `run_id`/`seq` (limite 8000 octets) ; l'écouteur relit la
 ligne `run_events` persistée avant diffusion. Après une reconnexion, l'UI recharge le détail et déduplique par `seq`.
 
+**Fiabilité du moteur** :
+- Recovery : un job épuisé est marqué `failed` et son sujet bloqué dans la même transaction (un job à la fois,
+  `FOR UPDATE SKIP LOCKED`) ; en cas d'erreur, le job reste `leased` expiré et la recovery suivante recommence.
+- Heartbeat : une erreur PostgreSQL n'est plus ignorée ; sans heartbeat réussi depuis 2/3 du lease, le worker
+  annule le handler avant l'expiration (le job est repris par la recovery).
+- Fencing : le lease est revérifié (et prolongé) juste avant chaque effet externe — soumission Hermes,
+  création d'issue, push Git, création de PR ; lease perdu → effet annulé, aucune finalisation.
+- Push : la branche distante doit être absente (premier push), égale au `head_sha` vérifié, ou égale au HEAD
+  local (push d'une tentative interrompue) ; toute autre valeur (push externe) → ticket BLOCKED, sans push.
+
 **QA** : le livrable doit contenir chaque critère d'acceptation persistant exactement une fois ; critères omis,
 inventés ou dupliqués sont refusés. Une PR réutilisée doit rester ouverte et draft, pas seulement une PR créée
 pendant le job courant.
