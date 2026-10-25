@@ -423,19 +423,32 @@ func RequeueJob(ctx context.Context, q Q, id int64, owner, class, msg string, af
 	return nil
 }
 
-// RecoverExpired remet en file les jobs au lease expiré (attempts < max) et renvoie
-// ceux qui ont épuisé leurs tentatives (marqués failed).
-func RecoverExpired(ctx context.Context, q Q) (requeued int64, exhausted []Job, err error) {
+// RecoverExpired remet en file les jobs au lease expiré qui ont encore des tentatives.
+// Les jobs épuisés sont traités un par un par FailOneExhausted (avec blocage du sujet
+// dans la même transaction).
+func RecoverExpired(ctx context.Context, q Q) (int64, error) {
 	tag, err := q.Exec(ctx, `UPDATE jobs SET status='queued', lease_owner=NULL, lease_expires_at=NULL,
 		last_error='lease expiré', error_class='timeout', updated_at=now()
 		WHERE status='leased' AND lease_expires_at < now() AND attempts < max_attempts`)
 	if err != nil {
-		return 0, nil, err
+		return 0, err
 	}
-	exhausted, err = many[Job](ctx, q, `UPDATE jobs SET status='failed', lease_owner=NULL, lease_expires_at=NULL,
+	return tag.RowsAffected(), nil
+}
+
+// FailOneExhausted marque failed UN job au lease expiré sans tentative restante et le
+// renvoie (nil si aucun). À appeler dans la transaction qui bloque aussi son sujet :
+// en cas d'échec, le rollback laisse le job leased et la recovery suivante recommence.
+func FailOneExhausted(ctx context.Context, q Q) (*Job, error) {
+	j, err := one[Job](ctx, q, `UPDATE jobs SET status='failed', lease_owner=NULL, lease_expires_at=NULL,
 		last_error='lease expiré, tentatives épuisées', error_class='timeout', updated_at=now()
-		WHERE status='leased' AND lease_expires_at < now() AND attempts >= max_attempts RETURNING `+jobCols)
-	return tag.RowsAffected(), exhausted, err
+		WHERE id = (SELECT id FROM jobs WHERE status='leased' AND lease_expires_at < now() AND attempts >= max_attempts
+			ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1)
+		RETURNING `+jobCols)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	return j, err
 }
 
 // CancelJobs annule les jobs actifs des sujets donnés et renvoie leurs ids.

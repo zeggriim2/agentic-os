@@ -49,6 +49,9 @@ func (e *Engine) runAgent(ctx context.Context, j *store.Job, role string, subjec
 	}
 	profile := run.HermesProfile
 	if run.HermesRunID == nil {
+		if err := e.fence(ctx, "soumission du run Hermes"); err != nil {
+			return nil, err
+		}
 		res, err := e.Hermes.CreateRun(ctx, profile, idempotencyKey(j.ID, subjectAttempt), req)
 		if err != nil {
 			if errors.Is(err, hermes.ErrConflict) {
