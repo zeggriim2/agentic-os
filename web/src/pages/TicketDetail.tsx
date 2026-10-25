@@ -196,7 +196,8 @@ export default function TicketDetailPage() {
         </Card>
       )}
       <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
-        <div className="space-y-4">
+        {/* min-w-0 : évite que les onglets/tableaux élargissent la grille (débordement mobile) */}
+        <div className="min-w-0 space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <VerdictCard title="Verdict Reviewer" run={latest(t.runs, "reviewer")} headSha={t.head_sha} />
             <VerdictCard title="Verdict QA" run={latest(t.runs, "qa")} headSha={t.head_sha} />
@@ -234,7 +235,7 @@ export default function TicketDetailPage() {
             </Tabs>
           </Card>
         </div>
-        <Card>
+        <Card className="min-w-0">
           <CardHeader title="Détails" />
           <div className="p-4">
             <Info t={t} />

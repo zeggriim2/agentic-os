@@ -15,6 +15,7 @@ Control plane Go permettant d’orchestrer des agents Hermes — Product Owner, 
 - [Vision produit](docs/produit/fonctionnalites.md)
 - [Contrat d’architecture V1](docs/technique/architecture.md)
 - [Workflow GitFlow et politique de maintenance](docs/technique/gitflow.md)
+- [Sécurité des dépendances](docs/technique/securite-dependances.md)
 - [Interface web](web/README.md)
 
 ## Vérifications locales

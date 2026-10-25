@@ -1,0 +1,33 @@
+name: ops
+
+# Scripts d'exploitation (sauvegarde, restauration, mise à jour, retour arrière) testés contre
+# un vrai PostgreSQL 16 et le vrai binaire `agentic-os migrate`.
+on:
+  push:
+    paths: ["deploy/**", "migrations/**", "internal/store/**", "cmd/**", ".github/workflows/ops.yml"]
+  pull_request:
+    paths: ["deploy/**", "migrations/**", "internal/store/**", "cmd/**", ".github/workflows/ops.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup-restore:
+    name: backup-restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: shellcheck
+        run: shellcheck -x -P deploy/ops -S warning deploy/ops/*.sh
+      - name: test-ops
+        env:
+          GOTOOLCHAIN: local
+        run: deploy/ops/test-ops.sh

@@ -115,3 +115,11 @@ export const approvalKindLabel = (k: string) => APPROVAL_KIND_LABELS[k] ?? k;
 export const FEATURE_TERMINAL = new Set(["DONE", "CANCELLED"]);
 export const TICKET_TERMINAL = new Set(["DONE", "CANCELLED"]);
 export const RUN_ACTIVE = new Set(["submitted", "running", "stopping"]);
+
+/**
+ * Libellé spécifique d'une approbation : un rejet dont l'effet a été appliqué (statut `executed`,
+ * décision `rejected`) reste identifiable comme un rejet au lieu d'un simple « Exécutée ».
+ */
+export function approvalStatusLabel(a: { status: string; decision?: string | null }): string | undefined {
+  return a.status === "executed" && a.decision === "rejected" ? "Rejet exécuté" : undefined;
+}
