@@ -44,7 +44,7 @@ function EventStream({ events, live, truncated }: { events: RunEvent[]; live: bo
           Suivre
         </label>
       </div>
-      <ol ref={ref} aria-live={live ? "polite" : undefined} className="scroll-thin max-h-[480px] overflow-y-auto rounded-md border border-border bg-panel font-mono text-xs">
+      <ol ref={ref} tabIndex={0} aria-live={live ? "polite" : undefined} className="focus-ring scroll-thin max-h-[480px] overflow-y-auto rounded-md border border-border bg-panel font-mono text-xs">
         {events.map((e) => (
           <li key={e.seq} className="grid grid-cols-[48px_72px_150px_1fr] gap-2 border-b border-border/60 px-3 py-1.5 last:border-0">
             <span className="tabular-nums text-fg-subtle">#{e.seq}</span>

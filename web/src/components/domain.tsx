@@ -4,7 +4,7 @@ import { Bot, ChevronRight, Cog, User } from "lucide-react";
 import type { Approval, AuditEntry, Run } from "@/api/types";
 import { cn } from "@/lib/cn";
 import { formatNumber, shortSha } from "@/lib/format";
-import { approvalKindLabel, roleLabel } from "@/lib/states";
+import { approvalKindLabel, approvalStatusLabel, roleLabel } from "@/lib/states";
 import { CodeBlock } from "./ui/CodeBlock";
 import { StateBadge, Tag } from "./ui/StateBadge";
 import { EmptyState } from "./ui/States";
@@ -251,7 +251,7 @@ export function ApprovalList({ approvals, empty = "Aucune approbation." }: { app
                 {approvalKindLabel(a.kind)} · <span className="text-fg-subtle">{a.effect}</span>
               </p>
             </div>
-            <StateBadge state={a.status} />
+            <StateBadge state={a.status} label={approvalStatusLabel(a)} />
             <Time value={a.created_at} className="hidden shrink-0 whitespace-nowrap text-right text-xs text-fg-subtle sm:block" />
           </Link>
         </li>

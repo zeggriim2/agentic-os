@@ -258,6 +258,8 @@ export interface Approval extends Timestamps {
   effect: string;
   details: Record<string, unknown> | null;
   status: ApprovalStatus;
+  /** Décision humaine conservée après exécution (approved | rejected). */
+  decision?: "approved" | "rejected" | null;
   decided_by: string | null;
   decided_at: ISODate | null;
   decision_comment: string | null;

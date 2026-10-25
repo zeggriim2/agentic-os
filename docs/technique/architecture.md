@@ -42,7 +42,7 @@ deploy/                        # Dockerfile, compose.yaml, scripts
 docs/produit, docs/technique
 ```
 
-Stack : Go 1.23, `github.com/go-chi/chi/v5`, `github.com/jackc/pgx/v5`, logs `log/slog` JSON.
+Stack : Go 1.27, `github.com/go-chi/chi/v5`, `github.com/jackc/pgx/v5`, logs `log/slog` JSON.
 Pas d'ORM. Frontend : React 18, TypeScript strict, Vite, Tailwind, TanStack Query, React Router,
 lucide-react. Aucun appel externe depuis le navigateur (tout passe par `/api`).
 
@@ -261,7 +261,7 @@ Les réponses ne contiennent jamais : secrets, clés d'idempotence, lease owner,
 
 - `deploy/compose.yaml` : services `db` (postgres:16-alpine, volume `aos-pgdata`, `127.0.0.1:55433`),
   `migrate` (one-shot `agentic-os migrate`), `app` (`agentic-os serve`, host network, restart unless-stopped).
-- `deploy/Dockerfile` multi-stage : node:22-alpine (build web) → golang:1.23-alpine (build, `-trimpath`,
+- `deploy/Dockerfile` multi-stage : node:22-alpine (build web) → golang:1.27-alpine (build, `-trimpath`,
   `CGO_ENABLED=0`, ldflags version/revision) → alpine:3.20 + git + ca-certificates, user 1000.
 - `Makefile` : `test`, `test-integration` (Postgres jetable via Docker), `lint` (`go vet`, `gofmt -l`),
   `web-build`, `web-test`, `build`, `up`, `down`, `backup` / `restore` / `ops-test` (voir sauvegarde-restauration.md).
