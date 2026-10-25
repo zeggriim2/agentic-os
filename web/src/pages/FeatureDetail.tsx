@@ -284,7 +284,8 @@ export default function FeatureDetailPage() {
         </Card>
       )}
       <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
-        <Card className="p-4">
+        {/* min-w-0 : sans lui, la largeur minimale des onglets/tableaux élargit la grille (débordement mobile) */}
+        <Card className="min-w-0 p-4">
           <Tabs
             label="Sections de la feature"
             value={tab}
@@ -304,7 +305,7 @@ export default function FeatureDetailPage() {
             {tab === "timeline" && <Timeline entries={f.timeline} truncatedLink={f.timeline_truncated ? `/audit?subject_type=feature&subject_id=${f.id}` : undefined} />}
           </Tabs>
         </Card>
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <Card>
             <CardHeader title="Description" />
             <p className="whitespace-pre-wrap p-4 text-sm text-fg-muted">{f.description || "—"}</p>

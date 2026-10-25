@@ -15,7 +15,7 @@ import { Time } from "@/components/ui/Time";
 import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/cn";
 import { formatParis } from "@/lib/format";
-import { approvalKindLabel } from "@/lib/states";
+import { approvalKindLabel, approvalStatusLabel } from "@/lib/states";
 
 function asStringList(v: unknown): string[] | null {
   return Array.isArray(v) && v.every((x) => typeof x === "string") ? (v as string[]) : null;
@@ -97,7 +97,7 @@ function Outcome({ a }: { a: Approval }) {
       return box(
         "border-success/30 bg-success/5",
         <CheckCircle2 className="h-4 w-4 text-success" aria-hidden />,
-        "Exécutée",
+        approvalStatusLabel(a) ?? "Exécutée",
         <>
           {decided}
           {a.executed_at && <p>Exécutée le {formatParis(a.executed_at)}.</p>}
@@ -201,7 +201,7 @@ export default function ApprovalDetailPage() {
         title={a.title}
         meta={
           <>
-            <StateBadge state={a.status} />
+            <StateBadge state={a.status} label={approvalStatusLabel(a)} />
             <span>{approvalKindLabel(a.kind)}</span>
             <span aria-hidden>·</span>
             <SubjectLink type={a.subject_type} id={a.subject_id} />
