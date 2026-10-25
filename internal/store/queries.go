@@ -78,6 +78,12 @@ func GetProject(ctx context.Context, q Q, id int64) (*Project, error) {
 	return one[Project](ctx, q, `SELECT `+projectCols+` FROM projects WHERE id=$1`, id)
 }
 
+// LockProject lit un projet avec un verrou d'écriture. La création de feature
+// et les changements structurels utilisent ce même verrou pour éviter une race.
+func LockProject(ctx context.Context, q Q, id int64) (*Project, error) {
+	return one[Project](ctx, q, `SELECT `+projectCols+` FROM projects WHERE id=$1 FOR UPDATE`, id)
+}
+
 // ListProjects liste les projets (ordre id décroissant).
 func ListProjects(ctx context.Context, q Q, p Page) ([]Project, error) {
 	return many[Project](ctx, q, `SELECT `+projectCols+` FROM projects WHERE id < $1 ORDER BY id DESC LIMIT $2`, cursorOrMax(p.Cursor), p.Limit+1)
@@ -158,6 +164,14 @@ func ListFeatures(ctx context.Context, q Q, f FeatureFilter, p Page) ([]Feature,
 	return many[Feature](ctx, q, `SELECT `+featureCols+` FROM features
 		WHERE id < $1 AND ($2 = '' OR state = $2) AND ($3 = 0 OR project_id = $3)
 		ORDER BY id DESC LIMIT $4`, cursorOrMax(p.Cursor), f.State, f.ProjectID, p.Limit+1)
+}
+
+// ProjectHasActiveFeatures indique si une configuration de projet est encore
+// utilisée par un workflow non terminal.
+func ProjectHasActiveFeatures(ctx context.Context, q Q, projectID int64) (bool, error) {
+	var active bool
+	err := q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM features WHERE project_id=$1 AND state NOT IN ('DONE','CANCELLED'))`, projectID).Scan(&active)
+	return active, err
 }
 
 // SetFeatureState applique un nouvel état avec verrou optimiste (version attendue).
@@ -563,6 +577,11 @@ func InsertRunEvent(ctx context.Context, q Q, runID int64, seq int, event string
 	return tag.RowsAffected() == 1, nil
 }
 
+// GetRunEvent lit un événement persisté par (run, seq).
+func GetRunEvent(ctx context.Context, q Q, runID int64, seq int) (*RunEvent, error) {
+	return one[RunEvent](ctx, q, `SELECT id, run_id, seq, event, data, created_at FROM run_events WHERE run_id=$1 AND seq=$2`, runID, seq)
+}
+
 // ListRunEvents liste les événements persistés d'un run.
 func ListRunEvents(ctx context.Context, q Q, runID int64) ([]RunEvent, error) {
 	return many[RunEvent](ctx, q, `SELECT id, run_id, seq, event, data, created_at FROM run_events WHERE run_id=$1 ORDER BY seq LIMIT 2000`, runID)
@@ -600,6 +619,11 @@ func GetApproval(ctx context.Context, q Q, id int64) (*Approval, error) {
 	return one[Approval](ctx, q, `SELECT `+approvalCols+` FROM approvals WHERE id=$1`, id)
 }
 
+// LockApproval lit une approbation avec un verrou d'écriture.
+func LockApproval(ctx context.Context, q Q, id int64) (*Approval, error) {
+	return one[Approval](ctx, q, `SELECT `+approvalCols+` FROM approvals WHERE id=$1 FOR UPDATE`, id)
+}
+
 // ApprovalFilter filtre les approbations.
 type ApprovalFilter struct {
 	Status      string
@@ -633,19 +657,35 @@ func MarkApprovalExecuted(ctx context.Context, q Q, id int64, ok bool, result an
 	if !ok {
 		status = "execution_failed"
 	}
-	_, err := q.Exec(ctx, `UPDATE approvals SET status=$2, executed_at=now(), execution_result=$3, updated_at=now()
+	tag, err := q.Exec(ctx, `UPDATE approvals SET status=$2, executed_at=now(), execution_result=$3, updated_at=now()
 		WHERE id=$1 AND status IN ('approved','rejected')`, id, status, JSON(result))
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrVersionConflict
+	}
+	return nil
 }
 
-// ExpirePendingApprovals expire les approbations pending de sujets donnés.
+// ExpirePendingApprovals expire les approbations encore actionnables et annule
+// leurs jobs d'exécution durables.
 func ExpirePendingApprovals(ctx context.Context, q Q, subjectType string, ids []int64) ([]int64, error) {
 	rows, err := q.Query(ctx, `UPDATE approvals SET status='expired', updated_at=now()
-		WHERE subject_type=$1 AND subject_id = ANY($2) AND status='pending' RETURNING id`, subjectType, ids)
+		WHERE subject_type=$1 AND subject_id = ANY($2) AND status IN ('pending','approved','rejected') RETURNING id`, subjectType, ids)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, pgx.RowTo[int64])
+	approvalIDs, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	if err != nil {
+		return nil, err
+	}
+	if len(approvalIDs) > 0 {
+		if _, err := CancelJobs(ctx, q, "approval", approvalIDs); err != nil {
+			return nil, err
+		}
+	}
+	return approvalIDs, nil
 }
 
 // ================================================================== audit (lecture)

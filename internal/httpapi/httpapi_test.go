@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -15,8 +16,10 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/zeggriim2/agentic-os/internal/domain"
 	"github.com/zeggriim2/agentic-os/internal/engine"
 	gh "github.com/zeggriim2/agentic-os/internal/github"
 	"github.com/zeggriim2/agentic-os/internal/httpapi"
@@ -34,6 +37,7 @@ type client struct {
 	http *http.Client
 	csrf string
 	s    *store.Store
+	e    *engine.Engine
 	hub  *httpapi.Hub
 }
 
@@ -58,7 +62,7 @@ func setup(t *testing.T, web fstest.MapFS) *client {
 	ts := httptest.NewServer(srv.Router())
 	t.Cleanup(ts.Close)
 	jar, _ := cookiejar.New(nil)
-	return &client{t: t, srv: ts, http: &http.Client{Jar: jar}, s: s, hub: hub}
+	return &client{t: t, srv: ts, http: &http.Client{Jar: jar}, s: s, e: eng, hub: hub}
 }
 
 type resp struct {
@@ -206,6 +210,32 @@ func TestProductProjectRequiresConfirmation(t *testing.T) {
 	}
 }
 
+func TestProjectStructuralFieldsFrozenWhileFeatureActive(t *testing.T) {
+	c := setup(t, nil)
+	c.login()
+	ctx := context.Background()
+	p, err := store.CreateProject(ctx, c.s.Pool, store.ProjectInput{Slug: "frozen", Name: "Frozen", Repository: "o/r", BaseBranch: "develop",
+		RequiredChecks: []string{"tests"}, Mode: "sandbox", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := store.CreateFeature(ctx, c.s.Pool, p.ID, "Active", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err = store.SetFeatureState(ctx, c.s.Pool, f.ID, f.Version, string(domain.FeatureSpec), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/projects/" + itoa(p.ID)
+	expectStatus(t, "repository figé", c.do("PATCH", path, map[string]any{"repository": "o/other"}, true), 409, "project_in_use")
+	expectStatus(t, "nom modifiable", c.do("PATCH", path, map[string]any{"name": "Nouveau nom"}, true), 200, "")
+	if _, err := store.SetFeatureState(ctx, c.s.Pool, f.ID, f.Version, string(domain.FeatureDone), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	expectStatus(t, "repository modifiable après fin", c.do("PATCH", path, map[string]any{"repository": "o/other"}, true), 200, "")
+}
+
 func itoa(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
@@ -224,8 +254,15 @@ func TestApprovalDecisionAndProjection(t *testing.T) {
 	expectStatus(t, "décision invalide", c.do("POST", path, map[string]any{"decision": "maybe"}, true), 422, "invalid_decision")
 	expectStatus(t, "rejet sans commentaire", c.do("POST", path, map[string]any{"decision": "rejected", "comment": ""}, true), 422, "comment_required")
 	r := c.do("POST", path, map[string]any{"decision": "approved", "comment": "ok"}, true)
-	if r.status != 200 || r.body["status"] != "executed" || r.body["decided_by"] != "user:admin" {
+	if r.status != 200 || r.body["status"] != "approved" || r.body["decided_by"] != "user:admin" || r.body["executed_at"] != nil {
 		t.Fatalf("décision: %s", r.raw)
+	}
+	if did, err := c.e.RunOnce(ctx, "http-test-worker"); err != nil || !did {
+		t.Fatalf("exécution durable: did=%v err=%v", did, err)
+	}
+	r = c.do("GET", "/api/approvals/"+itoa(ap.ID), nil, false)
+	if r.status != 200 || r.body["status"] != "executed" || r.body["executed_at"] == nil {
+		t.Fatalf("approbation non exécutée: %s", r.raw)
 	}
 	expectStatus(t, "décision répétée", c.do("POST", path, map[string]any{"decision": "rejected", "comment": "non"}, true), 409, "already_decided")
 	expectStatus(t, "approbation inconnue", c.do("POST", "/api/approvals/99999/decision", map[string]any{"decision": "approved"}, true), 404, "not_found")
@@ -371,5 +408,88 @@ func TestSSEReceivesCommittedChanges(t *testing.T) {
 		case <-timeout:
 			t.Fatal("événement SSE feature.updated non reçu")
 		}
+	}
+}
+
+func TestSSERunEventCarriesPersistedEvent(t *testing.T) {
+	c := setup(t, nil)
+	c.login()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go httpapi.ListenPG(ctx, c.s.Pool, c.hub, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	job, _, err := store.EnqueueJob(ctx, c.s.Pool, store.NewJob{Kind: "po_spec", SubjectType: "feature", SubjectID: 1, IdempotencyKey: "sse-run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.CreateRun(ctx, c.s.Pool, job.ID, "po", "aos-po")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequestWithContext(ctx, "GET", c.srv.URL+"/api/events", nil)
+	res, err := c.http.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	lines := make(chan string, 100)
+	go func() {
+		sc := bufio.NewScanner(res.Body)
+		for sc.Scan() {
+			lines <- sc.Text()
+		}
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for c.hub.Subscribers() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(300 * time.Millisecond)
+	emit := func(seq int) {
+		err := c.s.InTx(ctx, func(tx pgx.Tx) error {
+			ins, err := store.InsertRunEvent(ctx, tx, run.ID, seq, "tool.started", []byte(`{"event":"tool.started","tool":"terminal"}`))
+			if err != nil || !ins {
+				return fmt.Errorf("insertion seq %d: %v", seq, err)
+			}
+			return store.NotifyRunEvent(ctx, tx, run.ID, seq)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	emit(7)
+	var payload map[string]any
+	timeout := time.After(5 * time.Second)
+	for payload == nil {
+		select {
+		case l := <-lines:
+			if l != "event: run.event" {
+				continue
+			}
+			data := strings.TrimPrefix(<-lines, "data: ")
+			if err := json.Unmarshal([]byte(data), &payload); err != nil {
+				t.Fatalf("payload illisible: %s", data)
+			}
+		case <-timeout:
+			t.Fatal("événement SSE run.event non reçu")
+		}
+	}
+	if payload["run_id"] != float64(run.ID) || payload["seq"] != float64(7) || payload["event"] != "tool.started" {
+		t.Fatalf("payload SSE incomplet: %v", payload)
+	}
+	if d, _ := payload["data"].(map[string]any); d["tool"] != "terminal" {
+		t.Fatalf("data absente: %v", payload)
+	}
+	if ts, _ := payload["created_at"].(string); ts == "" {
+		t.Fatalf("created_at absent: %v", payload)
+	}
+	// Le détail du run expose le même format (created_at, plus de champ "at").
+	emit(8)
+	det := c.do("GET", "/api/runs/"+itoa(run.ID), nil, false)
+	evs := det.body["events"].([]any)
+	if len(evs) != 2 {
+		t.Fatalf("événements persistés: %s", det.raw)
+	}
+	first := evs[0].(map[string]any)
+	if first["created_at"] == nil || first["at"] != nil || first["run_id"] != float64(run.ID) || first["seq"] != float64(7) {
+		t.Fatalf("format REST incohérent avec SSE: %v", first)
 	}
 }

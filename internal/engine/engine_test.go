@@ -454,6 +454,9 @@ func TestWorkflowReworkPath(t *testing.T) {
 		t.Fatalf("findings absents: %s", ap.Details)
 	}
 	ev.decide(domain.ApprovalRework, "approved", "corrige le contenu")
+	if did, err := ev.e.RunOnce(context.Background(), "approval-worker"); err != nil || !did {
+		t.Fatalf("exécution durable du rework: did=%v err=%v", did, err)
+	}
 	expect(t, "après rework approuvé", ev.ticket(f.ID).State, "DEV")
 	ev.drain()
 	tk = ev.ticket(f.ID)
@@ -473,6 +476,7 @@ func TestWorkflowReworkPath(t *testing.T) {
 	}
 	// rejet du publish_pr → ticket annulé → feature terminée
 	ev.decide(domain.ApprovalPublishPR, "rejected", "pas maintenant")
+	ev.drain()
 	expect(t, "ticket", ev.ticket(f.ID).State, "CANCELLED")
 	expect(t, "feature", ev.feature(f.ID).State, "DONE")
 }
@@ -486,8 +490,165 @@ func TestReworkExhaustedBlocks(t *testing.T) {
 	f, _ := ev.startToDev()
 	ev.drain()
 	ap := ev.decide(domain.ApprovalRework, "approved", "")
+	ev.drain()
+	ap, _ = store.GetApproval(context.Background(), ev.s.Pool, ap.ID)
 	expect(t, "approbation", ap.Status, "execution_failed")
 	expect(t, "ticket", ev.ticket(f.ID).State, "BLOCKED")
+}
+
+func TestApprovalExecutionSurvivesEngineRestart(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	p := ev.project()
+	f, err := store.CreateFeature(ctx, ev.s.Pool, p.ID, "Durable", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err = store.SetFeatureState(ctx, ev.s.Pool, f.ID, f.Version, string(domain.FeatureSpec), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err = store.SetFeatureState(ctx, ev.s.Pool, f.ID, f.Version, string(domain.FeatureSpecReview), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ap, _, err := store.CreateApproval(ctx, ev.s.Pool, store.NewApproval{Kind: domain.ApprovalSpecReview, SubjectType: "feature", SubjectID: f.ID,
+		Title: "Spec", Effect: "Lancer la conception"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decided, err := ev.e.DecideApproval(ctx, ap.ID, domain.ApprovalApproved, "", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expect(t, "décision persistée", decided.Status, domain.ApprovalApproved)
+	expect(t, "effet différé", ev.feature(f.ID).State, string(domain.FeatureSpecReview))
+	jobs, err := store.ListActiveJobs(ctx, ev.s.Pool)
+	if err != nil || len(jobs) != 1 || jobs[0].Kind != domain.JobExecuteApproval {
+		t.Fatalf("job durable absent: %+v err=%v", jobs, err)
+	}
+	restarted := &engine.Engine{Store: ev.s, Log: ev.e.Log, MaxRework: ev.e.MaxRework, Backoff: time.Millisecond}
+	restarted.Init()
+	if did, err := restarted.RunOnce(ctx, "restarted-worker"); err != nil || !did {
+		t.Fatalf("reprise après redémarrage: did=%v err=%v", did, err)
+	}
+	expect(t, "effet exécuté", ev.feature(f.ID).State, string(domain.FeatureTechDesign))
+	ap, _ = store.GetApproval(ctx, ev.s.Pool, ap.ID)
+	expect(t, "approbation exécutée", ap.Status, domain.ApprovalExecuted)
+}
+
+// Deux workers exécutent simultanément deux jobs execute_approval pour la même
+// approbation (doublon injecté, ou reprise après perte de lease) : l'effet
+// n'est appliqué qu'une fois, et un rejeu ultérieur est sans effet.
+func TestApprovalConcurrentExecutionAppliesEffectOnce(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	p := ev.project()
+	f, err := store.CreateFeature(ctx, ev.s.Pool, p.ID, "Concurrence", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, _ = store.SetFeatureState(ctx, ev.s.Pool, f.ID, f.Version, string(domain.FeatureSpec), "", "")
+	f, _ = store.SetFeatureState(ctx, ev.s.Pool, f.ID, f.Version, string(domain.FeatureSpecReview), "", "")
+	ap, _, err := store.CreateApproval(ctx, ev.s.Pool, store.NewApproval{Kind: domain.ApprovalSpecReview, SubjectType: "feature", SubjectID: f.ID,
+		Title: "Spec", Effect: "Lancer la conception"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ev.e.DecideApproval(ctx, ap.ID, domain.ApprovalApproved, "", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, created, err := store.EnqueueJob(ctx, ev.s.Pool, store.NewJob{Kind: domain.JobExecuteApproval, SubjectType: "approval",
+		SubjectID: ap.ID, IdempotencyKey: "doublon-concurrent"}); err != nil || !created {
+		t.Fatalf("doublon: %v %v", created, err)
+	}
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	for _, owner := range []string{"worker-a", "worker-b"} {
+		wg.Add(1)
+		go func(owner string) {
+			defer wg.Done()
+			<-start
+			did, err := ev.e.RunOnce(ctx, owner)
+			if err == nil && !did {
+				err = fmt.Errorf("%s n'a pris aucun job", owner)
+			}
+			errs <- err
+		}(owner)
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	countEffects := func() (techDesign, executed int) {
+		jobs, _ := store.ListJobsForSubject(ctx, ev.s.Pool, "feature", f.ID)
+		for _, j := range jobs {
+			if j.Kind == domain.JobTechDesign {
+				techDesign++
+			}
+		}
+		entries, _ := store.ListAudit(ctx, ev.s.Pool, store.AuditFilter{SubjectType: "feature", SubjectID: f.ID}, store.Page{Limit: 200})
+		for _, a := range entries {
+			if a.Action == "approval.executed" {
+				executed++
+			}
+		}
+		return
+	}
+	td, ex := countEffects()
+	expect(t, "jobs tech_design", td, 1)
+	expect(t, "audits approval.executed", ex, 1)
+	expect(t, "feature", ev.feature(f.ID).State, string(domain.FeatureTechDesign))
+	execJobs, _ := store.ListJobsForSubject(ctx, ev.s.Pool, "approval", ap.ID)
+	for _, j := range execJobs {
+		expect(t, fmt.Sprintf("job %d", j.ID), j.Status, domain.JobSucceeded)
+	}
+	// rejeu après perte de lease : le job revient en file et repasse
+	if _, err := ev.s.Pool.Exec(ctx, `UPDATE jobs SET status='queued', run_after=now() WHERE id=$1`, execJobs[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if did, err := ev.e.RunOnce(ctx, "worker-c"); err != nil || !did {
+		t.Fatalf("rejeu: did=%v err=%v", did, err)
+	}
+	td, ex = countEffects()
+	expect(t, "jobs tech_design après rejeu", td, 1)
+	expect(t, "audits après rejeu", ex, 1)
+	got, _ := store.GetApproval(ctx, ev.s.Pool, ap.ID)
+	expect(t, "approbation", got.Status, domain.ApprovalExecuted)
+}
+
+func TestApprovalFailsWhenApprovedProjectSnapshotChanges(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	p := ev.project()
+	f, err := store.CreateFeature(ctx, ev.s.Pool, p.ID, "Snapshot", "Projet immuable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ev.e.FeatureAction(ctx, f.ID, "start_spec", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	ev.drain()
+	ev.decide(domain.ApprovalSpecReview, "approved", "")
+	ev.drain()
+	ap := ev.pending(domain.ApprovalDesignReview)
+	_, err = store.UpdateProject(ctx, ev.s.Pool, p.ID, store.ProjectInput{Slug: p.Slug, Name: p.Name, Repository: "o/changed",
+		BaseBranch: p.BaseBranch, RequiredChecks: p.RequiredChecks, Mode: p.Mode, Enabled: p.Enabled, TestCommand: p.TestCommand})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ev.e.DecideApproval(ctx, ap.ID, domain.ApprovalApproved, "", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	ev.drain()
+	ap, _ = store.GetApproval(ctx, ev.s.Pool, ap.ID)
+	expect(t, "approbation", ap.Status, domain.ApprovalExecutionFailed)
+	expect(t, "feature inchangée", ev.feature(f.ID).State, string(domain.FeatureTechDesignReview))
 }
 
 func TestInvalidVerdictFailsClosed(t *testing.T) {

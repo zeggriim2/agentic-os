@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -207,7 +208,7 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 	}
 	var out *store.Project
 	err := s.Store.InTx(r.Context(), func(tx pgx.Tx) error {
-		cur, err := store.GetProject(r.Context(), tx, id)
+		cur, err := store.LockProject(r.Context(), tx, id)
 		if err != nil {
 			return err
 		}
@@ -236,6 +237,16 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		}
 		if code, msg := validateProject(&in); code != "" {
 			return &userError{422, code, msg}
+		}
+		structuralChange := in.Repository != cur.Repository || in.BaseBranch != cur.BaseBranch || !slices.Equal(in.RequiredChecks, cur.RequiredChecks)
+		if structuralChange {
+			active, err := store.ProjectHasActiveFeatures(r.Context(), tx, id)
+			if err != nil {
+				return err
+			}
+			if active {
+				return &userError{409, "project_in_use", "dépôt, branche de base et checks requis sont figés tant qu'une feature est active"}
+			}
 		}
 		becomesActiveProduct := in.Enabled && in.Mode == "product" && !(cur.Enabled && cur.Mode == "product")
 		if becomesActiveProduct && (req.Confirm == nil || *req.Confirm != cur.Slug) {
@@ -392,7 +403,7 @@ func (s *Server) createFeature(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var f *store.Feature
 	err := s.Store.InTx(ctx, func(tx pgx.Tx) error {
-		if _, err := store.GetProject(ctx, tx, req.ProjectID); err != nil {
+		if _, err := store.LockProject(ctx, tx, req.ProjectID); err != nil {
 			if err == store.ErrNotFound {
 				return &userError{422, "invalid_project", "projet inexistant"}
 			}
@@ -654,8 +665,8 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	events := make([]map[string]any, 0, len(evs))
-	for _, e := range evs {
-		events = append(events, map[string]any{"seq": e.Seq, "event": e.Event, "data": rawOrNull(e.Data), "at": ts(e.CreatedAt)})
+	for i := range evs {
+		events = append(events, runEventView(&evs[i]))
 	}
 	output := ""
 	if run.Output != nil {

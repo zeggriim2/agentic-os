@@ -205,6 +205,14 @@ func Notify(ctx context.Context, q Q, typ string, id int64) error {
 	return err
 }
 
+// NotifyRunEvent publie l'arrivée d'un événement de run. Le payload NOTIFY reste
+// minimal (limite de 8000 octets) : l'écouteur relit la ligne persistée.
+func NotifyRunEvent(ctx context.Context, q Q, runID int64, seq int) error {
+	b, _ := json.Marshal(map[string]any{"type": "run.event", "id": runID, "seq": seq})
+	_, err := q.Exec(ctx, `SELECT pg_notify($1, $2)`, Channel, string(b))
+	return err
+}
+
 // ------------------------------------------------------------------ pagination
 
 // Page décrit une demande de page.

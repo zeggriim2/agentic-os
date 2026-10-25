@@ -172,6 +172,15 @@ func TestEnsureDraftPRIdempotent(t *testing.T) {
 	if f.prPosts != 1 {
 		t.Fatalf("un seul POST attendu, obtenu %d", f.prPosts)
 	}
+	f.pulls[pr.Number]["draft"] = false
+	if _, _, err := c.EnsureDraftPR(ctx, "o/r", "aos/k", "main", "T", "Corps"); err == nil {
+		t.Fatal("PR existante non draft acceptée")
+	} else {
+		var ge *Error
+		if !errors.As(err, &ge) || ge.Class != domain.ErrClassPolicy {
+			t.Fatalf("erreur de politique attendue, obtenu %v", err)
+		}
+	}
 }
 
 func TestCIStateAggregation(t *testing.T) {

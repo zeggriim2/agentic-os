@@ -4,18 +4,19 @@ import "regexp"
 
 // Types de jobs.
 const (
-	JobPOSpec     = "po_spec"
-	JobTechDesign = "tech_design"
-	JobOpenIssues = "open_issues"
-	JobDevelop    = "develop"
-	JobReview     = "review"
-	JobQA         = "qa"
-	JobPublishPR  = "publish_pr"
-	JobSyncAgents = "sync_agents"
+	JobPOSpec          = "po_spec"
+	JobTechDesign      = "tech_design"
+	JobOpenIssues      = "open_issues"
+	JobDevelop         = "develop"
+	JobReview          = "review"
+	JobQA              = "qa"
+	JobPublishPR       = "publish_pr"
+	JobExecuteApproval = "execute_approval"
+	JobSyncAgents      = "sync_agents"
 )
 
 // JobKinds liste les types de jobs connus.
-var JobKinds = []string{JobPOSpec, JobTechDesign, JobOpenIssues, JobDevelop, JobReview, JobQA, JobPublishPR, JobSyncAgents}
+var JobKinds = []string{JobPOSpec, JobTechDesign, JobOpenIssues, JobDevelop, JobReview, JobQA, JobPublishPR, JobExecuteApproval, JobSyncAgents}
 
 // Statuts de job.
 const (

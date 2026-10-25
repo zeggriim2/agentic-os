@@ -99,13 +99,44 @@ func listenOnce(ctx context.Context, pool *pgxpool.Pool, hub *Hub) error {
 		var p struct {
 			Type string `json:"type"`
 			ID   int64  `json:"id"`
+			Seq  *int   `json:"seq"`
 		}
 		if json.Unmarshal([]byte(n.Payload), &p) != nil || !allowedEvents[p.Type] {
+			continue
+		}
+		if p.Type == "run.event" {
+			data, ok := runEventPayload(ctx, pool, p.ID, p.Seq)
+			if ok {
+				hub.Publish(Event{Type: p.Type, Data: data})
+			}
 			continue
 		}
 		data, _ := json.Marshal(map[string]any{"id": p.ID})
 		hub.Publish(Event{Type: p.Type, Data: data})
 	}
+}
+
+// runEventView est la forme commune d'un événement de run, en SSE comme dans
+// GET /api/runs/{id}.
+func runEventView(e *store.RunEvent) map[string]any {
+	return map[string]any{"run_id": e.RunID, "seq": e.Seq, "event": e.Event, "data": rawOrNull(e.Data), "created_at": ts(e.CreatedAt)}
+}
+
+// runEventPayload relit l'événement persisté (le NOTIFY ne transporte que run_id/seq).
+func runEventPayload(ctx context.Context, pool *pgxpool.Pool, runID int64, seq *int) (json.RawMessage, bool) {
+	if seq == nil || runID <= 0 {
+		return nil, false
+	}
+	rctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	e, err := store.GetRunEvent(rctx, pool, runID, *seq)
+	if err != nil {
+		return nil, false
+	}
+	v := runEventView(e)
+	v["id"] = e.RunID // compatibilité : id = run concerné, comme les autres types
+	b, err := json.Marshal(v)
+	return b, err == nil
 }
 
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
