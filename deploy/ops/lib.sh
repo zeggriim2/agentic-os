@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Fonctions communes aux scripts d'exploitation (sourcé, pas exécutable seul).
 # Toutes les valeurs ont un défaut adapté à deploy/compose.yaml ; les tests les surchargent.
 # Aucun secret n'est lu ni affiché ici : l'accès à PostgreSQL passe par le conteneur `db`
