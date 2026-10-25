@@ -33,7 +33,8 @@ export function CodeBlock({ value, json = true, className, maxHeight = "max-h-[4
   };
   return (
     <div className={cn("group relative", className)}>
-      <pre className={cn("scroll-thin overflow-auto rounded-md border border-border bg-panel p-3 font-mono text-xs leading-relaxed text-fg", maxHeight)}>
+      {/* tabIndex : zone défilante atteignable au clavier (WCAG 2.1.1) */}
+      <pre tabIndex={0} className={cn("focus-ring scroll-thin overflow-auto rounded-md border border-border bg-panel p-3 font-mono text-xs leading-relaxed text-fg", maxHeight)}>
         {text || <span className="text-fg-subtle">(vide)</span>}
       </pre>
       {text && (

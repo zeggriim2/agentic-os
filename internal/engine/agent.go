@@ -162,11 +162,14 @@ func (e *Engine) evaluate(ctx context.Context, o *agentOutcome, parse func(strin
 	art, err := parse(o.Status.Output)
 	if err != nil {
 		_, _ = e.Store.Pool.Exec(ctx, `UPDATE runs SET error=$2, updated_at=now() WHERE id=$1`, o.Run.ID, truncate(err.Error(), 2000))
+		_ = store.Notify(ctx, e.Store.Pool, "run.updated", o.Run.ID)
 		return nil, permanent(domain.ErrClassInvalidOutput, "%v", err)
 	}
 	if _, err := e.Store.Pool.Exec(ctx, `UPDATE runs SET artifact=$2, updated_at=now() WHERE id=$1`, o.Run.ID, store.JSON(art)); err != nil {
 		return nil, err
 	}
+	// Le run est déjà notifié « terminé » : renotifier pour que la vue en direct affiche le livrable.
+	_ = store.Notify(ctx, e.Store.Pool, "run.updated", o.Run.ID)
 	if o.Status.Usage.TotalTokens > int64(o.Agent.MaxTokensPerRun) {
 		msg := fmt.Sprintf("budget dépassé : %d tokens > %d", o.Status.Usage.TotalTokens, o.Agent.MaxTokensPerRun)
 		_, _ = e.Store.Pool.Exec(ctx, `UPDATE runs SET error=$2, updated_at=now() WHERE id=$1`, o.Run.ID, msg)
