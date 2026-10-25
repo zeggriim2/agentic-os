@@ -14,7 +14,7 @@ function renderLogin(from?: string) {
   return render(
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <MemoryRouter initialEntries={[{ pathname: "/login", state: from ? { from } : null }]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <MemoryRouter initialEntries={[{ pathname: "/login", state: from ? { from } : null }]}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/" element={<div>Accueil</div>} />
