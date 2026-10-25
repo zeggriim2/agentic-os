@@ -230,7 +230,7 @@ export default function TicketDetailPage() {
               )}
               {tab === "runs" && <RunsTable runs={t.runs} />}
               {tab === "approvals" && <ApprovalList approvals={t.approvals} />}
-              {tab === "timeline" && <Timeline entries={t.timeline} />}
+              {tab === "timeline" && <Timeline entries={t.timeline} truncatedLink={t.timeline_truncated ? `/audit?subject_type=ticket&subject_id=${t.id}` : undefined} />}
             </Tabs>
           </Card>
         </div>

@@ -21,7 +21,6 @@ type Config struct {
 	SecretsDir      string
 	WorkspaceRoot   string
 	HermesURL       string
-	PublicTZ        string
 	Workers         int
 	LeaseSeconds    int
 	MaxRework       int
@@ -44,7 +43,6 @@ func Load() (Config, error) {
 		SecretsDir:      env("AOS_SECRETS_DIR", "/run/secrets/agentic-os"),
 		WorkspaceRoot:   env("AOS_WORKSPACE_ROOT", "/home/hermes/agentic-os-data/workspaces"),
 		HermesURL:       strings.TrimRight(env("AOS_HERMES_URL", "http://127.0.0.1:8642"), "/"),
-		PublicTZ:        env("AOS_PUBLIC_TZ", "Europe/Paris"),
 		AdminLogin:      env("AOS_ADMIN_LOGIN", "admin"),
 		GitBinary:       env("AOS_GIT_BINARY", "/usr/bin/git"),
 		GitHubAPIURL:    strings.TrimRight(env("AOS_GITHUB_API_URL", "https://api.github.com"), "/"),
@@ -66,9 +64,6 @@ func Load() (Config, error) {
 		return c, errors.New("AOS_WORKSPACE_ROOT, AOS_SECRETS_DIR et AOS_GIT_BINARY doivent être des chemins absolus")
 	}
 	c.WorkspaceRoot = filepath.Clean(c.WorkspaceRoot)
-	if _, err := time.LoadLocation(c.PublicTZ); err != nil {
-		return c, fmt.Errorf("AOS_PUBLIC_TZ invalide: %w", err)
-	}
 	return c, nil
 }
 

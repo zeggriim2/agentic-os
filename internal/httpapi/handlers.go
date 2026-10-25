@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -41,7 +40,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	}
 	alerts := []map[string]any{}
 	if paused {
-		alerts = append(alerts, map[string]any{"level": "warning", "message": "Le dispatch est en pause : aucun nouveau job n'est pris.", "link": "/system"})
+		alerts = append(alerts, map[string]any{"level": "warning", "message": "Le dispatch est en pause : aucun nouveau job n'est pris.", "link": "/"})
 	}
 	if o.BlockedFeatures+o.BlockedTickets > 0 {
 		alerts = append(alerts, map[string]any{"level": "error", "message": "Des éléments sont bloqués et attendent une action.", "link": "/pipeline"})
@@ -111,7 +110,7 @@ func validateProject(in *store.ProjectInput) (string, string) {
 	switch {
 	case !domain.ValidSlug(in.Slug):
 		return "invalid_slug", "slug invalide (minuscules, chiffres, tirets ; 40 caractères max)"
-	case in.Name == "" || len(in.Name) > 200:
+	case !domain.ValidProjectName(in.Name):
 		return "invalid_name", "nom requis (200 caractères max)"
 	case !domain.ValidRepository(in.Repository):
 		return "invalid_repository", "dépôt invalide (format owner/repo)"
@@ -119,9 +118,9 @@ func validateProject(in *store.ProjectInput) (string, string) {
 		return "invalid_base_branch", "branche de base invalide"
 	case in.Mode != "sandbox" && in.Mode != "product":
 		return "invalid_mode", "mode invalide (sandbox ou product)"
-	case len(in.TestCommand) > 500:
+	case !domain.ValidTestCommand(in.TestCommand):
 		return "invalid_test_command", "commande de test trop longue"
-	case len(in.RequiredChecks) > 20:
+	case len(in.RequiredChecks) > domain.MaxRequiredChecks:
 		return "invalid_required_checks", "20 checks requis maximum"
 	}
 	seen := map[string]bool{}
@@ -320,13 +319,13 @@ func (s *Server) patchAgent(w http.ResponseWriter, r *http.Request) {
 		next := *cur
 		if req.DesiredModel != nil {
 			m := trim(*req.DesiredModel)
-			if m != "" && !domain.ValidModelName(m) {
+			if !domain.ValidDesiredModel(m) {
 				return &userError{422, "invalid_model", "nom de modèle invalide"}
 			}
 			next.DesiredModel = m
 		}
 		if req.MaxTokensPerRun != nil {
-			if *req.MaxTokensPerRun < 1000 || *req.MaxTokensPerRun > 50_000_000 {
+			if !domain.ValidMaxTokens(*req.MaxTokensPerRun) {
 				return &userError{422, "invalid_max_tokens", "max_tokens_per_run doit être compris entre 1 000 et 50 000 000"}
 			}
 			next.MaxTokensPerRun = *req.MaxTokensPerRun
@@ -399,12 +398,12 @@ func (s *Server) createFeature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Title = trim(req.Title)
-	if req.Title == "" || len(req.Title) > 200 {
+	if !domain.ValidFeatureTitle(req.Title) {
 		writeError(w, 422, "invalid_title", "titre requis (200 caractères max)")
 		return
 	}
-	if len(req.Description) > 20000 {
-		writeError(w, 422, "invalid_description", "description trop longue (20 000 caractères max)")
+	if !domain.ValidFeatureDescription(req.Description) {
+		writeError(w, 422, "invalid_description", "description requise (20 000 caractères max)")
 		return
 	}
 	ctx := r.Context()
@@ -451,7 +450,7 @@ func (s *Server) getFeature(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	approvals, err := store.ListApprovals(ctx, s.Store.Pool, store.ApprovalFilter{SubjectType: "feature", SubjectID: id}, store.Page{Limit: 200})
+	approvals, err := store.ListApprovalsForSubject(ctx, s.Store.Pool, "feature", id)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -470,7 +469,7 @@ func (s *Server) getFeature(w http.ResponseWriter, r *http.Request) {
 	for _, t := range tickets {
 		tids = append(tids, t.ID)
 	}
-	timeline, err := store.ListAuditForSubjects(ctx, s.Store.Pool, id, tids)
+	timeline, timelineTruncated, err := store.ListAuditForSubjects(ctx, s.Store.Pool, id, tids)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -484,6 +483,8 @@ func (s *Server) getFeature(w http.ResponseWriter, r *http.Request) {
 		"runs":      mapSlice(runs, func(x *store.Run) runView { return viewRun(x, false) }),
 		"jobs":      mapSlice(jobs, viewJob),
 		"timeline":  mapSlice(timeline, viewAudit),
+		// timeline_truncated : les entrées les plus anciennes sont omises (voir /api/audit).
+		"timeline_truncated": timelineTruncated,
 	})
 }
 
@@ -532,7 +533,7 @@ func (s *Server) getTicket(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	approvals, err := store.ListApprovals(ctx, s.Store.Pool, store.ApprovalFilter{SubjectType: "ticket", SubjectID: id}, store.Page{Limit: 200})
+	approvals, err := store.ListApprovalsForSubject(ctx, s.Store.Pool, "ticket", id)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -542,18 +543,18 @@ func (s *Server) getTicket(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	timeline, err := store.ListAudit(ctx, s.Store.Pool, store.AuditFilter{SubjectType: "ticket", SubjectID: id}, store.Page{Limit: 200})
+	timeline, timelineTruncated, err := store.ListAuditForSubjects(ctx, s.Store.Pool, 0, []int64{id})
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	sort.Slice(timeline, func(i, j int) bool { return timeline[i].ID < timeline[j].ID })
 	writeJSON(w, 200, map[string]any{
-		"ticket":    viewTicket(t, names),
-		"runs":      mapSlice(runs, func(x *store.Run) runView { return viewRun(x, true) }),
-		"approvals": mapSlice(approvals, viewApproval),
-		"jobs":      mapSlice(jobs, viewJob),
-		"timeline":  mapSlice(timeline, viewAudit),
+		"ticket":             viewTicket(t, names),
+		"runs":               mapSlice(runs, func(x *store.Run) runView { return viewRun(x, true) }),
+		"approvals":          mapSlice(approvals, viewApproval),
+		"jobs":               mapSlice(jobs, viewJob),
+		"timeline":           mapSlice(timeline, viewAudit),
+		"timeline_truncated": timelineTruncated,
 	})
 }
 
@@ -666,7 +667,7 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	evs, err := store.ListRunEvents(ctx, s.Store.Pool, id)
+	evs, eventsTruncated, err := store.ListRunEvents(ctx, s.Store.Pool, id)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -679,7 +680,7 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
 	if run.Output != nil {
 		output = *run.Output
 	}
-	writeJSON(w, 200, map[string]any{"run": viewRun(run, true), "job": viewJob(job), "events": events, "output": output})
+	writeJSON(w, 200, map[string]any{"run": viewRun(run, true), "job": viewJob(job), "events": events, "events_truncated": eventsTruncated, "output": output})
 }
 
 func (s *Server) stopRun(w http.ResponseWriter, r *http.Request) {

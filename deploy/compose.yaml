@@ -24,7 +24,6 @@ x-app-env: &app-env
   AOS_WORKERS: ${AOS_WORKERS:-2}
   AOS_LEASE_SECONDS: ${AOS_LEASE_SECONDS:-60}
   AOS_MAX_REWORK: ${AOS_MAX_REWORK:-3}
-  AOS_PUBLIC_TZ: ${AOS_PUBLIC_TZ:-Europe/Paris}
 
 services:
   db:

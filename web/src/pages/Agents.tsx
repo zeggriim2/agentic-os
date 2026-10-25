@@ -15,6 +15,7 @@ import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 import { roleLabel } from "@/lib/states";
+import { LIMITS, validDesiredModel, validMaxTokens } from "@/lib/validation";
 
 function EditAgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => void }) {
   const [model, setModel] = useState("");
@@ -30,11 +31,14 @@ function EditAgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () 
     }
   }, [agent]);
   const n = Number(budget);
-  const budgetErr = !/^\d+$/.test(budget) || n <= 0 ? "Entier strictement positif." : undefined;
+  const budgetErr = !/^\d+$/.test(budget) || !validMaxTokens(n)
+    ? `Entier entre ${formatNumber(LIMITS.minTokens)} et ${formatNumber(LIMITS.maxTokens)}.`
+    : undefined;
+  const modelErr = validDesiredModel(model.trim()) ? undefined : "Nom de modèle invalide (lettres, chiffres, . _ : / @ -).";
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setTouched(true);
-    if (!agent || budgetErr) return;
+    if (!agent || budgetErr || modelErr) return;
     m.mutate(
       { role: agent.role, patch: { desired_model: model.trim(), max_tokens_per_run: n } },
       {
@@ -67,7 +71,7 @@ function EditAgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () 
             {errorMessage(m.error)}
           </p>
         )}
-        <Field label="Modèle souhaité" hint="Comparé au modèle observé lors des runs pour détecter une dérive.">
+        <Field label="Modèle souhaité" error={touched ? modelErr : undefined} hint="Vide = aucun modèle imposé. Sinon comparé au modèle observé pour détecter une dérive.">
           {(p) => <Input {...p} value={model} onChange={(e) => setModel(e.target.value)} className="font-mono" data-autofocus />}
         </Field>
         <Field label="Budget max de tokens par run" required error={touched ? budgetErr : undefined} hint="Au-delà, le run est rejeté (erreur budget).">

@@ -1,6 +1,9 @@
 package domain
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 // Types de jobs.
 const (
@@ -151,8 +154,12 @@ func ValidSHA(s string) bool { return shaRe.MatchString(s) }
 // ValidTicketKey valide une clé de ticket.
 func ValidTicketKey(s string) bool { return ticketKeyRe.MatchString(s) }
 
-// ValidCheckName valide un nom de check CI requis.
-func ValidCheckName(s string) bool { return checkNameRe.MatchString(s) }
+// ValidCheckName valide un nom de check CI requis (après trim : non vide, 200 caractères
+// max, sans caractère de contrôle).
+func ValidCheckName(s string) bool {
+	t := strings.TrimSpace(s)
+	return t != "" && checkNameRe.MatchString(t)
+}
 
 // ValidModelName valide un nom de modèle.
 func ValidModelName(s string) bool { return modelNameRe.MatchString(s) }

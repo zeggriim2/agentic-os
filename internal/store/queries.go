@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -114,7 +115,11 @@ func GetAgent(ctx context.Context, q Q, role string) (*Agent, error) {
 // UpdateAgent met à jour la configuration désirée d'un agent.
 func UpdateAgent(ctx context.Context, q Q, a *Agent) (*Agent, error) {
 	return one[Agent](ctx, q, `UPDATE agents SET hermes_profile=$2, desired_model=$3, max_tokens_per_run=$4, enabled=$5,
-		sync_state = CASE WHEN observed_model IS NULL THEN 'UNKNOWN' WHEN observed_model=$3 THEN 'SYNCED' ELSE 'DRIFT_DETECTED' END,
+		sync_state = CASE
+			WHEN sync_state='UNREACHABLE' THEN 'UNREACHABLE'
+			WHEN observed_model IS NULL THEN 'UNKNOWN'
+			WHEN $3='' OR observed_model=$3 THEN 'SYNCED'
+			ELSE 'DRIFT_DETECTED' END,
 		updated_at=now() WHERE role=$1 RETURNING `+agentCols,
 		a.Role, a.HermesProfile, a.DesiredModel, a.MaxTokensPerRun, a.Enabled)
 }
@@ -621,9 +626,23 @@ func GetRunEvent(ctx context.Context, q Q, runID int64, seq int) (*RunEvent, err
 	return one[RunEvent](ctx, q, `SELECT id, run_id, seq, event, data, created_at FROM run_events WHERE run_id=$1 AND seq=$2`, runID, seq)
 }
 
-// ListRunEvents liste les événements persistés d'un run.
-func ListRunEvents(ctx context.Context, q Q, runID int64) ([]RunEvent, error) {
-	return many[RunEvent](ctx, q, `SELECT id, run_id, seq, event, data, created_at FROM run_events WHERE run_id=$1 ORDER BY seq LIMIT 2000`, runID)
+// MaxRunEvents borne les événements renvoyés par le détail d'un run.
+const MaxRunEvents = 2000
+
+// ListRunEvents renvoie les MaxRunEvents derniers événements d'un run (ordre seq croissant)
+// et indique si des événements plus anciens ont été omis.
+func ListRunEvents(ctx context.Context, q Q, runID int64) ([]RunEvent, bool, error) {
+	evs, err := many[RunEvent](ctx, q, `SELECT id, run_id, seq, event, data, created_at FROM run_events WHERE run_id=$1
+		ORDER BY seq DESC LIMIT $2`, runID, MaxRunEvents+1)
+	if err != nil {
+		return nil, false, err
+	}
+	truncated := len(evs) > MaxRunEvents
+	if truncated {
+		evs = evs[:MaxRunEvents]
+	}
+	slices.Reverse(evs)
+	return evs, truncated, nil
 }
 
 // ================================================================== approvals
@@ -743,11 +762,33 @@ func ListAudit(ctx context.Context, q Q, f AuditFilter, p Page) ([]AuditEntry, e
 		ORDER BY id DESC LIMIT $5`, cursorOrMax(p.Cursor), f.SubjectType, f.SubjectID, f.Actor, p.Limit+1)
 }
 
-// ListAuditForSubjects renvoie la timeline de plusieurs sujets (ordre chronologique).
-func ListAuditForSubjects(ctx context.Context, q Q, featureID int64, ticketIDs []int64) ([]AuditEntry, error) {
-	return many[AuditEntry](ctx, q, `SELECT `+auditCols+` FROM audit_log
+// MaxTimeline borne la timeline renvoyée par les détails feature/ticket.
+const MaxTimeline = 1000
+
+// ListAuditForSubjects renvoie les MaxTimeline dernières entrées d'audit de plusieurs sujets
+// (ordre chronologique) et indique si des entrées plus anciennes ont été omises.
+func ListAuditForSubjects(ctx context.Context, q Q, featureID int64, ticketIDs []int64) ([]AuditEntry, bool, error) {
+	if ticketIDs == nil {
+		ticketIDs = []int64{}
+	}
+	es, err := many[AuditEntry](ctx, q, `SELECT `+auditCols+` FROM audit_log
 		WHERE (subject_type='feature' AND subject_id=$1) OR (subject_type='ticket' AND subject_id = ANY($2))
-		ORDER BY id LIMIT 1000`, featureID, ticketIDs)
+		ORDER BY id DESC LIMIT $3`, featureID, ticketIDs, MaxTimeline+1)
+	if err != nil {
+		return nil, false, err
+	}
+	truncated := len(es) > MaxTimeline
+	if truncated {
+		es = es[:MaxTimeline]
+	}
+	slices.Reverse(es)
+	return es, truncated, nil
+}
+
+// ListApprovalsForSubject renvoie toutes les approbations d'un sujet (nombre borné par le
+// workflow : une par étape et par rework).
+func ListApprovalsForSubject(ctx context.Context, q Q, subjectType string, id int64) ([]Approval, error) {
+	return many[Approval](ctx, q, `SELECT `+approvalCols+` FROM approvals WHERE subject_type=$1 AND subject_id=$2 ORDER BY id DESC`, subjectType, id)
 }
 
 // ================================================================== deliveries

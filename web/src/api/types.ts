@@ -245,6 +245,8 @@ export interface RunDetail extends Run {
   output: string | null;
   artifact: unknown;
   events: RunEvent[];
+  /** Les événements les plus anciens ont été omis (seuls les 2 000 derniers sont renvoyés). */
+  events_truncated?: boolean;
 }
 
 export interface Approval extends Timestamps {
@@ -285,12 +287,15 @@ export interface FeatureDetail extends Feature {
   approvals: Approval[];
   runs: Run[];
   timeline: AuditEntry[];
+  /** Entrées les plus anciennes omises (seules les 1 000 dernières sont renvoyées). */
+  timeline_truncated?: boolean;
 }
 
 export interface TicketDetail extends Ticket {
   runs: Run[];
   approvals: Approval[];
   timeline: AuditEntry[];
+  timeline_truncated?: boolean;
 }
 
 // ---------- Vue d'ensemble ----------

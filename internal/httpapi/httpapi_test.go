@@ -174,7 +174,7 @@ func TestPayloadValidationAndErrorFormat(t *testing.T) {
 	expectStatus(t, "json cassé", c.do("POST", "/api/projects", "{", true), 400, "invalid_json")
 	expectStatus(t, "slug invalide", c.do("POST", "/api/projects", map[string]any{"slug": "../x", "name": "A", "repository": "o/r"}, true), 422, "invalid_slug")
 	expectStatus(t, "dépôt invalide", c.do("POST", "/api/projects", map[string]any{"slug": "a", "name": "A", "repository": "pas un dépôt"}, true), 422, "invalid_repository")
-	expectStatus(t, "projet absent", c.do("POST", "/api/features", map[string]any{"project_id": 999, "title": "T"}, true), 422, "invalid_project")
+	expectStatus(t, "projet absent", c.do("POST", "/api/features", map[string]any{"project_id": 999, "title": "T", "description": "D"}, true), 422, "invalid_project")
 	expectStatus(t, "titre vide", c.do("POST", "/api/features", map[string]any{"project_id": 1, "title": " "}, true), 422, "invalid_title")
 	expectStatus(t, "limit", c.do("GET", "/api/features?limit=500", nil, false), 400, "invalid_limit")
 	expectStatus(t, "id", c.do("GET", "/api/features/abc", nil, false), 400, "invalid_id")
@@ -395,7 +395,7 @@ func TestSSEReceivesCommittedChanges(t *testing.T) {
 	}
 	time.Sleep(300 * time.Millisecond)
 	p, _ := store.CreateProject(ctx, c.s.Pool, store.ProjectInput{Slug: "demo", Name: "Demo", Repository: "o/r", BaseBranch: "main", Mode: "sandbox"})
-	if r := c.do("POST", "/api/features", map[string]any{"project_id": p.ID, "title": "Nouvelle"}, true); r.status != 201 {
+	if r := c.do("POST", "/api/features", map[string]any{"project_id": p.ID, "title": "Nouvelle", "description": "Décrire l'idée"}, true); r.status != 201 {
 		t.Fatalf("création: %s", r.raw)
 	}
 	timeout := time.After(5 * time.Second)
@@ -491,5 +491,78 @@ func TestSSERunEventCarriesPersistedEvent(t *testing.T) {
 	first := evs[0].(map[string]any)
 	if first["created_at"] == nil || first["at"] != nil || first["run_id"] != float64(run.ID) || first["seq"] != float64(7) {
 		t.Fatalf("format REST incohérent avec SSE: %v", first)
+	}
+}
+
+func TestTruncationIsExplicitAndKeepsMostRecent(t *testing.T) {
+	c := setup(t, nil)
+	c.login()
+	ctx := context.Background()
+	job, _, _ := store.EnqueueJob(ctx, c.s.Pool, store.NewJob{Kind: "po_spec", SubjectType: "feature", SubjectID: 1, IdempotencyKey: "trunc"})
+	run, _ := store.CreateRun(ctx, c.s.Pool, job.ID, "po", "aos-po")
+	if _, err := c.s.Pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, event) SELECT $1, g, 'tool.x' FROM generate_series(1, $2) g`,
+		run.ID, store.MaxRunEvents+5); err != nil {
+		t.Fatal(err)
+	}
+	det := c.do("GET", "/api/runs/"+itoa(run.ID), nil, false)
+	evs := det.body["events"].([]any)
+	if det.body["events_truncated"] != true || len(evs) != store.MaxRunEvents {
+		t.Fatalf("troncature des événements: %v, %d", det.body["events_truncated"], len(evs))
+	}
+	first, last := evs[0].(map[string]any), evs[len(evs)-1].(map[string]any)
+	if first["seq"] != float64(6) || last["seq"] != float64(store.MaxRunEvents+5) {
+		t.Fatalf("les plus récents doivent être conservés, en ordre croissant: %v … %v", first["seq"], last["seq"])
+	}
+	p, _ := store.CreateProject(ctx, c.s.Pool, store.ProjectInput{Slug: "demo", Name: "Demo", Repository: "o/r", BaseBranch: "main", Mode: "sandbox"})
+	f, _ := store.CreateFeature(ctx, c.s.Pool, p.ID, "F", "d")
+	if _, err := c.s.Pool.Exec(ctx, `INSERT INTO audit_log (actor, action, subject_type, subject_id) SELECT 'system', 'test.' || g, 'feature', $1 FROM generate_series(1, $2) g`,
+		f.ID, store.MaxTimeline+3); err != nil {
+		t.Fatal(err)
+	}
+	fd := c.do("GET", "/api/features/"+itoa(f.ID), nil, false)
+	tl := fd.body["timeline"].([]any)
+	if fd.body["timeline_truncated"] != true || len(tl) != store.MaxTimeline {
+		t.Fatalf("troncature timeline: %v %d", fd.body["timeline_truncated"], len(tl))
+	}
+	if a := tl[len(tl)-1].(map[string]any)["action"]; a != "test."+itoa(store.MaxTimeline+3) {
+		t.Fatalf("dernière entrée: %v", a)
+	}
+	tk, _ := store.InsertTicket(ctx, c.s.Pool, store.TicketInput{FeatureID: f.ID, ProjectID: p.ID, Key: "demo-F1-T1", Seq: 1, Title: "T"})
+	td := c.do("GET", "/api/tickets/"+itoa(tk.ID), nil, false)
+	if td.body["timeline_truncated"] != false {
+		t.Fatalf("timeline ticket non tronquée attendue: %v", td.body["timeline_truncated"])
+	}
+}
+
+func TestAgentWithoutDesiredModelIsNotDrifting(t *testing.T) {
+	c := setup(t, nil)
+	c.login()
+	ctx := context.Background()
+	m, prov := "observed-model", "p"
+	if err := store.SetAgentObservation(ctx, c.s.Pool, "po", "SYNCED", &m, &prov); err != nil {
+		t.Fatal(err)
+	}
+	r := c.do("PATCH", "/api/agents/po", map[string]any{"desired_model": ""}, true)
+	if r.status != 200 || r.body["sync_state"] != "SYNCED" {
+		t.Fatalf("aucun modèle imposé → SYNCED attendu: %s", r.raw)
+	}
+	r = c.do("PATCH", "/api/agents/po", map[string]any{"desired_model": "autre-modele"}, true)
+	if r.body["sync_state"] != "DRIFT_DETECTED" {
+		t.Fatalf("modèle différent → DRIFT attendu: %s", r.raw)
+	}
+	expectStatus(t, "budget sous le minimum", c.do("PATCH", "/api/agents/po", map[string]any{"max_tokens_per_run": 999}, true), 422, "invalid_max_tokens")
+	expectStatus(t, "modèle invalide", c.do("PATCH", "/api/agents/po", map[string]any{"desired_model": "a b"}, true), 422, "invalid_model")
+	if err := store.SetAgentObservation(ctx, c.s.Pool, "po", "UNREACHABLE", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	r = c.do("PATCH", "/api/agents/po", map[string]any{"max_tokens_per_run": 5000}, true)
+	if r.body["sync_state"] != "UNREACHABLE" {
+		t.Fatalf("UNREACHABLE ne doit pas être masqué par un PATCH: %s", r.raw)
+	}
+	// Le lien d'alerte du dispatch en pause mène vers une route existante (vue d'ensemble).
+	c.do("POST", "/api/system/dispatch", map[string]any{"paused": true}, true)
+	ov := c.do("GET", "/api/overview", nil, false)
+	if !strings.Contains(ov.raw, `"link":"/"`) || strings.Contains(ov.raw, "/system") {
+		t.Fatalf("lien d'alerte: %s", ov.raw)
 	}
 }
