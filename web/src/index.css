@@ -26,8 +26,9 @@
   --tone-neutral: 82 88 98;
   --tone-info: 29 100 196;
   --tone-progress: 99 72 196;
-  --tone-review: 161 98 7;
-  --tone-success: 21 128 61;
+  /* review et success assombris : texte des badges ≥ 4.5:1 sur leur fond teinté (axe, E2E) */
+  --tone-review: 133 77 14;
+  --tone-success: 22 101 52;
   --tone-danger: 196 34 40;
   --tone-warning: 180 83 9;
   color-scheme: light;

@@ -1,0 +1,81 @@
+name: e2e
+
+# Tests E2E navigateur (Playwright, Chromium) : parcours complet par l'UI contre de faux
+# Hermes/GitHub/Telegram (e2e/fakes), responsive et accessibilité (axe). Porte de release.
+# Voir docs/technique/tests-e2e.md.
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GOTOOLCHAIN: local
+      CI: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            e2e/package-lock.json
+
+      - name: Construire l'UI (web/dist embarqué)
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Construire agentic-os et les faux services
+        run: |
+          go vet ./e2e/...
+          go build -o "$RUNNER_TEMP/aos-bin/agentic-os" ./cmd/agentic-os
+          go build -o "$RUNNER_TEMP/aos-bin/aos-e2e-fakes" ./e2e/fakes
+
+      - name: Installer Playwright (Chromium)
+        working-directory: e2e
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium
+          npx tsc --noEmit -p .
+
+      - name: Tests E2E
+        working-directory: e2e
+        env:
+          AOS_E2E_BIN_DIR: ${{ runner.temp }}/aos-bin
+          AOS_E2E_SKIP_WEB_BUILD: "1"
+        run: npx playwright test
+
+      - name: Rapport Playwright et journaux (échec)
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-playwright-report
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+            e2e/logs/
+          retention-days: 14
+          if-no-files-found: ignore
