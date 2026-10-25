@@ -149,7 +149,8 @@ async function setup(cleanups: (() => void | Promise<void>)[]) {
   // 2. Secrets (fichiers 0600 dans un dossier 0700).
   const secrets = path.join(work, "secrets");
   fs.mkdirSync(secrets, { mode: 0o700 });
-  const password = `e2e-${secret(18)}`;
+  // Identifiant de connexion de test tiré au hasard à chaque exécution (jamais en dur).
+  const adminCredential = secret(24);
   writeSecret(secrets, "session_key", secret(48));
   writeSecret(secrets, "github_token", `ghs_e2e_${secret(24)}`);
   writeSecret(secrets, "github_webhook_secret", secret(32));
@@ -158,7 +159,7 @@ async function setup(cleanups: (() => void | Promise<void>)[]) {
   for (const profile of ["aos-po", "aos-tech-lead", "aos-developer", "aos-reviewer", "aos-qa"]) {
     writeSecret(secrets, `hermes/${profile}.key`, secret(32));
   }
-  run(aos, ["admin-password", "-o", path.join(secrets, "admin_password_hash")], { input: password + "\n" });
+  run(aos, ["admin-password", "-o", path.join(secrets, "admin_password_hash")], { input: adminCredential + "\n" });
 
   // 3. PostgreSQL jetable.
   const pgPort = Number(process.env.AOS_E2E_PG_PORT || (await freePort()));
@@ -251,13 +252,13 @@ async function setup(cleanups: (() => void | Promise<void>)[]) {
   log(`Agentic OS prêt sur ${baseURL} (faux services ${fakesURL})`);
 
   // 6. État partagé + session administrateur (une seule connexion : le login est limité à 5/min).
-  const state: E2EState = { baseURL, fakesURL, login: "admin", password, workDir: work };
+  const state: E2EState = { baseURL, fakesURL, login: "admin", password: adminCredential, workDir: work };
   fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true, mode: 0o700 });
   fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), { mode: 0o600 });
   cleanups.push(() => fs.rmSync(path.dirname(STATE_FILE), { recursive: true, force: true }));
   fs.mkdirSync(path.dirname(AUTH_FILE), { recursive: true, mode: 0o700 });
   const ctx = await request.newContext({ baseURL });
-  const res = await ctx.post("/api/auth/login", { data: { login: state.login, password } });
+  const res = await ctx.post("/api/auth/login", { data: { login: state.login, password: adminCredential } });
   if (res.status() !== 200) throw new Error(`connexion initiale refusée : HTTP ${res.status()}`);
   await ctx.storageState({ path: AUTH_FILE });
   fs.chmodSync(AUTH_FILE, 0o600);
