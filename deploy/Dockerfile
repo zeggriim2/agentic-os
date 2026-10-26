@@ -2,7 +2,7 @@
 # Build multi-étapes : UI (node) → binaire Go statique → image d'exécution minimale (UID 1000).
 
 # Images épinglées par digest (mises à jour par Dependabot, voir .github/dependabot.yml).
-FROM node:22-alpine3.24@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS web
+FROM node:26-alpine3.24@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-fund --ignore-scripts
