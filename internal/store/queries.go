@@ -242,6 +242,30 @@ func ListTicketsByFeature(ctx context.Context, q Q, featureID int64) ([]Ticket, 
 	return many[Ticket](ctx, q, `SELECT `+ticketCols+` FROM tickets WHERE feature_id=$1 ORDER BY seq`, featureID)
 }
 
+// ProjectDevBusy indique si un ticket du projet est en cours de développement : un ticket
+// dans un état actif (ni PLANNED, READY_FOR_DEV, DONE ni CANCELLED — BLOCKED compris), ou un
+// job develop en file / pris. Le développement est séquentiel par projet.
+func ProjectDevBusy(ctx context.Context, q Q, projectID int64) (bool, error) {
+	var busy bool
+	err := q.QueryRow(ctx, `SELECT
+		EXISTS(SELECT 1 FROM tickets WHERE project_id=$1
+			AND state NOT IN ('PLANNED','READY_FOR_DEV','DONE','CANCELLED'))
+		OR EXISTS(SELECT 1 FROM jobs WHERE project_id=$1 AND kind='develop' AND status IN ('queued','leased'))`,
+		projectID).Scan(&busy)
+	return busy, err
+}
+
+// NextReadyTicket verrouille le prochain ticket READY_FOR_DEV du projet (feature la plus
+// ancienne, puis ordre du plan). nil si aucun.
+func NextReadyTicket(ctx context.Context, q Q, projectID int64) (*Ticket, error) {
+	t, err := one[Ticket](ctx, q, `SELECT `+ticketCols+` FROM tickets WHERE project_id=$1 AND state='READY_FOR_DEV'
+		ORDER BY feature_id, seq LIMIT 1 FOR UPDATE`, projectID)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	return t, err
+}
+
 // ListTicketsByStates liste les tickets dans des états donnés.
 func ListTicketsByStates(ctx context.Context, q Q, states []string) ([]Ticket, error) {
 	return many[Ticket](ctx, q, `SELECT `+ticketCols+` FROM tickets WHERE state = ANY($1) ORDER BY id`, states)

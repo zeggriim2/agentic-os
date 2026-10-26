@@ -191,7 +191,7 @@ func (e *Engine) executeApproval(ctx context.Context, tx pgx.Tx, ap *store.Appro
 			if err != nil {
 				return nil, false, nil, err
 			}
-			var jobs []int64
+			ready := 0
 			for i := range tickets {
 				t := &tickets[i]
 				if t.State != string(domain.TicketPlanned) {
@@ -200,14 +200,14 @@ func (e *Engine) executeApproval(ctx context.Context, tx pgx.Tx, ap *store.Appro
 				if _, err := e.ticketEvent(ctx, tx, t, domain.TicketEvReady, actor, ""); err != nil {
 					return nil, false, nil, err
 				}
-				j, err := e.enqueue(ctx, tx, store.NewJob{Kind: domain.JobDevelop, SubjectType: "ticket", SubjectID: t.ID, ProjectID: &p.ID,
-					IdempotencyKey: jobKey(domain.JobDevelop, "ticket", t.ID, disc)})
-				if err != nil {
-					return nil, false, nil, err
-				}
-				jobs = append(jobs, j.ID)
+				ready++
 			}
-			return map[string]any{"state": nf.State, "jobs": jobs}, true, nil, nil
+			// Développement séquentiel par projet : seul le premier ticket démarre ; les suivants
+			// partent quand le précédent est mergé ou annulé (advanceProject).
+			if err := e.advanceProject(ctx, tx, p.ID); err != nil {
+				return nil, false, nil, err
+			}
+			return map[string]any{"state": nf.State, "tickets_ready": ready}, true, nil, nil
 		}
 	case "ticket":
 		t, err := store.LockTicket(ctx, tx, ap.SubjectID)
