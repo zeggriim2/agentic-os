@@ -1,6 +1,6 @@
 // Package gitops exécute git (binaire absolu, argv explicite, env minimal, timeouts) pour
 // gérer clones, worktrees, vérifications et push. Le token n'apparaît jamais dans l'URL,
-// l'argv, l'environnement ni les logs : il est lu par un script GIT_ASKPASS temporaire.
+// l'argv, l'environnement ni les logs : il est lu depuis son fichier par un credential helper shell.
 package gitops
 
 import (
@@ -168,39 +168,30 @@ func (m *Manager) Relative(p string) string {
 	return rel
 }
 
-// authEnv prépare GIT_ASKPASS ; cleanup supprime le script.
-func (m *Manager) authEnv() ([]string, func(), error) {
-	if m.TokenFile == "" {
-		return nil, func() {}, nil
+// credentialHelper renvoie le helper Git qui fournit le token. C'est une commande shell
+// (préfixe « ! ») exécutée par Git : aucun fichier temporaire exécutable n'est nécessaire,
+// ce qui fonctionne avec un /tmp monté noexec et un système de fichiers en lecture seule.
+// Le token est lu depuis son fichier au moment de la demande : il n'apparaît jamais dans
+// l'argv, l'environnement, l'URL ni les logs (seul le chemin du fichier est passé).
+func (m *Manager) credentialHelper() (string, error) {
+	if !filepath.IsAbs(m.TokenFile) || strings.ContainsAny(m.TokenFile, "'\n\r\x00") {
+		return "", fmt.Errorf("%w: chemin du token invalide", ErrGit)
 	}
-	if !filepath.IsAbs(m.TokenFile) || strings.ContainsAny(m.TokenFile, "'\n\x00") {
-		return nil, nil, fmt.Errorf("%w: chemin du token invalide", ErrGit)
-	}
-	dir, err := os.MkdirTemp("", "aos-askpass-")
-	if err != nil {
-		return nil, nil, err
-	}
-	cleanup := func() { _ = os.RemoveAll(dir) }
-	if err := os.Chmod(dir, 0o700); err != nil {
-		cleanup()
-		return nil, nil, err
-	}
-	script := "#!/bin/sh\ncase \"$1\" in\n  Username*) echo x-access-token ;;\n  *) cat '" + m.TokenFile + "' ;;\nesac\n"
-	p := filepath.Join(dir, "askpass.sh")
-	if err := os.WriteFile(p, []byte(script), 0o700); err != nil {
-		cleanup()
-		return nil, nil, err
-	}
-	return []string{"GIT_ASKPASS=" + p}, cleanup, nil
+	return `!f() { test "$1" = get || exit 0; echo username=x-access-token; printf 'password='; tr -d '\r\n' < '` +
+		m.TokenFile + `'; echo; }; f`, nil
 }
 
 func (m *Manager) runAuth(ctx context.Context, dir string, args ...string) (string, error) {
-	env, cleanup, err := m.authEnv()
+	if m.TokenFile == "" {
+		return m.Git.Run(ctx, dir, nil, args...)
+	}
+	h, err := m.credentialHelper()
 	if err != nil {
 		return "", err
 	}
-	defer cleanup()
-	return m.Git.Run(ctx, dir, env, args...)
+	// Run commence par « -c credential.helper= » (vide la liste des helpers hérités) ;
+	// celui-ci est ajouté après et devient le seul helper actif.
+	return m.Git.Run(ctx, dir, nil, append([]string{"-c", "credential.helper=" + h}, args...)...)
 }
 
 // EnsureClone crée (ou met à jour l'URL de) la copie bare du dépôt.

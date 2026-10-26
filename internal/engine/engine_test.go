@@ -219,6 +219,8 @@ type env struct {
 	mu     sync.Mutex
 	// devHook est appelé après le commit du développeur (simule un événement concurrent).
 	devHook func(worktree string)
+	// design remplace le livrable du Tech Lead (vide = designOK, un ticket).
+	design string
 }
 
 const poOK = "Voici la spec.\n```json\n{\"summary\":\"s\",\"user_stories\":[\"en tant que…\"],\"acceptance_criteria\":[\"c1\"],\"open_questions\":[]}\n```"
@@ -258,6 +260,9 @@ func newEnv(t *testing.T) *env {
 		case "aos-po":
 			return ev.po()
 		case "aos-tech-lead":
+			if ev.design != "" {
+				return ev.design, 1000
+			}
 			return designOK, 1000
 		case "aos-developer":
 			wt := worktreeRe.FindStringSubmatch(req.Input)[1]
@@ -1145,4 +1150,143 @@ func TestWebhookInvalidPayloadIsNotRetried(t *testing.T) {
 	if d.Status != "failed" || d.NextAttemptAt != nil {
 		t.Fatalf("livraison: %+v", d)
 	}
+}
+
+// ------------------------------------------------------------------ développement séquentiel
+
+const designTwo = "```json\n{\"summary\":\"d\",\"decisions\":[{\"decision\":\"Go\",\"rationale\":\"simple\",\"rejected_alternatives\":[\"Rust\"]}],\"risks\":[\"r1\"],\"tickets\":[" +
+	"{\"title\":\"Ajouter hello\",\"body\":\"Créer hello.txt\",\"acceptance_criteria\":[\"hello.txt existe\"]}," +
+	"{\"title\":\"Compléter hello\",\"body\":\"Modifier hello.txt\",\"acceptance_criteria\":[\"hello.txt existe\"]}]}\n```"
+
+// toDevGateTwo amène une feature à deux tickets jusqu'au feu vert développement approuvé.
+func (ev *env) toDevGateTwo() (*store.Feature, []store.Ticket) {
+	ev.t.Helper()
+	return ev.toDevGateTwoIn(ev.project(), "Hello")
+}
+
+func (ev *env) toDevGateTwoIn(p *store.Project, title string) (*store.Feature, []store.Ticket) {
+	ev.t.Helper()
+	ctx := context.Background()
+	ev.design = designTwo
+	f, _ := store.CreateFeature(ctx, ev.s.Pool, p.ID, title, "Dire bonjour")
+	if _, err := ev.e.FeatureAction(ctx, f.ID, "start_spec", "admin"); err != nil {
+		ev.t.Fatal(err)
+	}
+	ev.drain()
+	ev.decide(domain.ApprovalSpecReview, "approved", "")
+	ev.drain()
+	ev.decide(domain.ApprovalDesignReview, "approved", "")
+	ev.drain()
+	expect(ev.t, "feature", ev.feature(f.ID).State, "HUMAN_GATE")
+	ev.decide(domain.ApprovalDevGate, "approved", "")
+	// exécute uniquement le job durable de l'approbation (pas le développement)
+	if did, err := ev.e.RunOnce(ctx, "test-worker"); err != nil || !did {
+		ev.t.Fatalf("exécution de l'approbation: %v %v", did, err)
+	}
+	expect(ev.t, "approbation exécutée", ev.job(domain.JobExecuteApproval).Status, domain.JobSucceeded)
+	ts, _ := store.ListTicketsByFeature(ctx, ev.s.Pool, f.ID)
+	if len(ts) != 2 {
+		ev.t.Fatalf("tickets: %d", len(ts))
+	}
+	return f, ts
+}
+
+func (ev *env) developJobs(ticketID int64) int {
+	var n int
+	if err := ev.s.Pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM jobs WHERE kind='develop' AND subject_id=$1 AND status<>'cancelled'`, ticketID).Scan(&n); err != nil {
+		ev.t.Fatal(err)
+	}
+	return n
+}
+
+func (ev *env) ticketState(id int64) string {
+	t, err := store.GetTicket(context.Background(), ev.s.Pool, id)
+	if err != nil {
+		ev.t.Fatal(err)
+	}
+	return t.State
+}
+
+func TestTicketsAreDevelopedSequentiallyPerProject(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	f, ts := ev.toDevGateTwo()
+	t1, t2 := ts[0], ts[1]
+	expect(t, "job develop T1", ev.developJobs(t1.ID), 1)
+	expect(t, "pas de job develop T2 au feu vert", ev.developJobs(t2.ID), 0)
+	expect(t, "T2 prêt", ev.ticketState(t2.ID), "READY_FOR_DEV")
+
+	ev.drain()
+	expect(t, "T1 après dev/review/qa", ev.ticketState(t1.ID), "AWAITING_PR_APPROVAL")
+	expect(t, "T2 attend tant que T1 est en cours", ev.ticketState(t2.ID), "READY_FOR_DEV")
+	expect(t, "toujours pas de job T2", ev.developJobs(t2.ID), 0)
+	expect(t, "un seul run développeur", ev.calls["aos-developer"], 1)
+
+	ev.decide(domain.ApprovalPublishPR, "approved", "")
+	ev.drain()
+	expect(t, "T1 PR ouverte", ev.ticketState(t1.ID), "PR_OPENED")
+	expect(t, "T2 attend le merge de T1", ev.developJobs(t2.ID), 0)
+
+	ev.g.merged = true
+	if err := ev.e.ReconcilePR(ctx, t1.ID); err != nil {
+		t.Fatal(err)
+	}
+	expect(t, "T1 mergé", ev.ticketState(t1.ID), "DONE")
+	expect(t, "T2 démarre après le merge de T1", ev.developJobs(t2.ID), 1)
+	ev.g.merged = false
+	ev.drain()
+	expect(t, "T2 développé", ev.ticketState(t2.ID), "AWAITING_PR_APPROVAL")
+	expect(t, "deux runs développeur au total", ev.calls["aos-developer"], 2)
+	expect(t, "feature", ev.feature(f.ID).State, "IN_DEV")
+}
+
+func TestCancelledTicketReleasesTheProject(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	_, ts := ev.toDevGateTwo()
+	t1, t2 := ts[0], ts[1]
+	expect(t, "T2 en attente", ev.developJobs(t2.ID), 0)
+	if _, err := ev.e.TicketAction(ctx, t1.ID, "cancel", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	expect(t, "T1 annulé", ev.ticketState(t1.ID), "CANCELLED")
+	expect(t, "job T1 annulé", ev.developJobs(t1.ID), 0)
+	expect(t, "T2 démarre", ev.developJobs(t2.ID), 1)
+	ev.drain()
+	expect(t, "T2 développé", ev.ticketState(t2.ID), "AWAITING_PR_APPROVAL")
+}
+
+func TestBlockedTicketHoldsTheProject(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	_, ts := ev.toDevGateTwo()
+	t1, t2 := ts[0], ts[1]
+	// Le développeur ne commit rien : livrable refusé, T1 bloqué.
+	ev.devHook = func(wt string) { gitRun(t, wt, "reset", "--hard", "HEAD~1") }
+	ev.drain()
+	expect(t, "T1 bloqué", ev.ticketState(t1.ID), "BLOCKED")
+	expect(t, "T2 n'est pas lancé pendant le blocage", ev.developJobs(t2.ID), 0)
+	ev.devHook = nil
+	if _, err := ev.e.TicketAction(ctx, t1.ID, "retry", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	ev.drain()
+	expect(t, "T1 repris", ev.ticketState(t1.ID), "AWAITING_PR_APPROVAL")
+	expect(t, "T2 toujours en attente", ev.developJobs(t2.ID), 0)
+}
+
+func TestOtherFeatureWaitsForTheProject(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	p := ev.project()
+	_, a := ev.toDevGateTwoIn(p, "A")
+	ev.drain()
+	expect(t, "A-T1 en cours", ev.ticketState(a[0].ID), "AWAITING_PR_APPROVAL")
+	// Une seconde feature du même projet reçoit son feu vert pendant que A-T1 est en cours.
+	_, b := ev.toDevGateTwoIn(p, "B")
+	expect(t, "A-T2 attend", ev.developJobs(a[1].ID), 0)
+	expect(t, "B-T1 attend", ev.developJobs(b[0].ID), 0)
+	expect(t, "B-T2 attend", ev.developJobs(b[1].ID), 0)
+	_ = ctx
 }

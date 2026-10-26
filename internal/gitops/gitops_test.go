@@ -3,6 +3,9 @@ package gitops
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/cgi"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -197,40 +200,91 @@ func TestPathValidationAndBinary(t *testing.T) {
 	}
 }
 
-func TestAskpassScriptReadsTokenFile(t *testing.T) {
-	dir := t.TempDir()
-	tok := filepath.Join(dir, "github_token")
-	_ = os.WriteFile(tok, []byte("ghs_SECRET"), 0o600)
-	m := &Manager{TokenFile: tok}
-	env, cleanup, err := m.authEnv()
+// authGitServer sert des dépôts bare en HTTP « smart » (git http-backend) et exige
+// l'authentification Basic x-access-token:<token>, comme GitHub.
+func authGitServer(t *testing.T, root, token string) *httptest.Server {
+	t.Helper()
+	backend := filepath.Join(strings.TrimSpace(run(t, root, "--exec-path")), "git-http-backend")
+	h := &cgi.Handler{Path: backend, Env: []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1",
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null"}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, p, ok := r.BasicAuth()
+		if !ok || u != "x-access-token" || p != token {
+			w.Header().Set("WWW-Authenticate", `Basic realm="git"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		r.Header.Set("REMOTE_USER", u)
+		h.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// Le token passe par un credential helper shell : pas de fichier temporaire exécutable
+// (fonctionne avec /tmp en noexec, cas du conteneur), token absent de l'argv.
+func TestAuthenticatedCloneAndPushWithoutTempFiles(t *testing.T) {
+	if _, err := os.Stat(gitBin); err != nil {
+		t.Skip("git absent")
+	}
+	base := t.TempDir()
+	srvRoot := filepath.Join(base, "srv")
+	_ = os.MkdirAll(srvRoot, 0o755)
+	seed := filepath.Join(base, "seed")
+	_ = os.MkdirAll(seed, 0o755)
+	run(t, seed, "init", "-q")
+	_ = os.WriteFile(filepath.Join(seed, "a.txt"), []byte("a\n"), 0o644)
+	run(t, seed, "add", ".")
+	run(t, seed, "commit", "-q", "-m", "init")
+	run(t, base, "clone", "-q", "--bare", seed, filepath.Join(srvRoot, "o", "r.git"))
+	run(t, filepath.Join(srvRoot, "o", "r.git"), "config", "http.receivepack", "true")
+
+	srv := authGitServer(t, srvRoot, "ghs_SECRET")
+	tokFile := filepath.Join(base, "github_token")
+	_ = os.WriteFile(tokFile, []byte("ghs_SECRET\n"), 0o600)
+
+	// TMPDIR non inscriptible : aucun fichier temporaire ne doit être nécessaire.
+	ro := filepath.Join(base, "ro-tmp")
+	_ = os.MkdirAll(ro, 0o500)
+	t.Setenv("TMPDIR", ro)
+
+	m := &Manager{Root: filepath.Join(base, "ws"), Git: Runner{GitPath: gitBin, Timeout: time.Minute},
+		RemoteURL: func(repo string) string { return srv.URL + "/" + repo + ".git" }, TokenFile: tokFile}
+	h, err := m.credentialHelper()
+	if err != nil || strings.Contains(h, "ghs_SECRET") {
+		t.Fatalf("helper: %v (token dans l'argv ?)", err)
+	}
+	ctx := context.Background()
+	wt, err := m.EnsureBranchWorktree(ctx, "demo", "o/r", "demo-F1-T1", "aos/demo-F1-T1", "main")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(env) != 1 || strings.Contains(env[0], "ghs_SECRET") {
-		t.Fatalf("env inattendu")
+	_ = os.WriteFile(filepath.Join(wt, "b.txt"), []byte("b\n"), 0o644)
+	run(t, wt, "add", ".")
+	run(t, wt, "commit", "-q", "-m", "feat: b")
+	if err := m.Push(ctx, wt, "aos/demo-F1-T1"); err != nil {
+		t.Fatalf("push authentifié: %v", err)
 	}
-	script := strings.TrimPrefix(env[0], "GIT_ASKPASS=")
-	st, err := os.Stat(script)
-	if err != nil || st.Mode().Perm() != 0o700 {
-		t.Fatalf("permissions du script: %v", err)
+	if got := run(t, base, "--git-dir", filepath.Join(srvRoot, "o", "r.git"), "rev-parse", "refs/heads/aos/demo-F1-T1"); got != run(t, wt, "rev-parse", "HEAD") {
+		t.Fatalf("branche distante %s", got)
 	}
-	out, err := exec.Command(script, "Password for 'https://x-access-token@github.com': ").Output()
-	if err != nil || strings.TrimSpace(string(out)) != "ghs_SECRET" {
-		t.Fatalf("mot de passe: %q %v", out, err)
+	if entries, _ := os.ReadDir(ro); len(entries) != 0 {
+		t.Fatalf("fichiers temporaires créés: %v", entries)
 	}
-	out, _ = exec.Command(script, "Username for 'https://github.com': ").Output()
-	if strings.TrimSpace(string(out)) != "x-access-token" {
-		t.Fatalf("utilisateur: %q", out)
+
+	// Mauvais token : refusé, et le message d'erreur ne contient pas le token.
+	_ = os.WriteFile(tokFile, []byte("ghs_FAUX"), 0o600)
+	_ = os.WriteFile(filepath.Join(wt, "c.txt"), []byte("c\n"), 0o644)
+	run(t, wt, "add", ".")
+	run(t, wt, "commit", "-q", "-m", "feat: c")
+	err = m.Push(ctx, wt, "aos/demo-F1-T1")
+	if err == nil || strings.Contains(err.Error(), "ghs_") {
+		t.Fatalf("push avec mauvais token: %v", err)
 	}
-	b, _ := os.ReadFile(script)
-	if strings.Contains(string(b), "ghs_SECRET") {
-		t.Fatal("token écrit dans le script")
-	}
-	cleanup()
-	if _, err := os.Stat(script); !os.IsNotExist(err) {
-		t.Fatal("script non supprimé")
-	}
-	if _, _, err := (&Manager{TokenFile: "/tmp/it's"}).authEnv(); err == nil {
+	if _, err := (&Manager{TokenFile: "/tmp/it's"}).credentialHelper(); err == nil {
 		t.Fatal("chemin avec quote accepté")
+	}
+	if _, err := (&Manager{TokenFile: "relatif"}).credentialHelper(); err == nil {
+		t.Fatal("chemin relatif accepté")
 	}
 }
