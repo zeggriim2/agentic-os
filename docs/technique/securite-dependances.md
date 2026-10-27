@@ -19,7 +19,7 @@
   commentaire. Les tags mutables ne sont pas utilisés.
 - **Mises à jour** : Dependabot (`.github/dependabot.yml`) ouvre chaque lundi des PR vers `develop`
   pour Go, npm, actions GitHub et images Docker. Elles passent la CI et le merge reste humain.
-- **Surveillance continue** : le workflow `security` tourne sur chaque push/PR et chaque lundi, pour
+- **Surveillance continue** : le workflow `security` tourne sur chaque PR, sur chaque push vers `main`/`develop` et chaque lundi, pour
   détecter les nouvelles CVE sur du code inchangé.
 
 ## Contrôles en CI
