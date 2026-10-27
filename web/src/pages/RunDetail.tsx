@@ -19,6 +19,7 @@ import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/cn";
 import { formatDuration, formatNumber, formatParisTime } from "@/lib/format";
 import { roleLabel, RUN_ACTIVE } from "@/lib/states";
+import { runTokenSplit } from "@/lib/tokens";
 
 function eventTone(name: string): string {
   if (name.includes("failed") || name.includes("error")) return "text-danger";
@@ -106,6 +107,7 @@ export default function RunDetailPage() {
     );
   const r = q.data;
   const active = RUN_ACTIVE.has(r.status);
+  const tokens = runTokenSplit(r);
 
   return (
     <>
@@ -163,18 +165,24 @@ export default function RunDetailPage() {
         <div className="space-y-4">
           <Card>
             <CardHeader title="Tokens" />
-            <div className="grid grid-cols-3 divide-x divide-border text-center">
-              {[
-                ["Entrée", r.input_tokens],
-                ["Sortie", r.output_tokens],
-                ["Total", r.total_tokens],
-              ].map(([l, v]) => (
-                <div key={l as string} className="p-3">
+            <div className="grid grid-cols-3 divide-x divide-border text-center" data-testid="run-tokens">
+              {(
+                [
+                  ["Entrée nouvelle", tokens.fresh, "Contexte réellement nouveau envoyé au modèle"],
+                  ["Relue du cache", tokens.cache, "Contexte déjà envoyé, relu depuis le cache du fournisseur (bien moins coûteux)"],
+                  ["Sortie", tokens.output, "Texte produit par le modèle"],
+                ] as const
+              ).map(([l, v, hint]) => (
+                <div key={l} className="p-3" title={hint}>
                   <p className="text-2xs text-fg-subtle">{l}</p>
-                  <p className="mt-0.5 font-semibold tabular-nums text-fg">{formatNumber(v as number | null)}</p>
+                  <p className="mt-0.5 font-semibold tabular-nums text-fg">{formatNumber(v)}</p>
                 </div>
               ))}
             </div>
+            <p className="border-t border-border px-4 py-2 text-xs text-fg-subtle">
+              Total brut <span className="tabular-nums">{formatNumber(tokens.total)}</span>, dont{" "}
+              <span className="tabular-nums">{tokens.total > 0 ? Math.round((tokens.cache / tokens.total) * 100) : 0} %</span> relus du cache.
+            </p>
           </Card>
           <Card>
             <CardHeader title="Détails" />

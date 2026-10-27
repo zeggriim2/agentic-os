@@ -687,3 +687,36 @@ func TestProjectGitGraph(t *testing.T) {
 		t.Fatalf("graphe accessible sans session : %d", res.StatusCode)
 	}
 }
+
+func TestRunAndOverviewExposeTokenSplit(t *testing.T) {
+	c := setup(t, nil)
+	c.login()
+	ctx := context.Background()
+	job, _, err := store.EnqueueJob(ctx, c.s.Pool, store.NewJob{Kind: "po_spec", SubjectType: "feature", SubjectID: 1, IdempotencyKey: "split"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _ := store.CreateRun(ctx, c.s.Pool, job.ID, "developer", "aos-developer")
+	if err := store.FinishRun(ctx, c.s.Pool, run.ID, store.RunResult{Status: "completed", InputTokens: 305443, OutputTokens: 2637,
+		TotalTokens: 308080, CacheReadTokens: 248960, CacheWriteTokens: 0}); err != nil {
+		t.Fatal(err)
+	}
+	r := c.do("GET", fmt.Sprintf("/api/runs/%d", run.ID), nil, false)
+	expectStatus(t, "run", r, 200, "")
+	rv, _ := r.body["run"].(map[string]any)
+	r.body = rv
+	if r.body["fresh_input_tokens"] != float64(56483) || r.body["cache_read_tokens"] != float64(248960) ||
+		r.body["input_tokens"] != float64(305443) || r.body["total_tokens"] != float64(308080) {
+		t.Fatalf("répartition du run : %s", r.raw)
+	}
+	ov := c.do("GET", "/api/overview", nil, false)
+	sp, _ := ov.body["tokens_today_split"].(map[string]any)
+	if sp["fresh_input"] != float64(56483) || sp["cache_read"] != float64(248960) || sp["output"] != float64(2637) {
+		t.Fatalf("répartition du jour : %s", ov.raw)
+	}
+	days, _ := ov.body["tokens_7d"].([]any)
+	last, _ := days[len(days)-1].(map[string]any)
+	if last["total"] != float64(308080) || last["fresh_input"] != float64(56483) || last["cache_read"] != float64(248960) || last["output"] != float64(2637) {
+		t.Fatalf("série 7 jours : %v", last)
+	}
+}

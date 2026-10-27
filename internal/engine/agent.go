@@ -116,7 +116,8 @@ func (e *Engine) runAgent(ctx context.Context, j *store.Job, role string, subjec
 			}
 			res := store.RunResult{
 				Status: st.NormalizedStatus(), InputTokens: st.Usage.InputTokens, OutputTokens: st.Usage.OutputTokens,
-				TotalTokens: st.Usage.TotalTokens, Model: st.Runtime.Model, Provider: st.Runtime.Provider, Output: st.Output,
+				TotalTokens: st.Usage.TotalTokens, CacheReadTokens: st.Usage.CacheReadTokens,
+				CacheWriteTokens: st.Usage.CacheWriteTokens, Model: st.Runtime.Model, Provider: st.Runtime.Provider, Output: st.Output,
 				Error: st.Error,
 			}
 			if err := store.FinishRun(ctx, e.Store.Pool, run.ID, res); err != nil {

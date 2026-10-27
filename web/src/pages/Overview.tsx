@@ -15,12 +15,27 @@ import { TokenChart } from "@/components/ui/TokenChart";
 import { cn } from "@/lib/cn";
 import { formatCompact, formatNumber } from "@/lib/format";
 
-function Stat({ label, value, icon, to, tone }: { label: string; value: string; icon: React.ReactNode; to?: string; tone?: string }) {
+function Stat({
+  label,
+  value,
+  icon,
+  to,
+  tone,
+  hint,
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  to?: string;
+  tone?: string;
+  hint?: string;
+}) {
   const body = (
     <div className="flex items-start justify-between gap-3 p-4">
       <div>
         <p className="text-xs font-medium text-fg-muted">{label}</p>
         <p className={cn("mt-1 text-2xl font-semibold tabular-nums tracking-tight", tone ?? "text-fg")}>{value}</p>
+        {hint && <p className="mt-0.5 text-2xs text-fg-subtle">{hint}</p>}
       </div>
       <span className="rounded-md border border-border bg-panel p-1.5 text-fg-subtle" aria-hidden>
         {icon}
@@ -191,6 +206,7 @@ export default function OverviewPage() {
   }
   const ov = q.data;
   const blockedTotal = count(ov.blocked.features) + count(ov.blocked.tickets);
+  const today = ov.tokens_today_split;
 
   return (
     <>
@@ -241,7 +257,12 @@ export default function OverviewPage() {
         <Stat label="Approbations en attente" value={formatNumber(ov.pending_approvals)} icon={<CheckSquare className="h-4 w-4" />} to="/approvals" tone={ov.pending_approvals ? "text-review" : undefined} />
         <Stat label="Éléments bloqués" value={formatNumber(blockedTotal)} icon={<Ban className="h-4 w-4" />} to="/pipeline" tone={blockedTotal ? "text-danger" : undefined} />
         <Stat label="Runs actifs" value={formatNumber(ov.active_runs)} icon={<Activity className="h-4 w-4" />} to="/runs?status=running" />
-        <Stat label="Tokens aujourd'hui" value={formatCompact(ov.tokens_today)} icon={<Coins className="h-4 w-4" />} />
+        <Stat
+          label="Tokens nouveaux aujourd'hui"
+          value={formatCompact(today ? today.fresh_input + today.output : ov.tokens_today)}
+          hint={today ? `+ ${formatCompact(today.cache_read)} relus du cache` : undefined}
+          icon={<Coins className="h-4 w-4" />}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -273,7 +294,15 @@ export default function OverviewPage() {
         </div>
         <div className="space-y-4">
           <Card>
-            <CardHeader title="Tokens — 7 jours" description={`Aujourd'hui : ${formatNumber(ov.tokens_today)}`} icon={<Coins className="h-4 w-4 text-fg-subtle" aria-hidden />} />
+            <CardHeader
+              title="Tokens — 7 jours"
+              description={
+                today
+                  ? `Aujourd'hui : ${formatNumber(today.fresh_input)} en entrée nouvelle, ${formatNumber(today.output)} en sortie, ${formatNumber(today.cache_read)} relus du cache`
+                  : `Aujourd'hui : ${formatNumber(ov.tokens_today)}`
+              }
+              icon={<Coins className="h-4 w-4 text-fg-subtle" aria-hidden />}
+            />
             <div className="p-4">{ov.tokens_7d.length ? <TokenChart data={ov.tokens_7d} /> : <EmptyState title="Aucune donnée" className="py-4" />}</div>
           </Card>
           <DispatchCard ov={ov} />

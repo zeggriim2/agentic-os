@@ -88,7 +88,8 @@ func (e *Engine) confirmStop(ctx context.Context, r *store.Run, final string, st
 			return nil
 		}
 		res := store.RunResult{Status: final, InputTokens: st.Usage.InputTokens, OutputTokens: st.Usage.OutputTokens,
-			TotalTokens: st.Usage.TotalTokens, Model: st.Runtime.Model, Provider: st.Runtime.Provider, Output: st.Output,
+			TotalTokens: st.Usage.TotalTokens, CacheReadTokens: st.Usage.CacheReadTokens,
+			CacheWriteTokens: st.Usage.CacheWriteTokens, Model: st.Runtime.Model, Provider: st.Runtime.Provider, Output: st.Output,
 			Error: firstNonEmpty(str(cur.Error), note, st.Error)}
 		if err := store.FinishRun(ctx, tx, r.ID, res); err != nil {
 			return err

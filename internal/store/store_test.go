@@ -399,3 +399,86 @@ func TestDeliveriesDedup(t *testing.T) {
 		t.Fatal("livraison traitée réservée à nouveau")
 	}
 }
+
+// ------------------------------------------------------------------ répartition des tokens
+
+func TestRunTokenSplitAndOverview(t *testing.T) {
+	s := pgtest.New(t)
+	ctx := context.Background()
+	job, _, err := store.EnqueueJob(ctx, s.Pool, store.NewJob{Kind: "po_spec", SubjectType: "feature", SubjectID: 1, IdempotencyKey: "tok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, _ := store.CreateRun(ctx, s.Pool, job.ID, "developer", "aos-developer")
+	if err := store.FinishRun(ctx, s.Pool, r.ID, store.RunResult{Status: "completed", InputTokens: 305443, OutputTokens: 2637,
+		TotalTokens: 308080, CacheReadTokens: 248960, CacheWriteTokens: 12}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetRun(ctx, s.Pool, r.ID)
+	if got.CacheReadTokens != 248960 || got.CacheWriteTokens != 12 {
+		t.Fatalf("cache non enregistré : %+v", got)
+	}
+	// Un cache supérieur à l'entrée (donnée incohérente) est borné : l'entrée nouvelle reste ≥ 0.
+	r2, _ := store.CreateRun(ctx, s.Pool, job.ID, "qa", "aos-qa")
+	if err := store.FinishRun(ctx, s.Pool, r2.ID, store.RunResult{Status: "completed", InputTokens: 100, OutputTokens: 5,
+		TotalTokens: 105, CacheReadTokens: 900, CacheWriteTokens: -3}); err != nil {
+		t.Fatal(err)
+	}
+	got2, _ := store.GetRun(ctx, s.Pool, r2.ID)
+	if got2.CacheReadTokens != 100 || got2.CacheWriteTokens != 0 {
+		t.Fatalf("bornes : %+v", got2)
+	}
+	o, err := store.GetOverview(ctx, s.Pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := store.TokenSplit{FreshInput: 305443 - 248960, CacheRead: 248960 + 100, Output: 2637 + 5}
+	if o.TokensToday != 308080+105 || o.TokensTodaySplit != want {
+		t.Fatalf("aujourd'hui : %d %+v", o.TokensToday, o.TokensTodaySplit)
+	}
+	if len(o.Tokens7d) != 7 || o.Tokens7d[6].TokenSplit != want || o.Tokens7d[6].Total != 308185 || o.Tokens7d[0].Total != 0 {
+		t.Fatalf("7 jours : %+v", o.Tokens7d)
+	}
+}
+
+func TestTokenSplitMigrationBackfillsFromRunEvents(t *testing.T) {
+	s := pgtest.New(t)
+	ctx := context.Background()
+	job, _, err := store.EnqueueJob(ctx, s.Pool, store.NewJob{Kind: "po_spec", SubjectType: "feature", SubjectID: 1, IdempotencyKey: "bf"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mk := func(input int64, usage string) int64 {
+		r, _ := store.CreateRun(ctx, s.Pool, job.ID, "po", "aos-po")
+		if err := store.FinishRun(ctx, s.Pool, r.ID, store.RunResult{Status: "completed", InputTokens: input, TotalTokens: input}); err != nil {
+			t.Fatal(err)
+		}
+		if usage != "" {
+			if _, err := store.InsertRunEvent(ctx, s.Pool, r.ID, 1, "run.completed", []byte(`{"usage":`+usage+`}`)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return r.ID
+	}
+	ok := mk(305443, `{"input_tokens":305443,"cache_read_tokens":248960,"cache_write_tokens":7}`)
+	none := mk(50, "")
+	bad := mk(50, `{"cache_read_tokens":"x","cache_write_tokens":"y"}`)
+	over := mk(10, `{"cache_read_tokens":99}`)
+	// Simule une base 0003 : colonnes supprimées puis migration 0004 rejouée.
+	if _, err := s.Pool.Exec(ctx, `ALTER TABLE runs DROP COLUMN cache_read_tokens, DROP COLUMN cache_write_tokens`); err != nil {
+		t.Fatal(err)
+	}
+	sql, err := migrations.FS.ReadFile("0004_token_usage_split.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Pool.Exec(ctx, string(sql)); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[int64][2]int64{ok: {248960, 7}, none: {0, 0}, bad: {0, 0}, over: {10, 0}} {
+		r, _ := store.GetRun(ctx, s.Pool, id)
+		if r.CacheReadTokens != want[0] || r.CacheWriteTokens != want[1] {
+			t.Fatalf("run %d : cache %d/%d, attendu %v", id, r.CacheReadTokens, r.CacheWriteTokens, want)
+		}
+	}
+}

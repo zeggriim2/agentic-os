@@ -2,6 +2,12 @@
 
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [SemVer](https://semver.org/lang/fr/).
 
+## [Non publié]
+
+### Modifié
+- Tokens : entrée nouvelle, relue du cache et sortie affichées séparément (détail d'un run, liste des
+  runs, vue d'ensemble, histogramme 7 jours) ; migration 0004 avec reprise des runs existants.
+
 ## [1.1.0] — 2026-10-27
 
 ### Ajouté
