@@ -262,7 +262,8 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) int {
 		WebhookSecret: func() ([]byte, error) { v, err := d.secrets.Read("github_webhook_secret"); return []byte(v), err },
 		CookieSecure:  cfg.CookieSecure,
 		Version:       version, Revision: revision, Workers: cfg.Workers,
-		Health: httpapi.HealthDeps{Hermes: d.hermes, GitHub: d.github, Telegram: d.telegram},
+		Health:   httpapi.HealthDeps{Hermes: d.hermes, GitHub: d.github, Telegram: d.telegram},
+		GitGraph: d.git, GitHubWebURL: cfg.GitHubWebURL,
 	}
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr, Handler: api.Router(),

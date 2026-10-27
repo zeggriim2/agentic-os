@@ -19,6 +19,7 @@ const ApprovalsPage = lazy(() => import("@/pages/Approvals"));
 const ApprovalDetailPage = lazy(() => import("@/pages/ApprovalDetail"));
 const AgentsPage = lazy(() => import("@/pages/Agents"));
 const ProjectsPage = lazy(() => import("@/pages/Projects"));
+const ProjectGitGraphPage = lazy(() => import("@/pages/ProjectGitGraph"));
 const AuditPage = lazy(() => import("@/pages/Audit"));
 const HealthPage = lazy(() => import("@/pages/Health"));
 const NotFoundPage = lazy(() => import("@/pages/NotFound"));
@@ -61,6 +62,7 @@ export function AppRoutes() {
         <Route path="approvals/:id" element={page(<ApprovalDetailPage />)} />
         <Route path="agents" element={page(<AgentsPage />)} />
         <Route path="projects" element={page(<ProjectsPage />)} />
+        <Route path="projects/:id/git" element={page(<ProjectGitGraphPage />)} />
         <Route path="audit" element={page(<AuditPage />)} />
         <Route path="health" element={page(<HealthPage />)} />
         <Route path="*" element={page(<NotFoundPage />)} />

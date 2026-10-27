@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { FolderGit2, Pencil, Plus, ShieldAlert } from "lucide-react";
+import { FolderGit2, GitBranch, Pencil, Plus, ShieldAlert } from "lucide-react";
+import { Link } from "react-router-dom";
 import { errorMessage } from "@/api/client";
 import { useCreateProject, usePatchProject, useProjects } from "@/api/queries";
 import type { Project, ProjectMode } from "@/api/types";
@@ -242,7 +243,14 @@ export default function ProjectsPage() {
                       <td className="px-4 py-2.5">
                         <Switch checked={p.enabled} label={`${p.enabled ? "Désactiver" : "Activer"} ${p.slug}`} onChange={(v) => setToggle({ p, enable: v })} />
                       </td>
-                      <td className="px-4 py-2.5 text-right">
+                      <td className="whitespace-nowrap px-4 py-2.5 text-right">
+                        <Link
+                          to={`/projects/${p.id}/git`}
+                          className="focus-ring mr-1 inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm text-fg-muted hover:bg-hover hover:text-fg"
+                        >
+                          <GitBranch className="h-3.5 w-3.5" aria-hidden />
+                          Graphe Git
+                        </Link>
                         <Button size="sm" variant="ghost" onClick={() => setDialog({ open: true, project: p })} icon={<Pencil className="h-3.5 w-3.5" aria-hidden />}>
                           Modifier
                         </Button>
