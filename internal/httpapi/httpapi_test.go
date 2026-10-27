@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,6 +23,7 @@ import (
 	"github.com/zeggriim2/agentic-os/internal/domain"
 	"github.com/zeggriim2/agentic-os/internal/engine"
 	gh "github.com/zeggriim2/agentic-os/internal/github"
+	"github.com/zeggriim2/agentic-os/internal/gitops"
 	"github.com/zeggriim2/agentic-os/internal/httpapi"
 	"github.com/zeggriim2/agentic-os/internal/store"
 	"github.com/zeggriim2/agentic-os/internal/testutil/pgtest"
@@ -564,5 +566,124 @@ func TestAgentWithoutDesiredModelIsNotDrifting(t *testing.T) {
 	ov := c.do("GET", "/api/overview", nil, false)
 	if !strings.Contains(ov.raw, `"link":"/"`) || strings.Contains(ov.raw, "/system") {
 		t.Fatalf("lien d'alerte: %s", ov.raw)
+	}
+}
+
+// ------------------------------------------------------------------ graphe Git
+
+type fakeGraph struct {
+	calls int
+	last  gitops.GraphQuery
+	err   error
+}
+
+func (f *fakeGraph) Graph(_ context.Context, slug, repo string, q gitops.GraphQuery) (*gitops.Graph, error) {
+	f.calls++
+	f.last = q
+	if f.err != nil {
+		return nil, f.err
+	}
+	now := time.Now().UTC()
+	return &gitops.Graph{Since: now.Add(-30 * 24 * time.Hour),
+		Refs: []gitops.GraphRef{{Name: "main", Kind: gitops.KindMain, SHA: "m1", Date: now},
+			{Name: "aos/g-F1-T1", Kind: gitops.KindFeature, SHA: "t1", Date: now}},
+		Tags: []gitops.GraphTag{{Name: "v1.0.0", SHA: "m1"}},
+		Commits: []gitops.GraphCommit{
+			{SHA: "t1", Parents: []string{"m0"}, Subject: "ticket", Branch: "aos/g-F1-T1", Kind: gitops.KindFeature},
+			{SHA: "m1", Parents: []string{"m0", "x"}, Subject: "Merge pull request #4 from o/b", Branch: "main", Kind: gitops.KindMain, PR: 4},
+		}}, nil
+}
+
+func TestProjectGitGraph(t *testing.T) {
+	c := setup(t, nil)
+	fg := &fakeGraph{}
+	// Second serveur sur la même base, avec la source de graphe et une URL web personnalisée.
+	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	srv := &httpapi.Server{Store: c.s, Engine: c.e, Log: log, Hub: httpapi.NewHub(), AdminLogin: "admin",
+		PasswordHash: func() (string, error) { return string(hash), nil }, SessionKey: bytes.Repeat([]byte("k"), 32),
+		WebhookSecret: func() ([]byte, error) { return webhookSecret, nil }, GitGraph: fg, GitHubWebURL: "https://gh.example/"}
+	ts := httptest.NewServer(srv.Router())
+	t.Cleanup(ts.Close)
+	c.srv = ts
+	c.login()
+
+	r := c.do("POST", "/api/projects", map[string]any{"slug": "g", "name": "G", "repository": "o/g"}, true)
+	expectStatus(t, "projet", r, 201, "")
+	pid := int64(r.body["id"].(float64))
+	f, err := store.CreateFeature(context.Background(), c.s.Pool, pid, "F", "d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.s.Pool.Exec(context.Background(), `INSERT INTO tickets (feature_id, project_id, key, seq, title, body, acceptance, state, branch, pr_number, pr_url)
+		VALUES ($1,$2,'g-F1-T1',1,'T','b','[]','PR_OPENED','aos/g-F1-T1',12,'https://gh.example/o/g/pull/12')`, f.ID, pid); err != nil {
+		t.Fatal(err)
+	}
+
+	path := fmt.Sprintf("/api/projects/%d/git-graph", pid)
+	expectStatus(t, "days invalide", c.do("GET", path+"?days=0", nil, false), 400, "invalid_query")
+	expectStatus(t, "days trop grand", c.do("GET", path+"?days=366", nil, false), 400, "invalid_query")
+	expectStatus(t, "type inconnu", c.do("GET", path+"?kinds=main,evil", nil, false), 400, "invalid_query")
+	expectStatus(t, "merged invalide", c.do("GET", path+"?merged=yes", nil, false), 400, "invalid_query")
+	expectStatus(t, "projet absent", c.do("GET", "/api/projects/999999/git-graph", nil, false), 404, "not_found")
+	if fg.calls != 0 {
+		t.Fatal("dépôt lu malgré une requête invalide")
+	}
+
+	r = c.do("GET", path+"?days=7&kinds=feature,main", nil, false)
+	expectStatus(t, "graphe", r, 200, "")
+	if fg.last.Days != 7 || !fg.last.Kinds["main"] || !fg.last.Kinds["feature"] || fg.last.Kinds["develop"] || fg.last.IncludeMerged {
+		t.Fatalf("paramètres transmis : %+v", fg.last)
+	}
+	refs := r.body["refs"].([]any)
+	tr := refs[1].(map[string]any)
+	if tk := tr["ticket"].(map[string]any); tk["key"] != "g-F1-T1" || tk["state"] != "PR_OPENED" {
+		t.Fatalf("ticket non relié à sa branche : %v", tr)
+	}
+	if pr := tr["pr"].(map[string]any); pr["url"] != "https://gh.example/o/g/pull/12" {
+		t.Fatalf("lien de PR du ticket : %v", pr)
+	}
+	if refs[0].(map[string]any)["ticket"] != nil {
+		t.Fatal("ticket attaché à main")
+	}
+	cm := r.body["commits"].([]any)[1].(map[string]any)
+	if cm["url"] != "https://gh.example/o/g/commit/m1" || cm["pr"].(map[string]any)["url"] != "https://gh.example/o/g/pull/4" {
+		t.Fatalf("liens du commit : %v", cm)
+	}
+	if tag := r.body["tags"].([]any)[0].(map[string]any); tag["url"] != "https://gh.example/o/g/releases/tag/v1.0.0" {
+		t.Fatalf("lien du tag : %v", tag)
+	}
+
+	// Cache 30 s ; refresh=1 force la relecture.
+	c.do("GET", path+"?days=7&kinds=main,feature", nil, false)
+	if fg.calls != 1 {
+		t.Fatalf("cache non utilisé (ordre des types indifférent) : %d lectures", fg.calls)
+	}
+	c.do("GET", path+"?days=7&kinds=main,feature&refresh=1", nil, false)
+	if fg.calls != 2 {
+		t.Fatalf("refresh ignoré : %d lectures", fg.calls)
+	}
+	c.do("GET", path+"?days=7&kinds=main,feature&merged=1", nil, false)
+	if fg.calls != 3 || !fg.last.IncludeMerged {
+		t.Fatalf("merged=1 non transmis ou servi depuis le cache : %d %+v", fg.calls, fg.last)
+	}
+
+	// Erreur Git : message générique, aucun détail interne.
+	fg.err = errors.New("fatal: could not read from https://secret.example/token")
+	r = c.do("GET", path+"?days=8", nil, false)
+	expectStatus(t, "erreur git", r, 502, "git_error")
+	if strings.Contains(r.raw, "secret.example") {
+		t.Fatal("détail Git renvoyé au client")
+	}
+
+	// Sans authentification.
+	anon := &http.Client{}
+	res, err := anon.Get(ts.URL + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 401 {
+		t.Fatalf("graphe accessible sans session : %d", res.StatusCode)
 	}
 }

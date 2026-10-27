@@ -43,6 +43,12 @@ quelque chose passe par votre approbation, et le merge reste toujours le vôtre.
 - **Projets** : un projet = un dépôt GitHub, une branche de base et les checks CI obligatoires.
   Le mode **sandbox** sert aux essais ; le mode **product** protège un dépôt de production. Un projet
   utilisé par une feature active ne peut pas changer de dépôt ou de branche de base.
+  **Graphe Git** (sur chaque ligne) : le workflow Git du dépôt en lecture seule — `main`, `develop`,
+  branches de release, hotfix, features et tickets, avec les merges, les tags et les liens vers les PR,
+  les commits et les tickets. Filtres : période (7 jours à 1 an) et types de branches (choix mémorisé).
+  Les branches déjà intégrées (merge, squash) sont masquées par défaut ; **Branches déjà mergées** les
+  réaffiche. Une branche mergée en squash puis modifiée en conflit par la suite n'est pas toujours
+  reconnue : activer la suppression automatique des branches après merge sur GitHub évite ce cas.
 - **Agents** : le profil Hermes de chaque rôle, le modèle souhaité (laisser vide pour ne pas en imposer)
   et le budget de tokens par run.
 - **Audit** : l'historique complet de qui a fait quoi.

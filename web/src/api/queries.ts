@@ -25,6 +25,7 @@ import type {
   Run,
   RunDetail,
   TicketDetail,
+  GitGraph,
 } from "./types";
 
 // Clés de requête — préfixes utilisés pour l'invalidation SSE.
@@ -34,6 +35,7 @@ export const qk = {
   pipeline: ["pipeline"] as const,
   projects: ["projects"] as const,
   project: (id: number) => ["project", id] as const,
+  gitGraph: (id: number, days: number, kinds: string, merged: boolean) => ["git-graph", id, days, kinds, merged] as const,
   agents: ["agents"] as const,
   features: (p: Record<string, QueryValue> = {}) => ["features", p] as const,
   feature: (id: number) => ["feature", id] as const,
@@ -108,6 +110,15 @@ export const useProjects = () =>
   useQuery({
     queryKey: qk.projects,
     queryFn: ({ signal }) => fetchAllPages<Project>("/api/projects", {}, signal),
+  });
+
+export const useGitGraph = (id: number, days: number, kinds: string[], merged: boolean) =>
+  useQuery({
+    queryKey: qk.gitGraph(id, days, kinds.join(","), merged),
+    queryFn: ({ signal }) =>
+      api.get<GitGraph>(`/api/projects/${id}/git-graph${buildQuery({ days, kinds: kinds.join(","), merged: merged ? 1 : undefined })}`, signal),
+    enabled: Number.isFinite(id) && id > 0 && kinds.length > 0,
+    staleTime: 30_000,
   });
 
 export const useAgents = () =>

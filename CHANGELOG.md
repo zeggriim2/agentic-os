@@ -2,6 +2,13 @@
 
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [SemVer](https://semver.org/lang/fr/).
 
+## [Non publié]
+
+### Ajouté
+- Graphe Git par projet (Projets → Graphe Git) : branches GitFlow actives, merges, tags, liens vers
+  PR, commits et tickets ; filtres par période et type de branche ; branches mergées masquées par
+  défaut (merge, squash). Lecture seule.
+
 ## [1.0.1] — 2026-10-27
 
 Retours de la recette réelle de la 1.0.0.

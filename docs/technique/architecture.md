@@ -224,6 +224,7 @@ Dates : ISO-8601 UTC ; l'UI formate en Europe/Paris.
 | GET | `/api/overview` | `{pending_approvals:int, blocked:{features,tickets}, active_runs:int, tokens_today:int, tokens_7d:[{day,total}], dispatch_paused:bool, alerts:[{level,message,link}], recent_activity:[audit]}` |
 | GET/POST | `/api/projects` | liste / création `{slug,name,repository,base_branch,required_checks[],mode,test_command}` |
 | GET/PATCH | `/api/projects/{id}` | détail / mise à jour ; activer un projet `product` exige `{"enabled":true,"confirm":"<slug>"}` |
+| GET | `/api/projects/{id}/git-graph` | graphe Git en lecture seule : `?days=1..365` (30), `kinds=main,develop,release,hotfix,feature,other` (tous), `merged=0\|1` (0), `refresh=1` ; réponse `{project,days,since,truncated,merged,hidden_merged,refs[],tags[],commits[]}` (§12) |
 | GET | `/api/agents` | liste avec état de sync |
 | PATCH | `/api/agents/{role}` | `{desired_model?, max_tokens_per_run?, enabled?}` |
 | POST | `/api/agents/sync` | crée un job `sync_agents` |
@@ -374,3 +375,16 @@ supplémentaires : `database_url`, `postgres_password`.
 `too_many_attempts` (rate-limit login), 405, 500 `internal`. Le webhook renvoie 503 si
 `github_webhook_secret` est absent. Les détails feature/ticket incluent `jobs` (sans clé d'idempotence ni
 lease owner) et le ticket expose `worktree` relatif (`<slug>/<key>`).
+
+### Graphe Git des projets (ajout post-1.0.1)
+
+- Lecture dans une copie bare dédiée `<workspaces>/<slug>/_graph.git` (distincte de `_repo.git` du
+  moteur : aucune contention de verrous), mise à jour par `fetch --prune` des branches et des tags avec
+  le même credential helper que les push. Lectures sérialisées, cache de 30 s par projet et filtres.
+- Branches actives = modifiées dans la fenêtre ; `main`/`develop` toujours présentes. Une branche est
+  « mergée » si sa pointe est un ancêtre de `main`/`develop`, ou si la fusionner n'en change pas
+  l'arbre (`merge-tree`, squash/rebase) ; masquée par défaut.
+- Commits en ordre topologique, attribués à une branche par premiers parents (priorité main, develop,
+  release, hotfix, feature, autres) ; 400 commits au plus (`truncated`). PR déduites des messages de
+  merge/squash GitHub ; branches `aos/<ticket>` reliées au ticket et à sa PR depuis la base.
+- Erreur Git : `502 git_error` générique, détail uniquement dans les journaux.
