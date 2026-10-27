@@ -2,6 +2,19 @@
 
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [SemVer](https://semver.org/lang/fr/).
 
+## [1.0.1] — 2026-10-27
+
+Retours de la recette réelle de la 1.0.0.
+
+### Modifié
+- Corps des PR courts et centrés sur le ticket : résumé du développeur borné, verdicts, couverture
+  des critères, au plus 5 commandes, preuves repliées ; le design et les risques de la feature ne
+  sont plus recopiés dans chaque PR (#20).
+- Pipeline : seules les étapes non vides sont affichées par défaut ; bouton « Afficher les étapes
+  vides », choix mémorisé (#21).
+- Tech Lead : découpage minimal (une petite feature = 1 ticket, pas de ticket d'analyse sans code,
+  tests dans le ticket du code) ; 5 tickets au maximum par feature au lieu de 10 (#22).
+
 ## [1.0.0] — 2026-10-25
 
 Première version publiée. Le périmètre est figé dans `docs/produit/fonctionnalites.md` et le contrat
