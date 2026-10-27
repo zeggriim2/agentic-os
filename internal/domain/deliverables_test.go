@@ -77,9 +77,13 @@ func TestParseTechDesign(t *testing.T) {
 	if _, err := ParseTechDesign(mk("")); err == nil {
 		t.Fatal("0 ticket accepté")
 	}
-	eleven := strings.TrimSuffix(strings.Repeat(ticket+",", 11), ",")
-	if _, err := ParseTechDesign(mk(eleven)); err == nil {
-		t.Fatal("11 tickets acceptés")
+	five := strings.TrimSuffix(strings.Repeat(ticket+",", MaxTickets), ",")
+	if _, err := ParseTechDesign(mk(five)); err != nil {
+		t.Fatalf("%d tickets refusés : %v", MaxTickets, err)
+	}
+	six := strings.TrimSuffix(strings.Repeat(ticket+",", MaxTickets+1), ",")
+	if _, err := ParseTechDesign(mk(six)); err == nil {
+		t.Fatalf("%d tickets acceptés", MaxTickets+1)
 	}
 	if _, err := ParseTechDesign(mk(`{"title":"T","body":"B","acceptance_criteria":["c"],"extra":1}`)); err == nil {
 		t.Fatal("clé inconnue imbriquée acceptée")

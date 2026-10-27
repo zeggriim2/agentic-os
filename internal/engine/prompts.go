@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/zeggriim2/agentic-os/internal/domain"
 	"github.com/zeggriim2/agentic-os/internal/store"
 )
 
@@ -46,8 +47,16 @@ user_stories et acceptance_criteria non vides ; open_questions liste les points 
 
 func techLeadPrompt(p *store.Project, f *store.Feature, feedback string) (string, string) {
 	instr := `Tu es le Tech Lead d'Agentic OS. À partir de la spécification validée, produis la conception technique
-et découpe le travail en 1 à 10 tickets indépendants, livrables et testables.
-` + commonRules + `
+et découpe le travail en tickets.
+` + commonRules + fmt.Sprintf(`
+Découpage (impératif) :
+- Les tickets sont développés l'un après l'autre et chacun devient une Pull Request qu'un humain relit et
+  merge : vise le MOINS de tickets possible. Une petite feature = 1 ticket.
+- Plusieurs tickets seulement si chacun est un incrément cohérent, livrable et mergeable seul, de taille
+  significative ; %d tickets au maximum (au-delà, propose dans le résumé de scinder la feature).
+- Pas de ticket d'analyse, d'inspection ou de cadrage sans changement de code : l'analyse fait partie du ticket.
+- Les tests accompagnent le code qu'ils vérifient, dans le même ticket (pas de ticket « tests » séparé).
+`, domain.MaxTickets) + `
 Livrable : {"summary": str, "decisions": [{"decision": str, "rationale": str, "rejected_alternatives": [str]}],
 "risks": [str], "tickets": [{"title": str, "body": str, "acceptance_criteria": [str]}]}`
 	var b strings.Builder
