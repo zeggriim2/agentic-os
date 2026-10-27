@@ -153,3 +153,20 @@ La mise en place initiale suit ce chemin :
 4. après validation, créer `release/1.0.0` depuis `develop` ;
 5. stabiliser puis fusionner la release dans `main` et poser le tag `v1.0.0` ;
 6. réintégrer la release dans `develop`.
+
+## CI : déclencheurs
+
+- `tests`, `e2e`, `security`, `ops` tournent sur **chaque Pull Request** (c'est ce run, sur le résultat de
+  la fusion, qui alimente les checks obligatoires) et sur **les push vers `main` et `develop`** (code
+  réellement mergé). Les push sur les autres branches et les tags ne relancent pas ces suites : une PR
+  les couvre déjà, et un tag pointe sur un commit de `main` déjà testé.
+- Branche poussée sans PR : lancer les suites à la main (`workflow_dispatch`, onglet Actions).
+- `release` tourne uniquement sur les tags `vX.Y.Z`.
+
+## GitGuardian
+
+Le check « GitGuardian Security Checks » vient de l'application GitHub GitGuardian : il ne lit **pas**
+`.gitguardian.yaml` (réservé à `ggshield`). Un faux positif se traite dans le tableau de bord
+GitGuardian (incident → *Ignore* → « False positive » / « Test credential »), une exclusion de chemin
+dans *Settings → Secrets detection → Exclusions*, ou l'option *Skip merge commits in pull request
+check runs* pour ne pas rescanner l'historique déjà présent sur la branche cible.

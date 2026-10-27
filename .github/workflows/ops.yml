@@ -4,6 +4,7 @@ name: ops
 # un vrai PostgreSQL 16 et le vrai binaire `agentic-os migrate`.
 on:
   push:
+    branches: [main, develop]
     paths: ["deploy/**", "migrations/**", "internal/store/**", "cmd/**", ".github/workflows/ops.yml"]
   pull_request:
     paths: ["deploy/**", "migrations/**", "internal/store/**", "cmd/**", ".github/workflows/ops.yml"]
