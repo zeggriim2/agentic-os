@@ -108,6 +108,7 @@ type fakeGitHub struct {
 	ci        string
 	merged    bool
 	prErr     error
+	prBody    string // corps de la dernière PR créée
 }
 
 func (f *fakeGitHub) EnsureIssue(_ context.Context, repo, key, title, body string) (gh.Issue, bool, error) {
@@ -143,6 +144,7 @@ func (f *fakeGitHub) EnsureDraftPR(ctx context.Context, repo, head, base, title,
 	if !strings.Contains(body, "Closes #") {
 		return gh.PR{}, false, errors.New("corps de PR sans Closes")
 	}
+	f.prBody = body
 	pr := &gh.PR{Number: 42, HTMLURL: "https://github.com/o/r/pull/42", State: "open", Draft: true}
 	pr.Head.Ref, pr.Head.SHA, pr.Base.Ref = head, sha, base
 	f.prs[head] = pr
@@ -1289,4 +1291,35 @@ func TestOtherFeatureWaitsForTheProject(t *testing.T) {
 	expect(t, "B-T1 attend", ev.developJobs(b[0].ID), 0)
 	expect(t, "B-T2 attend", ev.developJobs(b[1].ID), 0)
 	_ = ctx
+}
+
+// ------------------------------------------------------------------ corps de PR
+
+func TestPRBodyIsShortAndTicketFocused(t *testing.T) {
+	ev := newEnv(t)
+	long := strings.Repeat("sortie de commande très verbeuse ", 60)
+	ev.design = strings.Replace(designOK, `"risks":["r1"]`, `"risks":["risque de la feature `+strings.Repeat("x", 300)+`"]`, 1)
+	ev.qa = func(sha string, _ int) string {
+		return fmt.Sprintf("```json\n{\"verdict\":\"passed\",\"sha\":%q,\"checks\":[{\"command\":\"go test ./...\",\"exit_code\":0}],"+
+			"\"acceptance\":[{\"criterion\":\"hello.txt existe\",\"status\":\"met\",\"evidence\":%q}],\"summary\":\"ok\"}\n```", sha, long)
+	}
+	ev.startToDev()
+	ev.drain()
+	ev.decide(domain.ApprovalPublishPR, "approved", "")
+	ev.drain()
+	body := ev.g.prBody
+	for _, want := range []string{"## Ticket", "## Vérifications", "Revue : **approved** · QA : **passed**", "1/1 couverts",
+		"`go test ./...` → exit 0", "<details>", "Closes #"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("corps sans %q :\n%s", want, body)
+		}
+	}
+	for _, unwanted := range []string{"Décisions techniques", "Risques", "risque de la feature", long[:200]} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("corps contient %q (design/risques/preuve brute) :\n%s", unwanted, body)
+		}
+	}
+	if len([]rune(body)) > 1500 {
+		t.Fatalf("corps trop long : %d caractères", len([]rune(body)))
+	}
 }
