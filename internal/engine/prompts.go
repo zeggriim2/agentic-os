@@ -23,6 +23,27 @@ const commonRules = `Règles permanentes (non négociables) :
 - Ne lis ni n'affiche aucun secret.
 - Termine ta réponse par UN bloc ` + "```json … ```" + ` contenant exactement le livrable demandé (clés exactes, aucune clé en plus).`
 
+// contextRules : consignes d'économie de contexte pour les rôles qui utilisent des outils. Chaque résultat
+// d'outil est renvoyé au modèle à chaque étape suivante : une sortie inutile se paie plusieurs fois.
+const contextRules = `
+Économie de contexte (chaque résultat d'outil est renvoyé au modèle à chaque étape suivante) :
+- N'ouvre que les skills de ton rôle utiles à la tâche, une seule fois chacune ; n'en charge aucune autre.
+- Cible tes lectures : search_files avec un chemin et un motif précis (pas de listing ni de recherche sur tout
+  le dépôt) ; read_file avec offset/limit sur les gros fichiers ; ne relis pas un fichier déjà lu.
+- Chaque appel d'outil renvoie tout le contexte : regroupe les commandes indépendantes dans un même appel
+  (` + "`&&`" + ` ou appels parallèles) plutôt qu'un appel par commande.
+- Borne les sorties : un petit diff (moins de ~400 lignes au --stat ou --name-only) se lit en une fois ; ne
+  découpe par fichier que les gros diffs ; ` + "`| tail -n 60`" + ` sur les sorties longues ; lance d'abord les
+  tests ciblés, puis la suite complète une seule fois.`
+
+// baseRules : la référence de comparaison est toujours la branche distante ; la branche locale du même nom
+// peut être périmée et faire apparaître des changements déjà intégrés.
+func baseRules(base string) string {
+	return fmt.Sprintf(`
+Base de comparaison : origin/%[1]s (jamais la branche locale %[1]s, qui peut être périmée), par exemple
+`+"`git diff --stat origin/%[1]s...HEAD`"+`.`, base)
+}
+
 func jsonText(v any) string {
 	b, _ := json.MarshalIndent(v, "", "  ")
 	return string(b)
@@ -56,7 +77,7 @@ Découpage (impératif) :
   significative ; %d tickets au maximum (au-delà, propose dans le résumé de scinder la feature).
 - Pas de ticket d'analyse, d'inspection ou de cadrage sans changement de code : l'analyse fait partie du ticket.
 - Les tests accompagnent le code qu'ils vérifient, dans le même ticket (pas de ticket « tests » séparé).
-`, domain.MaxTickets) + `
+`, domain.MaxTickets) + contextRules + `
 Livrable : {"summary": str, "decisions": [{"decision": str, "rationale": str, "rejected_alternatives": [str]}],
 "risks": [str], "tickets": [{"title": str, "body": str, "acceptance_criteria": [str]}]}`
 	var b strings.Builder
@@ -83,10 +104,10 @@ Contraintes de dépôt :
 - Travaille UNIQUEMENT dans le répertoire du worktree indiqué, sur la branche indiquée (ne change pas de branche).
 - Crée un ou plusieurs commits ; NE POUSSE PAS (Agentic OS vérifie puis pousse lui-même).
 - Laisse le worktree propre (git status --porcelain vide, aucun fichier non suivi).
-- Ne supprime aucun test existant, n'affaiblis aucun check.
+- Ne supprime aucun test existant, n'affaiblis aucun check.` + baseRules(p.BaseBranch) + contextRules + `
 Livrable : {"summary": str, "files_changed": [str], "tests": [{"command": str, "exit_code": int}], "notes": str}`
 	var b strings.Builder
-	fmt.Fprintf(&b, "Dépôt : %s\nWorktree : %s\nBranche : %s\nBase : %s\nCommande de test indicative : %q\n\n",
+	fmt.Fprintf(&b, "Dépôt : %s\nWorktree : %s\nBranche : %s\nBase : origin/%s\nCommande de test indicative : %q\n\n",
 		p.Repository, worktree, branch, p.BaseBranch, p.TestCommand)
 	b.WriteString(untrusted("ticket", ticketData(t)))
 	if feedback != "" {
@@ -100,9 +121,13 @@ func reviewerPrompt(p *store.Project, t *store.Ticket, worktree, sha string) (st
 ` + commonRules + `
 Contraintes : ne modifie aucun fichier, ne crée aucun commit, ne change pas de SHA (worktree détaché).
 Verdict approved interdit s'il existe un finding P0 ou P1.
+Diff à relire : la première commande indiquée donne le --stat et le diff ; ne relis un fichier en entier que si le diff
+ne suffit pas.` +
+		baseRules(p.BaseBranch) + contextRules + `
 Livrable : {"verdict": "approved"|"changes_requested", "sha": str, "findings": [{"severity": "P0"|"P1"|"P2"|"P3", "file": str, "message": str}], "summary": str}`
 	var b strings.Builder
-	fmt.Fprintf(&b, "Dépôt : %s\nWorktree (détaché) : %s\nSHA à relire : %s\nBase : origin/%s\n\n", p.Repository, worktree, sha, p.BaseBranch)
+	fmt.Fprintf(&b, "Dépôt : %s\nWorktree (détaché) : %s\nSHA à relire : %s\nBase : origin/%s\nPremière commande : git diff --stat origin/%[4]s...%[3]s && git diff origin/%[4]s...%[3]s | head -n 400\n\n",
+		p.Repository, worktree, sha, p.BaseBranch)
 	b.WriteString(untrusted("ticket", ticketData(t)))
 	return instr, b.String()
 }
@@ -111,10 +136,11 @@ func qaPrompt(p *store.Project, t *store.Ticket, worktree, sha string) (string, 
 	instr := `Tu es le QA d'Agentic OS. Exécute les tests et vérifie chaque critère d'acceptation au SHA exact indiqué.
 ` + commonRules + `
 Contraintes : ne modifie aucun fichier suivi, ne crée aucun commit, laisse le worktree propre (supprime tes fichiers temporaires).
-passed interdit si un check a exit_code≠0 ou si un critère est not_met.
+passed interdit si un check a exit_code≠0 ou si un critère est not_met.` + baseRules(p.BaseBranch) + contextRules + `
 Livrable : {"verdict": "passed"|"failed", "sha": str, "checks": [{"command": str, "exit_code": int}], "acceptance": [{"criterion": str, "status": "met"|"not_met", "evidence": str}], "summary": str}`
 	var b strings.Builder
-	fmt.Fprintf(&b, "Dépôt : %s\nWorktree (détaché) : %s\nSHA à tester : %s\nCommande de test indicative : %q\n\n", p.Repository, worktree, sha, p.TestCommand)
+	fmt.Fprintf(&b, "Dépôt : %s\nWorktree (détaché) : %s\nSHA à tester : %s\nBase : origin/%s\nCommande de test indicative : %q\n\n",
+		p.Repository, worktree, sha, p.BaseBranch, p.TestCommand)
 	b.WriteString(untrusted("ticket", ticketData(t)))
 	return instr, b.String()
 }

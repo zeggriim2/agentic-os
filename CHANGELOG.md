@@ -5,6 +5,9 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 ## [Non publié]
 
 ### Modifié
+- Consignes des agents plus économes en contexte : skills du rôle seulement, lectures et recherches
+  ciblées, sorties bornées, commandes regroupées, base de comparaison `origin/<base>` (la branche
+  locale peut être périmée et faire relire des changements déjà intégrés).
 - Tokens : entrée nouvelle, relue du cache et sortie affichées séparément (détail d'un run, liste des
   runs, vue d'ensemble, histogramme 7 jours) ; migration 0004 avec reprise des runs existants.
 

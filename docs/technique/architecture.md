@@ -398,3 +398,13 @@ lease owner) et le ticket expose `worktree` relatif (`<slug>/<key>`).
   l'usage de leur événement `run.completed`.
 - L'interface affiche « tokens nouveaux » (entrée nouvelle + sortie) avec la relecture du cache à part.
   `total_tokens` garde son sens (et reste la base du budget `max_tokens_per_run`, inchangé).
+
+### Économie de contexte des agents
+
+- Chaque appel d'outil renvoie tout le contexte au modèle : les instructions des rôles outillés (Tech Lead,
+  Développeur, Reviewer, QA) imposent des lectures ciblées, des sorties bornées, des commandes regroupées et
+  au plus une ouverture par skill du rôle (`contextRules`).
+- Comparaison toujours contre `origin/<base>` (`baseRules`) : la branche locale du même nom, dans la copie
+  partagée, peut être périmée. Le Reviewer reçoit sa première commande (`--stat` + diff borné à 400 lignes).
+- Les instructions ne contiennent aucune donnée propre au run (SHA, worktree) : elles restent identiques
+  d'un run à l'autre, ce qui favorise la réutilisation du cache du fournisseur.
