@@ -83,7 +83,7 @@ Table `schema_migrations(version int primary key, applied_at)`.
   `lease_owner`, `lease_expires_at`, `idempotency_key` unique, `last_error`, `error_class`
   (`timeout|budget|policy|provider|invalid_output|external|internal`), `payload jsonb`.
 - `runs` : `job_id`, `agent_role`, `hermes_profile`, `hermes_run_id` unique nullable, `status`
-  (`submitted|running|completed|failed|stopped|lost`), `input_tokens`, `output_tokens`, `total_tokens`,
+  (`submitted|running|completed|failed|stopped|lost`), `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`, `cache_write_tokens` (0004),
   `model`, `provider`, `output text` (borné 256 KiB), `artifact jsonb`, `error`, `started_at`, `finished_at`.
 - `run_events` : `run_id`, `seq int`, `event text`, `data jsonb` (borné), unique(`run_id`,`seq`).
 - `approvals` : `kind` (`spec_review|design_review|dev_gate|rework|publish_pr`), `subject_type`,
@@ -171,7 +171,7 @@ Règles fail-closed :
 - `POST {AOS_HERMES_URL}/p/<profil>/v1/runs`, header `Authorization: Bearer <clé du profil>`,
   `Idempotency-Key`, body `{"input": "...", "instructions": "..."}` → `202 {"run_id","status":"started","replayed":bool}`.
   Même clé + payload différent → `409 idempotency_key_conflict` (traité comme erreur `internal`, jamais retenté avec une autre clé automatiquement).
-- `GET /p/<profil>/v1/runs/<id>` → `{"status": "started|running|completed|failed|...", "output", "usage":{"input_tokens","output_tokens","total_tokens"}, "runtime":{"provider","model"}, "completed","partial","interrupted"}`. `404 run_not_found` → run `lost`.
+- `GET /p/<profil>/v1/runs/<id>` → `{"status": "started|running|completed|failed|...", "output", "usage":{"input_tokens","output_tokens","total_tokens","cache_read_tokens","cache_write_tokens"}, "runtime":{"provider","model"}, "completed","partial","interrupted"}`. `404 run_not_found` → run `lost`.
 - `GET /p/<profil>/v1/runs/<id>/events` → SSE, lignes `data: {"event": "...", "seq": n, ...}` ; événements
   observés : `message.delta`, `reasoning.available`, `tool.*`, `run.completed`, `run.failed`. Les deltas
   ne sont pas persistés un par un : on persiste les événements non-delta et on agrège la sortie.
@@ -221,7 +221,7 @@ Dates : ISO-8601 UTC ; l'UI formate en Europe/Paris.
 
 | Méthode | Route | Description |
 |---|---|---|
-| GET | `/api/overview` | `{pending_approvals:int, blocked:{features,tickets}, active_runs:int, tokens_today:int, tokens_7d:[{day,total}], dispatch_paused:bool, alerts:[{level,message,link}], recent_activity:[audit]}` |
+| GET | `/api/overview` | `{pending_approvals:int, blocked:{features,tickets}, active_runs:int, tokens_today:int, tokens_today_split:{fresh_input,cache_read,output}, tokens_7d:[{day,total,fresh_input,cache_read,output}], dispatch_paused:bool, alerts:[{level,message,link}], recent_activity:[audit]}` |
 | GET/POST | `/api/projects` | liste / création `{slug,name,repository,base_branch,required_checks[],mode,test_command}` |
 | GET/PATCH | `/api/projects/{id}` | détail / mise à jour ; activer un projet `product` exige `{"enabled":true,"confirm":"<slug>"}` |
 | GET | `/api/projects/{id}/git-graph` | graphe Git en lecture seule : `?days=1..365` (30), `kinds=main,develop,release,hotfix,feature,other` (tous), `merged=0\|1` (0), `refresh=1` ; réponse `{project,days,since,truncated,merged,hidden_merged,refs[],tags[],commits[]}` (§12) |
@@ -388,3 +388,13 @@ lease owner) et le ticket expose `worktree` relatif (`<slug>/<key>`).
   release, hotfix, feature, autres) ; 400 commits au plus (`truncated`). PR déduites des messages de
   merge/squash GitHub ; branches `aos/<ticket>` reliées au ticket et à sa PR depuis la base.
 - Erreur Git : `502 git_error` générique, détail uniquement dans les journaux.
+
+### Répartition des tokens (0004)
+
+- Hermes compte dans `input_tokens` les tokens relus du cache du fournisseur (`cache_read_tokens`) :
+  sur la recette, 77 % du total affiché était de la relecture de cache. Les runs stockent donc
+  `cache_read_tokens`/`cache_write_tokens` (borné : `0 ≤ cache_read ≤ input`) ; l'API expose en plus
+  `fresh_input_tokens = input_tokens − cache_read_tokens`. La migration reprend les runs existants depuis
+  l'usage de leur événement `run.completed`.
+- L'interface affiche « tokens nouveaux » (entrée nouvelle + sortie) avec la relecture du cache à part.
+  `total_tokens` garde son sens (et reste la base du budget `max_tokens_per_run`, inchangé).

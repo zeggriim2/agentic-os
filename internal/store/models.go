@@ -112,30 +112,32 @@ const jobCols = `id, kind, subject_type, subject_id, project_id, status, attempt
 
 // Run est une ligne de runs.
 type Run struct {
-	ID              int64           `db:"id"`
-	JobID           int64           `db:"job_id"`
-	AgentRole       string          `db:"agent_role"`
-	HermesProfile   string          `db:"hermes_profile"`
-	HermesRunID     *string         `db:"hermes_run_id"`
-	Status          string          `db:"status"`
-	InputTokens     int64           `db:"input_tokens"`
-	OutputTokens    int64           `db:"output_tokens"`
-	TotalTokens     int64           `db:"total_tokens"`
-	Model           *string         `db:"model"`
-	Provider        *string         `db:"provider"`
-	Output          *string         `db:"output"`
-	Artifact        json.RawMessage `db:"artifact"`
-	Error           *string         `db:"error"`
-	StartedAt       time.Time       `db:"started_at"`
-	FinishedAt      *time.Time      `db:"finished_at"`
-	StopRequestedAt *time.Time      `db:"stop_requested_at"`
-	StopAttempts    int             `db:"stop_attempts"`
-	StopError       *string         `db:"stop_error"`
-	CreatedAt       time.Time       `db:"created_at"`
-	UpdatedAt       time.Time       `db:"updated_at"`
+	ID               int64           `db:"id"`
+	JobID            int64           `db:"job_id"`
+	AgentRole        string          `db:"agent_role"`
+	HermesProfile    string          `db:"hermes_profile"`
+	HermesRunID      *string         `db:"hermes_run_id"`
+	Status           string          `db:"status"`
+	InputTokens      int64           `db:"input_tokens"`
+	OutputTokens     int64           `db:"output_tokens"`
+	TotalTokens      int64           `db:"total_tokens"`
+	CacheReadTokens  int64           `db:"cache_read_tokens"`
+	CacheWriteTokens int64           `db:"cache_write_tokens"`
+	Model            *string         `db:"model"`
+	Provider         *string         `db:"provider"`
+	Output           *string         `db:"output"`
+	Artifact         json.RawMessage `db:"artifact"`
+	Error            *string         `db:"error"`
+	StartedAt        time.Time       `db:"started_at"`
+	FinishedAt       *time.Time      `db:"finished_at"`
+	StopRequestedAt  *time.Time      `db:"stop_requested_at"`
+	StopAttempts     int             `db:"stop_attempts"`
+	StopError        *string         `db:"stop_error"`
+	CreatedAt        time.Time       `db:"created_at"`
+	UpdatedAt        time.Time       `db:"updated_at"`
 }
 
-const runCols = `id, job_id, agent_role, hermes_profile, hermes_run_id, status, input_tokens, output_tokens, total_tokens, model, provider, output, artifact, error, started_at, finished_at, stop_requested_at, stop_attempts, stop_error, created_at, updated_at`
+const runCols = `id, job_id, agent_role, hermes_profile, hermes_run_id, status, input_tokens, output_tokens, total_tokens, cache_read_tokens, cache_write_tokens, model, provider, output, artifact, error, started_at, finished_at, stop_requested_at, stop_attempts, stop_error, created_at, updated_at`
 
 // Delivery est une livraison de webhook GitHub.
 type Delivery struct {

@@ -62,7 +62,7 @@ func (f *fakeHermes) CreateRun(_ context.Context, profile, key string, req herme
 		return hermes.CreateResult{RunID: id, Status: "started"}, nil
 	}
 	f.runs[id] = hermes.RunStatus{Status: "completed", Output: out, Completed: true,
-		Usage: hermes.Usage{InputTokens: total / 2, OutputTokens: total - total/2, TotalTokens: total}, Runtime: hermes.Runtime{Provider: "p", Model: "m1"}}
+		Usage: hermes.Usage{InputTokens: total / 2, OutputTokens: total - total/2, TotalTokens: total, CacheReadTokens: total / 4}, Runtime: hermes.Runtime{Provider: "p", Model: "m1"}}
 	f.mu.Unlock()
 	return hermes.CreateResult{RunID: id, Status: "started"}, nil
 }
@@ -464,6 +464,14 @@ func TestWorkflowEndToEnd(t *testing.T) {
 	aps, _ := store.ListApprovals(ctx, ev.s.Pool, store.ApprovalFilter{}, store.Page{Limit: 50})
 	if _, err := ev.e.DecideApproval(ctx, aps[0].ID, "approved", "", "admin"); !errors.Is(err, store.ErrAlreadyDecided) {
 		t.Fatalf("décision répétée: %v", err)
+	}
+	// L'usage Hermes est enregistré avec sa part de cache (fake : cache = total/4).
+	var nRuns, wrong int
+	if err := ev.s.Pool.QueryRow(context.Background(), `SELECT count(*), count(*) FILTER (WHERE total_tokens > 0 AND cache_read_tokens <> total_tokens/4) FROM runs`).Scan(&nRuns, &wrong); err != nil {
+		t.Fatal(err)
+	}
+	if nRuns == 0 || wrong != 0 {
+		t.Fatalf("cache des runs : %d runs, %d incorrects", nRuns, wrong)
 	}
 }
 
@@ -1018,7 +1026,7 @@ func TestStopRunKeepsRealHermesOutcome(t *testing.T) {
 	_, r := ev.runningPOJob()
 	// Le run s'est terminé chez Hermes juste avant l'arrêt : on garde l'issue réelle.
 	ev.h.mu.Lock()
-	ev.h.runs["run_live"] = hermes.RunStatus{Status: "completed", Output: poOK, Completed: true, Usage: hermes.Usage{TotalTokens: 42}}
+	ev.h.runs["run_live"] = hermes.RunStatus{Status: "completed", Output: poOK, Completed: true, Usage: hermes.Usage{InputTokens: 30, TotalTokens: 42, CacheReadTokens: 20, CacheWriteTokens: 3}}
 	ev.h.mu.Unlock()
 	got, err := ev.e.StopRun(ctx, r.ID, "admin")
 	if err != nil {
@@ -1026,6 +1034,8 @@ func TestStopRunKeepsRealHermesOutcome(t *testing.T) {
 	}
 	expect(t, "statut réel", got.Status, domain.RunCompleted)
 	expect(t, "tokens", got.TotalTokens, int64(42))
+	expect(t, "cache relu", got.CacheReadTokens, int64(20))
+	expect(t, "cache écrit", got.CacheWriteTokens, int64(3))
 	if _, err := ev.e.StopRun(ctx, r.ID, "admin"); err == nil {
 		t.Fatal("arrêt d'un run terminé accepté")
 	}

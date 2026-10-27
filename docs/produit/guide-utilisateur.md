@@ -38,6 +38,10 @@ quelque chose passe par votre approbation, et le merge reste toujours le vôtre.
 - **Approbations** : tout ce qui attend votre décision. Le rejet demande un commentaire.
 - **Features** et **Pipeline** : où en est chaque feature et chaque ticket.
 - **Runs** : chaque exécution d'agent, avec ses événements en direct, sa sortie et les tokens consommés.
+  Les tokens sont séparés en **entrée nouvelle**, **relue du cache** et **sortie** : à chaque étape,
+  l'agent renvoie tout son contexte au modèle, qui en relit l'essentiel depuis son cache, bien moins
+  coûteux. Les « tokens nouveaux » (entrée nouvelle + sortie) reflètent la consommation réelle ; le total
+  brut la surestime.
   **Arrêter le run** demande l'arrêt à Hermes ; le run reste « Arrêt en cours » tant que Hermes ne l'a
   pas confirmé.
 - **Projets** : un projet = un dépôt GitHub, une branche de base et les checks CI obligatoires.
