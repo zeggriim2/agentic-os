@@ -671,10 +671,19 @@ func (e *Engine) latestArtifact(ctx context.Context, ticketID int64, role string
 	return nil
 }
 
+// Bornes du corps de PR : la PR reste lisible, le détail (design, risques, preuves
+// complètes, runs) vit dans l'issue liée et dans Agentic OS.
+const (
+	prSummaryMax  = 400
+	prCellMax     = 160
+	prMaxCommands = 5
+)
+
+// prBody rédige un corps de PR court et centré sur le ticket : résumé du développeur,
+// verdicts, couverture des critères, commandes, preuves repliées. Le design et les risques
+// de la feature ne sont pas répétés dans chaque PR.
 func (e *Engine) prBody(ctx context.Context, f *store.Feature, t *store.Ticket) string {
 	var b strings.Builder
-	var design domain.TechDesign
-	_ = json.Unmarshal(f.Design, &design)
 	var rv domain.ReviewResult
 	_ = json.Unmarshal(e.latestArtifact(ctx, t.ID, domain.RoleReviewer), &rv)
 	var qa domain.QAResult
@@ -682,45 +691,55 @@ func (e *Engine) prBody(ctx context.Context, f *store.Feature, t *store.Ticket) 
 	var dev domain.DevelopResult
 	_ = json.Unmarshal(e.latestArtifact(ctx, t.ID, domain.RoleDeveloper), &dev)
 
-	fmt.Fprintf(&b, "## Résumé\n%s\n\n%s\n\n", t.Title, dev.Summary)
-	if len(design.Decisions) > 0 {
-		b.WriteString("## Décisions techniques\n")
-		for _, d := range design.Decisions {
-			fmt.Fprintf(&b, "- **%s** — %s", d.Decision, d.Rationale)
-			if len(d.RejectedAlternatives) > 0 {
-				fmt.Fprintf(&b, " (alternatives rejetées : %s)", strings.Join(d.RejectedAlternatives, " ; "))
-			}
-			b.WriteString("\n")
-		}
-		b.WriteString("\n")
+	b.WriteString("## Ticket\n")
+	if s := shorten(dev.Summary, prSummaryMax); s != "" {
+		b.WriteString(s + "\n\n")
 	}
-	fmt.Fprintf(&b, "## Verdicts\n- Reviewer : **%s** — %s\n- QA : **%s** — %s\n- SHA vérifié : `%s`\n\n", rv.Verdict, rv.Summary, qa.Verdict, qa.Summary, str(t.HeadSHA))
+	sha := str(t.HeadSHA)
+	if len(sha) > 7 {
+		sha = sha[:7]
+	}
+	met := 0
+	for _, a := range qa.Acceptance {
+		if a.Status == "met" {
+			met++
+		}
+	}
+	fmt.Fprintf(&b, "## Vérifications\n- Revue : **%s** · QA : **%s** · SHA vérifié `%s`\n", rv.Verdict, qa.Verdict, sha)
 	if len(qa.Acceptance) > 0 {
-		b.WriteString("## Critères ↔ preuves\n| Critère | Statut | Preuve |\n|---|---|---|\n")
+		fmt.Fprintf(&b, "- Critères d'acceptation : %d/%d couverts\n", met, len(qa.Acceptance))
+	}
+	for i, c := range qa.Checks {
+		if i == prMaxCommands {
+			fmt.Fprintf(&b, "- … %d autre(s) commande(s)\n", len(qa.Checks)-prMaxCommands)
+			break
+		}
+		fmt.Fprintf(&b, "- `%s` → exit %d\n", shorten(strings.ReplaceAll(c.Command, "`", "'"), prCellMax), c.ExitCode)
+	}
+	if len(qa.Acceptance) > 0 {
+		b.WriteString("\n<details><summary>Critères et preuves</summary>\n\n| Critère | Statut | Preuve |\n|---|---|---|\n")
 		for _, a := range qa.Acceptance {
-			fmt.Fprintf(&b, "| %s | %s | %s |\n", mdCell(a.Criterion), a.Status, mdCell(a.Evidence))
+			fmt.Fprintf(&b, "| %s | %s | %s |\n", mdCell(shorten(a.Criterion, prCellMax)), a.Status, mdCell(shorten(a.Evidence, prCellMax)))
 		}
-		b.WriteString("\n")
+		b.WriteString("\n</details>\n")
 	}
-	if len(qa.Checks) > 0 {
-		b.WriteString("## Commandes\n")
-		for _, c := range qa.Checks {
-			fmt.Fprintf(&b, "- `%s` → exit %d\n", strings.ReplaceAll(c.Command, "`", "'"), c.ExitCode)
-		}
-		b.WriteString("\n")
-	}
-	if len(design.Risks) > 0 {
-		b.WriteString("## Risques\n")
-		for _, r := range design.Risks {
-			b.WriteString("- " + r + "\n")
-		}
-		b.WriteString("\n")
-	}
+	fmt.Fprintf(&b, "\nFeature « %s » — ticket `%s` ; design, risques et preuves complètes dans l'issue et dans Agentic OS.\n",
+		shorten(f.Title, 120), t.Key)
 	if t.IssueNumber != nil {
-		fmt.Fprintf(&b, "Closes #%d\n", *t.IssueNumber)
+		fmt.Fprintf(&b, "\nCloses #%d\n", *t.IssueNumber)
 	}
 	b.WriteString("\n" + gh.Marker(t.Key) + "\n")
 	return b.String()
+}
+
+// shorten borne un texte libre d'agent à n caractères (espaces normalisés, « … » si coupé).
+func shorten(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return strings.TrimSpace(string(r[:n-1])) + "…"
 }
 
 func mdCell(s string) string {
