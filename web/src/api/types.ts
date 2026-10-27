@@ -381,3 +381,47 @@ export interface SsePayload {
   data?: unknown;
   [k: string]: unknown;
 }
+
+// ---------- Graphe Git d'un projet ----------
+export type GitKind = "main" | "develop" | "release" | "hotfix" | "feature" | "other";
+export interface GitLink {
+  number: number;
+  url: string;
+}
+export interface GitRef {
+  name: string;
+  kind: GitKind;
+  sha: string;
+  date: string;
+  url: string;
+  merged: boolean;
+  ticket?: { id: ID; key: string; state: string };
+  pr?: GitLink;
+}
+export interface GitTag {
+  name: string;
+  sha: string;
+  url: string;
+}
+export interface GitCommit {
+  sha: string;
+  parents: string[];
+  date: string;
+  author: string;
+  subject: string;
+  branch: string;
+  kind: GitKind;
+  url: string;
+  pr?: GitLink;
+}
+export interface GitGraph {
+  project: Project;
+  days: number;
+  since: string;
+  truncated: boolean;
+  merged: boolean;
+  hidden_merged: number;
+  refs: GitRef[];
+  tags: GitTag[];
+  commits: GitCommit[];
+}

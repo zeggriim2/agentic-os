@@ -52,7 +52,10 @@ type Server struct {
 	Revision      string
 	Health        HealthDeps
 	Workers       int
+	GitGraph      GitGraphSource // lecture du graphe Git des projets (nil : indisponible)
+	GitHubWebURL  string         // base des liens commits/PR/tags (défaut https://github.com)
 
+	gitCache    gitGraphCache
 	limiter     *rateLimiter
 	healthMu    sync.Mutex
 	healthCache map[string]any
@@ -66,6 +69,9 @@ func (s *Server) Router() http.Handler {
 	}
 	if s.Hub == nil {
 		s.Hub = NewHub()
+	}
+	if s.GitHubWebURL == "" {
+		s.GitHubWebURL = "https://github.com"
 	}
 	if s.SessionTTL <= 0 {
 		s.SessionTTL = 12 * time.Hour
@@ -89,6 +95,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/projects", s.listProjects)
 			r.Post("/projects", s.createProject)
 			r.Get("/projects/{id}", s.getProject)
+			r.Get("/projects/{id}/git-graph", s.projectGitGraph)
 			r.Patch("/projects/{id}", s.patchProject)
 			r.Get("/agents", s.listAgents)
 			r.Post("/agents/sync", s.syncAgents)

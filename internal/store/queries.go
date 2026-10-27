@@ -242,6 +242,11 @@ func ListTicketsByFeature(ctx context.Context, q Q, featureID int64) ([]Ticket, 
 	return many[Ticket](ctx, q, `SELECT `+ticketCols+` FROM tickets WHERE feature_id=$1 ORDER BY seq`, featureID)
 }
 
+// ListTicketsByProject liste les tickets d'un projet qui ont une branche (graphe Git).
+func ListTicketsByProject(ctx context.Context, q Q, projectID int64) ([]Ticket, error) {
+	return many[Ticket](ctx, q, `SELECT `+ticketCols+` FROM tickets WHERE project_id=$1 AND branch IS NOT NULL ORDER BY id`, projectID)
+}
+
 // ProjectDevBusy indique si un ticket du projet est en cours de développement : un ticket
 // dans un état actif (ni PLANNED, READY_FOR_DEV, DONE ni CANCELLED — BLOCKED compris), ou un
 // job develop en file / pris. Le développement est séquentiel par projet.
