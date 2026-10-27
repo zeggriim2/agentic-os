@@ -6,6 +6,9 @@
 # Usage : deploy/ops/test-ops.sh        (prérequis : docker, go)
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
+# Version de schéma attendue après migration : numéro de la dernière migration embarquée.
+LATEST=$(find "$REPO/migrations" -maxdepth 1 -name '[0-9][0-9][0-9][0-9]_*.sql' -printf '%f\n' | sort | tail -1 | cut -c1-4 | sed 's/^0*//')
+[ -n "$LATEST" ] || { echo "aucune migration trouvée" >&2; exit 1; }
 PORT="${AOS_OPS_TEST_PORT:-55498}"
 C="aos-ops-test-$$"
 WORK=$(mktemp -d)
@@ -52,12 +55,12 @@ if "$OPS/backup.sh" 'Mauvais Libellé' >/dev/null 2>&1; then fail "libellé inva
 
 echo "▶ restauration d'une sauvegarde plus ancienne que le schéma courant"
 bash -c "$AOS_MIGRATE" >/dev/null 2>&1
-expect_eq "migration à jour" "$(sql 'SELECT max(version) FROM schema_migrations')" "3"
+expect_eq "migration à jour" "$(sql 'SELECT max(version) FROM schema_migrations')" "$LATEST"
 sql "INSERT INTO features(project_id,title,description) VALUES (1,'F-apres','d')"
 : >"$APPLOG"
 "$OPS/restore.sh" "$old" --yes 2>/dev/null
 expect_eq "données de la sauvegarde" "$(features)" "F-avant"
-expect_eq "sauvegarde remise au schéma courant" "$(sql 'SELECT max(version) FROM schema_migrations')" "3"
+expect_eq "sauvegarde remise au schéma courant" "$(sql 'SELECT max(version) FROM schema_migrations')" "$LATEST"
 expect_eq "ordre arrêt → démarrage" "$(tr '\n' ' ' <"$APPLOG")" "stop start: "
 safety=$(ls -t "$AOS_BACKUP_DIR"/*-pre-restore.dump | head -1)
 docker exec -i "$C" pg_restore -a -t features -f - <"$safety" | grep -q F-apres && ok "état écrasé conservé dans la sauvegarde pre-restore" || fail "état écrasé conservé dans la sauvegarde pre-restore"
