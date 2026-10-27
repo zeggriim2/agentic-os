@@ -296,7 +296,11 @@ func ParsePOSpec(output string) (*POSpec, error) {
 	return &v, nil
 }
 
-// ParseTechDesign extrait et valide le livrable Tech Lead (1..10 tickets).
+// MaxTickets borne le découpage d'une feature : les tickets sont développés l'un après
+// l'autre et chacun produit une PR à merger ; au-delà, la feature doit être scindée.
+const MaxTickets = 5
+
+// ParseTechDesign extrait et valide le livrable Tech Lead (1..MaxTickets tickets).
 func ParseTechDesign(output string) (*TechDesign, error) {
 	raw, err := ExtractLastJSON(output)
 	if err != nil {
@@ -309,8 +313,8 @@ func ParseTechDesign(output string) (*TechDesign, error) {
 	if err := nonEmpty(v.Summary, "summary"); err != nil {
 		return nil, err
 	}
-	if len(v.Tickets) < 1 || len(v.Tickets) > 10 {
-		return nil, invalid("tickets : entre 1 et 10 attendus (reçu %d)", len(v.Tickets))
+	if len(v.Tickets) < 1 || len(v.Tickets) > MaxTickets {
+		return nil, invalid("tickets : entre 1 et %d attendus (reçu %d) ; regrouper les tickets ou scinder la feature", MaxTickets, len(v.Tickets))
 	}
 	for i, t := range v.Tickets {
 		if strings.TrimSpace(t.Title) == "" || len(t.Title) > 200 {

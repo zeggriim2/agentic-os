@@ -183,7 +183,7 @@ Règles fail-closed :
 
 Livrables (schémas stricts, clés inconnues refusées) :
 - `po_spec` : `{"summary": str, "user_stories": [str], "acceptance_criteria": [str], "open_questions": [str]}`
-- `tech_design` : `{"summary": str, "decisions": [{"decision","rationale","rejected_alternatives":[str]}], "risks": [str], "tickets": [{"title","body","acceptance_criteria":[str]}]}` (1..10 tickets)
+- `tech_design` : `{"summary": str, "decisions": [{"decision","rationale","rejected_alternatives":[str]}], "risks": [str], "tickets": [{"title","body","acceptance_criteria":[str]}]}` (1..5 tickets : développement séquentiel, une PR par ticket ; consignes de découpage minimal dans le prompt)
 - `develop` : `{"summary": str, "files_changed": [str], "tests": [{"command","exit_code":int}], "notes": str}`
 - `review` : `{"verdict": "approved|changes_requested", "sha": str, "findings": [{"severity":"P0|P1|P2|P3","file","message"}], "summary": str}` — `approved` refusé s'il existe un finding P0/P1.
 - `qa` : `{"verdict": "passed|failed", "sha": str, "checks": [{"command","exit_code":int}], "acceptance": [{"criterion","status":"met|not_met","evidence"}], "summary": str}` — `passed` refusé si un check a `exit_code≠0` ou un critère `not_met`.
