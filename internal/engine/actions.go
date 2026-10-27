@@ -118,8 +118,10 @@ func (e *Engine) FeatureAction(ctx context.Context, id int64, action, login stri
 			if _, err := store.ExpirePendingApprovals(ctx, tx, "feature", []int64{f.ID}); err != nil {
 				return err
 			}
-			_, err = store.ExpirePendingApprovals(ctx, tx, "ticket", tids)
-			return err
+			if _, err = store.ExpirePendingApprovals(ctx, tx, "ticket", tids); err != nil {
+				return err
+			}
+			return e.advanceProject(ctx, tx, f.ProjectID)
 		case "retry":
 			prev := domain.FeatureState(str(f.PreviousState))
 			to, err := domain.ResumeFeature(domain.FeatureState(f.State), prev)

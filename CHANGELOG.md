@@ -38,3 +38,6 @@ dans `docs/technique/architecture.md`.
 - Défauts trouvés par la suite e2e : interface encore affichée après déconnexion, rejet exécuté
   présenté comme « Exécutée », défilement horizontal mobile, contrastes en thème clair, zones
   défilantes inaccessibles au clavier, livrable d'un run terminé non affiché sans rechargement (#9).
+- Trouvés par la recette réelle (vrai Hermes, profils isolés) : push Git impossible depuis le conteneur
+  (script d'authentification dans un `/tmp` non exécutable) et tickets d'une feature développés en
+  parallèle au lieu de séquentiellement par projet (#18).

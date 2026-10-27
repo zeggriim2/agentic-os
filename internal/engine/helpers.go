@@ -128,10 +128,34 @@ func (e *Engine) createApproval(ctx context.Context, tx pgx.Tx, a store.NewAppro
 	return ap, nil
 }
 
-// maybeCompleteFeature passe la feature à DONE si tous ses tickets sont terminaux.
+// advanceProject démarre le développement du prochain ticket du projet si aucun n'est en
+// cours. Développement séquentiel : un ticket part de la base une fois le précédent mergé
+// (DONE) ou annulé, il intègre donc ses changements ; un ticket BLOCKED garde la main.
+func (e *Engine) advanceProject(ctx context.Context, tx pgx.Tx, projectID int64) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(727002, $1::int)`, projectID); err != nil {
+		return err
+	}
+	busy, err := store.ProjectDevBusy(ctx, tx, projectID)
+	if err != nil || busy {
+		return err
+	}
+	t, err := store.NextReadyTicket(ctx, tx, projectID)
+	if err != nil || t == nil {
+		return err
+	}
+	_, err = e.enqueue(ctx, tx, store.NewJob{Kind: domain.JobDevelop, SubjectType: "ticket", SubjectID: t.ID,
+		ProjectID: &projectID, IdempotencyKey: jobKey(domain.JobDevelop, "ticket", t.ID, fmt.Sprintf("seq-v%d", t.Version))})
+	return err
+}
+
+// maybeCompleteFeature passe la feature à DONE si tous ses tickets sont terminaux, et
+// démarre le ticket suivant du projet.
 func (e *Engine) maybeCompleteFeature(ctx context.Context, tx pgx.Tx, featureID int64) (bool, error) {
 	f, err := store.LockFeature(ctx, tx, featureID)
 	if err != nil {
+		return false, err
+	}
+	if err := e.advanceProject(ctx, tx, f.ProjectID); err != nil {
 		return false, err
 	}
 	if f.State != string(domain.FeatureReadyForDev) && f.State != string(domain.FeatureInDev) {

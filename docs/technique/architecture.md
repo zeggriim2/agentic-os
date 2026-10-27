@@ -198,7 +198,8 @@ Le contenu GitHub (issue, commentaires, logs) est passé à l'agent **encapsulé
   (`GET /search/issues?q=repo:<r>+"agentic-os:ticket=<key>"+in:body`) ; après création : relecture
   (numéro, URL, présence du marqueur).
 - Push : `git push https://x-access-token@github.com/<r>.git <branch>` avec le token fourni via
-  `GIT_ASKPASS` (script temporaire 0700 qui lit le fichier) ; jamais dans l'URL ni dans les logs.
+  un credential helper shell (`-c credential.helper=!f(){…}`) qui lit le fichier à la demande — aucun
+  fichier temporaire exécutable (compatible `/tmp` noexec) ; jamais dans l'URL, l'argv ni les logs.
   Puis `GET /repos/<r>/branches/<branch>` → `commit.sha == head_sha`.
 - PR : `POST /repos/<r>/pulls` `draft:true`, idempotent (si une PR ouverte existe pour la head, on la
   réutilise), relecture `number/head.sha/base.ref/draft`. Corps : résumé, décisions, verdicts
@@ -342,6 +343,16 @@ d'audit d'une feature/d'un ticket, lien vers `/api/audit`). Les approbations d'u
 masque plus un état `UNREACHABLE`.
 
 **Fuseau** : `AOS_PUBLIC_TZ` est supprimée ; l'affichage est toujours en Europe/Paris (UI), les API restent en UTC.
+
+**Développement séquentiel par projet** : au feu vert, tous les tickets passent `READY_FOR_DEV` mais
+un seul job `develop` est créé. Le suivant (feature la plus ancienne, puis ordre du plan) n'est lancé
+que lorsque plus aucun ticket du projet n'est actif — le précédent est mergé (`DONE`) ou annulé ; un
+ticket `BLOCKED` garde la main. Chaque ticket part donc de la base à jour, avec les changements des
+tickets précédents (verrou consultatif par projet, `advanceProject`).
+
+**Authentification Git** : le token est fourni par un credential helper shell passé en `-c` ; aucun
+fichier temporaire exécutable n'est créé, ce qui fonctionne dans le conteneur (`/tmp` en noexec,
+système de fichiers en lecture seule). Testé par un push authentifié réel (`git http-backend`).
 
 **QA** : le livrable doit contenir chaque critère d'acceptation persistant exactement une fois ; critères omis,
 inventés ou dupliqués sont refusés. Une PR réutilisée doit rester ouverte et draft, pas seulement une PR créée
