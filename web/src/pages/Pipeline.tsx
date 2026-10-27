@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertCircle, FileText, Layers, Ticket as TicketIcon } from "lucide-react";
 import { usePipeline } from "@/api/queries";
 import type { PipelineColumn, PipelineItem } from "@/api/types";
+import { Button } from "@/components/ui/Button";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Skeleton } from "@/components/ui/primitives";
 import { StateBadge, Tag } from "@/components/ui/StateBadge";
@@ -60,13 +62,43 @@ function Column({ col }: { col: PipelineColumn }) {
   );
 }
 
+const SHOW_EMPTY_KEY = "aos.pipeline.showEmpty";
+
+function readShowEmpty(): boolean {
+  try {
+    return localStorage.getItem(SHOW_EMPTY_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export default function PipelinePage() {
   const q = usePipeline();
+  // Les étapes vides sont masquées par défaut : sur 18 colonnes, seules celles qui contiennent
+  // quelque chose sont utiles ; le choix est mémorisé.
+  const [showEmpty, setShowEmpty] = useState(readShowEmpty);
+  const toggle = () => {
+    const next = !showEmpty;
+    setShowEmpty(next);
+    try {
+      localStorage.setItem(SHOW_EMPTY_KEY, next ? "1" : "0");
+    } catch {
+      /* stockage indisponible : préférence non mémorisée */
+    }
+  };
+  const emptyCount = q.data?.columns.filter((c) => c.items.length === 0).length ?? 0;
   return (
     <>
       <PageHeader
         title="Pipeline"
         description="Features et tickets par état. Les transitions sont pilotées par le moteur et les approbations — pas de glisser-déposer."
+        actions={
+          emptyCount > 0 && q.data && q.data.columns.some((c) => c.items.length > 0) ? (
+            <Button variant="secondary" size="sm" onClick={toggle} aria-pressed={showEmpty}>
+              {showEmpty ? "Masquer les étapes vides" : `Afficher les étapes vides (${emptyCount})`}
+            </Button>
+          ) : undefined
+        }
       />
       <QueryView
         query={q}
@@ -82,9 +114,11 @@ export default function PipelinePage() {
       >
         {(d) => (
           <div className="scroll-thin -mx-4 flex gap-3 overflow-x-auto px-4 pb-3 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
-            {d.columns.map((c) => (
-              <Column key={c.state} col={c} />
-            ))}
+            {d.columns
+              .filter((c) => showEmpty || c.items.length > 0)
+              .map((c) => (
+                <Column key={c.state} col={c} />
+              ))}
           </div>
         )}
       </QueryView>
