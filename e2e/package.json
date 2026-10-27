@@ -1,7 +1,7 @@
 {
   "name": "agentic-os-e2e",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Tests E2E navigateur d'Agentic OS (Playwright, Chromium) contre de faux Hermes/GitHub/Telegram.",
   "type": "module",
   "scripts": {
