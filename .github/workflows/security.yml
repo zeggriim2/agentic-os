@@ -3,8 +3,9 @@ name: security
 # Vulnérabilités connues des dépendances Go (stdlib comprise) et npm.
 # Lancé sur chaque PR/push et chaque lundi (nouvelles CVE sur du code inchangé).
 on:
-  push:
   pull_request:
+  push:
+    branches: [main, develop]
   schedule:
     - cron: "17 5 * * 1"
   workflow_dispatch:
