@@ -1,5 +1,6 @@
 import { screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { Pipeline } from "@/api/types";
 import PipelinePage from "@/pages/Pipeline";
 import { mockFetch, renderWithProviders } from "./utils";
@@ -24,14 +25,16 @@ const pipeline: Pipeline = {
 };
 
 describe("Pipeline", () => {
-  it("rend les colonnes et cartes à partir de la réponse API", async () => {
+  beforeEach(() => localStorage.clear());
+
+  it("rend les colonnes et cartes à partir de la réponse API, sans les étapes vides", async () => {
     mockFetch({ "GET /api/pipeline": { body: pipeline } });
     renderWithProviders(<PipelinePage />, { route: "/pipeline", path: "/pipeline" });
     const cols = await screen.findAllByTestId("pipeline-column");
-    expect(cols).toHaveLength(3);
+    expect(cols).toHaveLength(2);
     expect(within(cols[0]!).getByRole("heading", { name: "Revue spec" })).toBeInTheDocument();
     expect(within(cols[1]!).getAllByTestId("pipeline-card")).toHaveLength(2);
-    expect(within(cols[2]!).getByText("Vide")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Terminé" })).not.toBeInTheDocument();
 
     const feature = screen.getByText("Export CSV").closest("a")!;
     expect(feature).toHaveAttribute("href", "/features/3");
@@ -39,6 +42,20 @@ describe("Pipeline", () => {
     const ticket = screen.getByText("Endpoint export").closest("a")!;
     expect(ticket).toHaveAttribute("href", "/tickets/11");
     expect(within(ticket).queryByText("Attention")).not.toBeInTheDocument();
+  });
+
+  it("affiche les étapes vides à la demande et mémorise le choix", async () => {
+    mockFetch({ "GET /api/pipeline": { body: pipeline } });
+    const user = userEvent.setup();
+    const { unmount } = renderWithProviders(<PipelinePage />, { route: "/pipeline", path: "/pipeline" });
+    await user.click(await screen.findByRole("button", { name: "Afficher les étapes vides (1)" }));
+    const cols = screen.getAllByTestId("pipeline-column");
+    expect(cols).toHaveLength(3);
+    expect(within(cols[2]!).getByText("Vide")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Masquer les étapes vides" })).toHaveAttribute("aria-pressed", "true");
+    unmount();
+    renderWithProviders(<PipelinePage />, { route: "/pipeline", path: "/pipeline" });
+    expect(await screen.findAllByTestId("pipeline-column")).toHaveLength(3);
   });
 
   it("n'offre pas de glisser-déposer", async () => {
