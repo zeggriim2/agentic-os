@@ -26,7 +26,7 @@ func idempotencyKey(jobID int64, attempt int) string {
 
 // runAgent soumet (ou rattache) le run Hermes du job puis attend son état terminal.
 // Un job qui a déjà un hermes_run_id ne resoumet jamais : il se rattache au run existant.
-func (e *Engine) runAgent(ctx context.Context, j *store.Job, role string, subjectAttempt int, req hermes.RunRequest) (*agentOutcome, error) {
+func (e *Engine) runAgent(ctx context.Context, j *store.Job, p *store.Project, role string, subjectAttempt int, req hermes.RunRequest) (*agentOutcome, error) {
 	agent, err := store.GetAgent(ctx, e.Store.Pool, role)
 	if err != nil {
 		return nil, err
@@ -42,7 +42,8 @@ func (e *Engine) runAgent(ctx context.Context, j *store.Job, role string, subjec
 		run = nil
 	}
 	if run == nil {
-		if run, err = store.CreateRun(ctx, e.Store.Pool, j.ID, role, agent.HermesProfile); err != nil {
+		// Profil propre au projet s'il en définit un (image et montages du projet), sinon celui de l'agent.
+		if run, err = store.CreateRun(ctx, e.Store.Pool, j.ID, role, p.ProfileFor(role, agent.HermesProfile)); err != nil {
 			return nil, err
 		}
 		_ = store.Notify(ctx, e.Store.Pool, "run.updated", run.ID)

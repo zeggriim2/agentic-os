@@ -180,5 +180,30 @@
       999,
       50000001
     ]
+  },
+  "profile": {
+    "valid": [
+      "aos-po",
+      "aos-fraiszen-developer",
+      "a",
+      "p_1",
+      {
+        "repeat": "a",
+        "count": 64
+      }
+    ],
+    "invalid": [
+      "",
+      "-x",
+      "_x",
+      "Aos",
+      "aos.dev",
+      "a b",
+      "../x",
+      {
+        "repeat": "a",
+        "count": 65
+      }
+    ]
   }
 }

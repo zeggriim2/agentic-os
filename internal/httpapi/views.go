@@ -28,17 +28,18 @@ func rawOrNull(b json.RawMessage) json.RawMessage {
 }
 
 type projectView struct {
-	ID             int64    `json:"id"`
-	Slug           string   `json:"slug"`
-	Name           string   `json:"name"`
-	Repository     string   `json:"repository"`
-	BaseBranch     string   `json:"base_branch"`
-	RequiredChecks []string `json:"required_checks"`
-	Mode           string   `json:"mode"`
-	Enabled        bool     `json:"enabled"`
-	TestCommand    string   `json:"test_command"`
-	CreatedAt      string   `json:"created_at"`
-	UpdatedAt      string   `json:"updated_at"`
+	ID             int64             `json:"id"`
+	Slug           string            `json:"slug"`
+	Name           string            `json:"name"`
+	Repository     string            `json:"repository"`
+	BaseBranch     string            `json:"base_branch"`
+	RequiredChecks []string          `json:"required_checks"`
+	Mode           string            `json:"mode"`
+	Enabled        bool              `json:"enabled"`
+	TestCommand    string            `json:"test_command"`
+	AgentProfiles  map[string]string `json:"agent_profiles"`
+	CreatedAt      string            `json:"created_at"`
+	UpdatedAt      string            `json:"updated_at"`
 }
 
 func viewProject(p *store.Project) projectView {
@@ -46,7 +47,11 @@ func viewProject(p *store.Project) projectView {
 	if rc == nil {
 		rc = []string{}
 	}
-	return projectView{p.ID, p.Slug, p.Name, p.Repository, p.BaseBranch, rc, p.Mode, p.Enabled, p.TestCommand, ts(p.CreatedAt), ts(p.UpdatedAt)}
+	ap := p.AgentProfiles
+	if ap == nil {
+		ap = map[string]string{}
+	}
+	return projectView{p.ID, p.Slug, p.Name, p.Repository, p.BaseBranch, rc, p.Mode, p.Enabled, p.TestCommand, ap, ts(p.CreatedAt), ts(p.UpdatedAt)}
 }
 
 type agentView struct {

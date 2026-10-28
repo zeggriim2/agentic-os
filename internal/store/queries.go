@@ -58,6 +58,7 @@ type ProjectInput struct {
 	Slug, Name, Repository, BaseBranch, Mode, TestCommand string
 	RequiredChecks                                        []string
 	Enabled                                               bool
+	AgentProfiles                                         map[string]string
 }
 
 // CreateProject insère un projet.
@@ -65,9 +66,12 @@ func CreateProject(ctx context.Context, q Q, in ProjectInput) (*Project, error) 
 	if in.RequiredChecks == nil {
 		in.RequiredChecks = []string{}
 	}
-	p, err := one[Project](ctx, q, `INSERT INTO projects (slug, name, repository, base_branch, required_checks, mode, enabled, test_command)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING `+projectCols,
-		in.Slug, in.Name, in.Repository, in.BaseBranch, in.RequiredChecks, in.Mode, in.Enabled, in.TestCommand)
+	if in.AgentProfiles == nil {
+		in.AgentProfiles = map[string]string{}
+	}
+	p, err := one[Project](ctx, q, `INSERT INTO projects (slug, name, repository, base_branch, required_checks, mode, enabled, test_command, agent_profiles)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING `+projectCols,
+		in.Slug, in.Name, in.Repository, in.BaseBranch, in.RequiredChecks, in.Mode, in.Enabled, in.TestCommand, in.AgentProfiles)
 	if IsUniqueViolation(err) {
 		return nil, ErrDuplicate
 	}
@@ -95,9 +99,22 @@ func UpdateProject(ctx context.Context, q Q, id int64, in ProjectInput) (*Projec
 	if in.RequiredChecks == nil {
 		in.RequiredChecks = []string{}
 	}
+	if in.AgentProfiles == nil {
+		in.AgentProfiles = map[string]string{}
+	}
 	return one[Project](ctx, q, `UPDATE projects SET name=$2, repository=$3, base_branch=$4, required_checks=$5, mode=$6,
-		enabled=$7, test_command=$8, updated_at=now() WHERE id=$1 RETURNING `+projectCols,
-		id, in.Name, in.Repository, in.BaseBranch, in.RequiredChecks, in.Mode, in.Enabled, in.TestCommand)
+		enabled=$7, test_command=$8, agent_profiles=$9, updated_at=now() WHERE id=$1 RETURNING `+projectCols,
+		id, in.Name, in.Repository, in.BaseBranch, in.RequiredChecks, in.Mode, in.Enabled, in.TestCommand, in.AgentProfiles)
+}
+
+// ProjectAgentProfiles liste les profils Hermes propres aux projets actifs (sans doublon, triés).
+func ProjectAgentProfiles(ctx context.Context, q Q) ([]string, error) {
+	rows, err := q.Query(ctx, `SELECT DISTINCT e.value FROM projects p, jsonb_each_text(p.agent_profiles) e
+		WHERE p.enabled AND e.value <> '' ORDER BY 1`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
 // ================================================================== agents

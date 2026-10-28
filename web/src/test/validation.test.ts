@@ -8,6 +8,7 @@ import {
   validFeatureDescription,
   validFeatureTitle,
   validMaxTokens,
+  validProfile,
   validProjectName,
   validRepository,
   validSlug,
@@ -27,6 +28,7 @@ const rules: Record<string, (s: string) => boolean> = {
   feature_title: validFeatureTitle,
   feature_description: validFeatureDescription,
   model: validDesiredModel,
+  profile: validProfile,
 };
 
 // Même fichier que internal/domain/validation_test.go : l'UI et l'API ne peuvent pas diverger.

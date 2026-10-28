@@ -61,21 +61,52 @@ export const TICKET_STATES = [
 ] as const;
 export type TicketState = (typeof TICKET_STATES)[number];
 
-export const RUN_STATUSES = ["submitted", "running", "stopping", "completed", "failed", "stopped", "lost"] as const;
+export const RUN_STATUSES = [
+  "submitted",
+  "running",
+  "stopping",
+  "completed",
+  "failed",
+  "stopped",
+  "lost",
+] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
-export type JobStatus = "queued" | "leased" | "succeeded" | "failed" | "cancelled";
-export type ErrorClass = "timeout" | "budget" | "policy" | "provider" | "invalid_output" | "external" | "internal";
+export type JobStatus =
+  "queued" | "leased" | "succeeded" | "failed" | "cancelled";
+export type ErrorClass =
+  | "timeout"
+  | "budget"
+  | "policy"
+  | "provider"
+  | "invalid_output"
+  | "external"
+  | "internal";
 export type CIState = "unverified" | "pending" | "success" | "failure";
 
-export const AGENT_ROLES = ["po", "tech_lead", "developer", "reviewer", "qa"] as const;
+export const AGENT_ROLES = [
+  "po",
+  "tech_lead",
+  "developer",
+  "reviewer",
+  "qa",
+] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
 export type SyncState = "SYNCED" | "DRIFT_DETECTED" | "UNKNOWN" | "UNREACHABLE";
 
-export const APPROVAL_STATUSES = ["pending", "approved", "rejected", "executed", "execution_failed", "expired"] as const;
+export const APPROVAL_STATUSES = [
+  "pending",
+  "approved",
+  "rejected",
+  "executed",
+  "execution_failed",
+  "expired",
+] as const;
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
-export type ApprovalKind = "spec_review" | "design_review" | "dev_gate" | "rework" | "publish_pr";
-export type SubjectType = "feature" | "ticket" | "approval" | "project" | "agent" | "run" | string;
+export type ApprovalKind =
+  "spec_review" | "design_review" | "dev_gate" | "rework" | "publish_pr";
+export type SubjectType =
+  "feature" | "ticket" | "approval" | "project" | "agent" | "run" | string;
 
 export type ProjectMode = "sandbox" | "product";
 
@@ -95,6 +126,8 @@ export interface Project extends Timestamps {
   mode: ProjectMode;
   enabled: boolean;
   test_command: string | null;
+  /** Rôle → profil Hermes propre au projet (absent = profil par défaut de l'agent). */
+  agent_profiles?: Partial<Record<AgentRole, string>>;
 }
 export interface ProjectCreate {
   slug: string;
@@ -104,8 +137,12 @@ export interface ProjectCreate {
   required_checks: string[];
   mode: ProjectMode;
   test_command: string;
+  agent_profiles?: Partial<Record<AgentRole, string>>;
 }
-export type ProjectPatch = Partial<Omit<ProjectCreate, "slug">> & { enabled?: boolean; confirm?: string };
+export type ProjectPatch = Partial<Omit<ProjectCreate, "slug">> & {
+  enabled?: boolean;
+  confirm?: string;
+};
 
 export interface Agent extends Timestamps {
   id?: ID;
@@ -165,7 +202,11 @@ export interface QaArtifact {
   verdict: "passed" | "failed";
   sha: string;
   checks: { command: string; exit_code: number }[];
-  acceptance: { criterion: string; status: "met" | "not_met"; evidence: string }[];
+  acceptance: {
+    criterion: string;
+    status: "met" | "not_met";
+    evidence: string;
+  }[];
   summary: string;
 }
 
@@ -351,7 +392,13 @@ export interface Pipeline {
 export type HealthComponent =
   | string
   | boolean
-  | { status?: string; ok?: boolean; message?: string; error?: string; [k: string]: unknown };
+  | {
+      status?: string;
+      ok?: boolean;
+      message?: string;
+      error?: string;
+      [k: string]: unknown;
+    };
 export interface Health {
   database: HealthComponent;
   hermes: HealthComponent;
@@ -388,7 +435,8 @@ export interface SsePayload {
 }
 
 // ---------- Graphe Git d'un projet ----------
-export type GitKind = "main" | "develop" | "release" | "hotfix" | "feature" | "other";
+export type GitKind =
+  "main" | "develop" | "release" | "hotfix" | "feature" | "other";
 export interface GitLink {
   number: number;
   url: string;

@@ -2,6 +2,14 @@
 
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [SemVer](https://semver.org/lang/fr/).
 
+## [Non publié]
+
+### Ajouté
+- Profils Hermes par projet : un projet peut confier le développement, la revue et la QA à des
+  profils dédiés (`agent_profiles`, migration 0005), par exemple avec l'image Docker outillée du
+  projet et ses seuls worktrees montés. Sans réglage, les profils par défaut des agents s'appliquent.
+  Santé et `doctor` vérifient aussi ces profils.
+
 ## [1.2.0] — 2026-10-28
 
 Réduction et lisibilité de la consommation de tokens des agents.

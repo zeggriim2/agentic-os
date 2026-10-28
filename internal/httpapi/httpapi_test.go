@@ -720,3 +720,39 @@ func TestRunAndOverviewExposeTokenSplit(t *testing.T) {
 		t.Fatalf("série 7 jours : %v", last)
 	}
 }
+
+func TestProjectAgentProfiles(t *testing.T) {
+	c := setup(t, nil)
+	c.login()
+	base := map[string]any{"slug": "fz", "name": "FZ", "repository": "o/fz"}
+	with := func(ap any) map[string]any {
+		m := map[string]any{}
+		for k, v := range base {
+			m[k] = v
+		}
+		m["agent_profiles"] = ap
+		return m
+	}
+	expectStatus(t, "rôle inconnu", c.do("POST", "/api/projects", with(map[string]string{"admin": "aos-x"}), true), 422, "invalid_agent_profiles")
+	expectStatus(t, "profil invalide", c.do("POST", "/api/projects", with(map[string]string{"developer": "../x"}), true), 422, "invalid_agent_profiles")
+	r := c.do("POST", "/api/projects", with(map[string]string{"developer": " aos-fz-developer ", "qa": ""}), true)
+	expectStatus(t, "création", r, 201, "")
+	ap, _ := r.body["agent_profiles"].(map[string]any)
+	if len(ap) != 1 || ap["developer"] != "aos-fz-developer" {
+		t.Fatalf("agent_profiles créés : %s", r.raw)
+	}
+	id := int64(r.body["id"].(float64))
+	path := fmt.Sprintf("/api/projects/%d", id)
+	r = c.do("PATCH", path, map[string]any{"name": "FZ2"}, true)
+	if ap, _ := r.body["agent_profiles"].(map[string]any); r.status != 200 || ap["developer"] != "aos-fz-developer" {
+		t.Fatalf("patch sans agent_profiles doit les conserver : %s", r.raw)
+	}
+	r = c.do("PATCH", path, map[string]any{"agent_profiles": map[string]string{"reviewer": "aos-fz-reviewer"}}, true)
+	if ap, _ := r.body["agent_profiles"].(map[string]any); r.status != 200 || len(ap) != 1 || ap["reviewer"] != "aos-fz-reviewer" {
+		t.Fatalf("patch remplace l'ensemble : %s", r.raw)
+	}
+	r = c.do("PATCH", path, map[string]any{"agent_profiles": map[string]string{}}, true)
+	if ap, _ := r.body["agent_profiles"].(map[string]any); r.status != 200 || len(ap) != 0 {
+		t.Fatalf("patch {} remet les profils par défaut : %s", r.raw)
+	}
+}

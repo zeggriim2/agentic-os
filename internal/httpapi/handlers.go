@@ -98,6 +98,8 @@ type projectCreate struct {
 	RequiredChecks []string `json:"required_checks"`
 	Mode           string   `json:"mode"`
 	TestCommand    string   `json:"test_command"`
+	// AgentProfiles : rôle → profil Hermes propre au projet (vide ou absent = profil par défaut).
+	AgentProfiles map[string]string `json:"agent_profiles"`
 }
 
 func validateProject(in *store.ProjectInput) (string, string) {
@@ -137,6 +139,20 @@ func validateProject(in *store.ProjectInput) (string, string) {
 		}
 	}
 	in.RequiredChecks = clean
+	profiles := map[string]string{}
+	for role, prof := range in.AgentProfiles {
+		prof = trim(prof)
+		switch {
+		case !slices.Contains(domain.Roles, role):
+			return "invalid_agent_profiles", "rôle inconnu dans agent_profiles : " + role
+		case prof == "":
+			continue
+		case !domain.ValidProfile(prof):
+			return "invalid_agent_profiles", "profil Hermes invalide pour " + role
+		}
+		profiles[role] = prof
+	}
+	in.AgentProfiles = profiles
 	return "", ""
 }
 
@@ -159,7 +175,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in := store.ProjectInput{Slug: trim(req.Slug), Name: req.Name, Repository: trim(req.Repository), BaseBranch: req.BaseBranch,
-		RequiredChecks: req.RequiredChecks, Mode: req.Mode, TestCommand: req.TestCommand, Enabled: false}
+		RequiredChecks: req.RequiredChecks, Mode: req.Mode, TestCommand: req.TestCommand, Enabled: false, AgentProfiles: req.AgentProfiles}
 	if code, msg := validateProject(&in); code != "" {
 		writeError(w, 422, code, msg)
 		return
@@ -201,7 +217,9 @@ type projectPatch struct {
 	Mode           *string   `json:"mode"`
 	Enabled        *bool     `json:"enabled"`
 	TestCommand    *string   `json:"test_command"`
-	Confirm        *string   `json:"confirm"`
+	// AgentProfiles remplace l'ensemble des profils propres au projet ({} = tous par défaut).
+	AgentProfiles *map[string]string `json:"agent_profiles"`
+	Confirm       *string            `json:"confirm"`
 }
 
 func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
@@ -220,7 +238,8 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		in := store.ProjectInput{Slug: cur.Slug, Name: cur.Name, Repository: cur.Repository, BaseBranch: cur.BaseBranch,
-			RequiredChecks: cur.RequiredChecks, Mode: cur.Mode, Enabled: cur.Enabled, TestCommand: cur.TestCommand}
+			RequiredChecks: cur.RequiredChecks, Mode: cur.Mode, Enabled: cur.Enabled, TestCommand: cur.TestCommand,
+			AgentProfiles: cur.AgentProfiles}
 		if req.Name != nil {
 			in.Name = *req.Name
 		}
@@ -241,6 +260,9 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.TestCommand != nil {
 			in.TestCommand = *req.TestCommand
+		}
+		if req.AgentProfiles != nil {
+			in.AgentProfiles = *req.AgentProfiles
 		}
 		if code, msg := validateProject(&in); code != "" {
 			return &userError{422, code, msg}
@@ -810,20 +832,28 @@ func (s *Server) systemHealth(w http.ResponseWriter, r *http.Request) {
 	profiles := []map[string]any{}
 	hermesOK := 0
 	agents, _ := store.ListAgents(ctx, s.Store.Pool)
-	seen := map[string]bool{}
+	names := []string{}
 	for _, a := range agents {
-		if seen[a.HermesProfile] {
+		names = append(names, a.HermesProfile)
+	}
+	// Profils propres aux projets actifs : vérifiés comme les profils par défaut.
+	if extra, err := store.ProjectAgentProfiles(ctx, s.Store.Pool); err == nil {
+		names = append(names, extra...)
+	}
+	seen := map[string]bool{}
+	for _, name := range names {
+		if seen[name] {
 			continue
 		}
-		seen[a.HermesProfile] = true
+		seen[name] = true
 		st := "unknown"
 		if s.Health.Hermes != nil {
-			st = status(s.Health.Hermes.Capabilities(ctx, a.HermesProfile), "ok")
+			st = status(s.Health.Hermes.Capabilities(ctx, name), "ok")
 		}
 		if st == "ok" {
 			hermesOK++
 		}
-		profiles = append(profiles, map[string]any{"profile": a.HermesProfile, "status": st})
+		profiles = append(profiles, map[string]any{"profile": name, "status": st})
 	}
 	switch {
 	case len(profiles) > 0 && hermesOK == len(profiles):
