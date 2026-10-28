@@ -1,0 +1,27 @@
+#!/bin/bash
+# Rejoue, sans réseau, les jobs « Tests Backend » et « Code Quality » de la CI FraisZen.
+#   aos-ci [all|tests|quality] [chemin du worktree]
+# Le job « Lint » (super-linter) n'est pas rejoué : il tourne seulement dans la CI GitHub.
+# Prérequis : aos-setup.
+set -uo pipefail
+what="${1:-all}"
+cd "${2:-.}" || exit 2
+fail=0
+step() {
+  local name="$1"; shift
+  echo "::: $name"
+  if "$@"; then echo "::: $name : OK"; else echo "::: $name : ÉCHEC (exit $?)"; fail=1; fi
+}
+if [ "$what" = all ] || [ "$what" = tests ]; then
+  step "Pest (tests/Unit)" vendor/bin/pest tests/Unit/
+fi
+if [ "$what" = all ] || [ "$what" = quality ]; then
+  step "cache:warmup" php bin/console cache:warmup --no-interaction -q
+  step "PHP CS Fixer" vendor/bin/php-cs-fixer fix --dry-run --diff --allow-risky=yes --format=txt
+  step "PHPStan" vendor/bin/phpstan analyse --memory-limit=512M --no-progress
+  step "Psalm" vendor/bin/psalm --no-progress
+  if [ -f frontend/package.json ]; then
+    step "TypeScript typecheck" bash -c 'cd frontend && npm run --silent typecheck'
+  fi
+fi
+exit "$fail"

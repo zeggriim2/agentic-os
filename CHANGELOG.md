@@ -2,6 +2,14 @@
 
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [SemVer](https://semver.org/lang/fr/).
 
+## [Non publié]
+
+### Ajouté
+- Image Docker des agents par projet (`projects/<slug>/`) : outillage de la CI du projet et caches
+  de dépendances pré-remplis, pour vérifier sans réseau. Premier projet : FraisZen (PHP 8.5,
+  Composer, Node 22 ; Pest, PHP-CS-Fixer, PHPStan, Psalm, typecheck rejoués hors ligne).
+- `Taskfile.yml` : `task project:setup|image:build|image:verify|image:check|image:refresh|profiles`.
+
 ## [1.2.0] — 2026-10-28
 
 Réduction et lisibilité de la consommation de tokens des agents.
