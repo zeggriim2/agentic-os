@@ -4,6 +4,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 
 ## [Non publié]
 
+## [1.5.1] — 2026-10-28
+
+### Corrigé
+- Budget de tokens par run calculé sur les **tokens nouveaux** (entrée nouvelle + sortie) et non plus
+  sur le total brut : les tokens relus du cache (plus de 90 % d'un run outillé) bloquaient des runs
+  à environ 90 000 tokens nouveaux (« budget dépassé : 1 993 972 > 400 000 » sur FraisZen F6-T1).
+- Livrable du développeur : `notes` devient facultatif. Son absence rejetait un run terminé, avec
+  ses commits et une CI verte (« clé obligatoire "notes" absente »). Les autres clés restent strictes.
+- `upgrade.sh` refuse de déployer un code qui ne connaît pas toutes les migrations déjà appliquées
+  (rétrogradation), avant d'arrêter la version en cours.
+
 ## [1.5.0] — 2026-10-28
 
 Choix du modèle LLM par agent et par projet (#43).

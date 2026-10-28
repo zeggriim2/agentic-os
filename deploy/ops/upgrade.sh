@@ -14,6 +14,14 @@ tag="${1:-}"
 current=$(state_get current_tag)
 [ "$tag" != "$current" ] || die "déjà en version $tag"
 
+# Refus de rétrograder : le code à construire doit connaître toutes les migrations déjà appliquées.
+# Sinon l'application refuserait de démarrer (« schéma non à jour ») après l'arrêt de la version
+# en cours.
+latest=$(find "$AOS_REPO_DIR/migrations" -maxdepth 1 -name '[0-9][0-9][0-9][0-9]_*.sql' -printf '%f\n' | sort | tail -1 | cut -c1-4 | sed 's/^0*//')
+db_schema=$(schema_version)
+[ "${latest:-0}" -ge "${db_schema:-0}" ] ||
+	die "rétrogradation refusée : la base est au schéma $db_schema, ce dépôt ne connaît que $latest (version en cours : ${current:-inconnue}). Revenir en arrière : rollback.sh"
+
 backup=$("$(dirname "${BASH_SOURCE[0]}")/backup.sh" "pre-upgrade")
 log "sauvegarde pre-upgrade : $backup"
 
