@@ -117,6 +117,19 @@ test("parcours complet par l'UI : projet → feature → spec → design → dev
   await expect(page.locator('main [data-state="approved"]').first()).toHaveText("Approuvée");
   await expect(page.locator('main [data-state="passed"]').first()).toHaveText("Validé");
 
+  // --- Pipeline : la feature (Tickets en cours, avancement) et le ticket (PR ouverte) sont dans deux onglets
+  const ticketURL = page.url();
+  await page.goto("/pipeline");
+  await expect(page.getByRole("tab", { name: /Features/ })).toHaveAttribute("aria-selected", "true");
+  const fCol = page.getByRole("region", { name: /^Tickets en cours/ });
+  await expect(fCol.getByTestId("feature-progress")).toContainText(/0\/1 mergé · T1 : pr ouverte/);
+  await expect(page.getByRole("region", { name: /^PR ouverte/ })).toHaveCount(0);
+  await fCol.getByRole("button", { name: "Voir les tickets →" }).click();
+  await expect(page.getByRole("tab", { name: /Tickets/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("feature-filter")).toBeVisible();
+  await expect(page.getByRole("region", { name: /^PR ouverte/ }).getByRole("link", { name: new RegExp(TICKET) })).toBeVisible();
+  await page.goto(ticketURL);
+
   // --- CI verte (webhook check_run signé) → merge humain attendu
   const ci = await fakes.post("/__e2e/webhook/check-run", { repo: "o/demo", number: pr.number });
   expect(ci.status).toBe(200);

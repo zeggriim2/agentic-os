@@ -299,7 +299,7 @@ func TestApprovalDecisionAndProjection(t *testing.T) {
 		t.Fatalf("worktree non relatif: %q", wt)
 	}
 	pl := c.do("GET", "/api/pipeline", nil, false)
-	if pl.status != 200 || len(pl.body["columns"].([]any)) == 0 {
+	if pl.status != 200 || len(pl.body["features"].(map[string]any)["columns"].([]any)) == 0 {
 		t.Fatalf("pipeline: %s", pl.raw)
 	}
 	lst := c.do("GET", "/api/approvals?status=executed", nil, false)
@@ -987,5 +987,62 @@ func TestRunViewExposesRequestedModelAndFallback(t *testing.T) {
 	l := c.do("GET", "/api/runs", nil, false)
 	if !strings.Contains(l.raw, `"model_fallback":true`) || !strings.Contains(l.raw, `"requested_provider":"anthropic"`) {
 		t.Fatalf("liste des runs : %s", l.raw)
+	}
+}
+
+func TestPipelineTwoBoardsWithFeatureProgress(t *testing.T) {
+	c := setup(t, nil)
+	c.login()
+	ctx := context.Background()
+	p, _ := store.CreateProject(ctx, c.s.Pool, store.ProjectInput{Slug: "fz", Name: "FraisZen", Repository: "o/fz", BaseBranch: "develop", Mode: "product"})
+	f, _ := store.CreateFeature(ctx, c.s.Pool, p.ID, "Alerte frais réels", "")
+	_, _ = c.s.Pool.Exec(ctx, `UPDATE features SET state='IN_DEV' WHERE id=$1`, f.ID)
+	states := map[int]string{1: "DONE", 2: "REVIEW", 3: "PLANNED", 4: "CANCELLED"}
+	for seq := 1; seq <= 4; seq++ {
+		tk, err := store.InsertTicket(ctx, c.s.Pool, store.TicketInput{FeatureID: f.ID, ProjectID: p.ID, Key: fmt.Sprintf("fz-F%d-T%d", f.ID, seq), Seq: seq, Title: "T"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = c.s.Pool.Exec(ctx, `UPDATE tickets SET state=$2 WHERE id=$1`, tk.ID, states[seq])
+	}
+	r := c.do("GET", "/api/pipeline", nil, false)
+	if r.status != 200 {
+		t.Fatalf("pipeline : %s", r.raw)
+	}
+	col := func(board, state string) []any {
+		for _, c := range r.body[board].(map[string]any)["columns"].([]any) {
+			cm := c.(map[string]any)
+			if cm["state"] == state {
+				return cm["items"].([]any)
+			}
+		}
+		t.Fatalf("colonne %s/%s absente", board, state)
+		return nil
+	}
+	inDev := col("features", "IN_DEV")
+	if len(inDev) != 1 {
+		t.Fatalf("feature en cours : %v", inDev)
+	}
+	prog := inDev[0].(map[string]any)["progress"].(map[string]any)
+	cur := prog["current"].(map[string]any)
+	if prog["total"] != float64(3) || prog["done"] != float64(1) || cur["state"] != "REVIEW" || cur["key"] != fmt.Sprintf("fz-F%d-T2", f.ID) {
+		t.Fatalf("avancement (annulé exclu, planifié compté, ticket courant) : %v", prog)
+	}
+	rev := col("tickets", "REVIEW")
+	if len(rev) != 1 || rev[0].(map[string]any)["feature_title"] != "Alerte frais réels" || rev[0].(map[string]any)["feature_id"] != float64(f.ID) {
+		t.Fatalf("ticket en revue : %v", rev)
+	}
+	for _, c := range r.body["features"].(map[string]any)["columns"].([]any) {
+		if s := c.(map[string]any)["state"]; s == "DEV" || s == "REVIEW" {
+			t.Fatalf("colonne de ticket %v dans le tableau des features", s)
+		}
+	}
+	for _, c := range r.body["tickets"].(map[string]any)["columns"].([]any) {
+		if s := c.(map[string]any)["state"]; s == "IN_DEV" || s == "PLANNED" || s == "SPEC" {
+			t.Fatalf("colonne %v inattendue dans le tableau des tickets", s)
+		}
+	}
+	if !strings.Contains(r.raw, `"projects":[{"id":`) || !strings.Contains(r.raw, `"slug":"fz"`) {
+		t.Fatalf("projets : %s", r.raw)
 	}
 }

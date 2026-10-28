@@ -2,6 +2,15 @@
 
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Modifié
+- Pipeline en **deux onglets** : « Features » (cycle de vie de la demande, avec l'avancement de ses
+  tickets et un lien « Voir les tickets ») et « Tickets » (travail des agents, avec la feature
+  parente). Les états proches ne se mélangent plus (« Tickets en cours » pour la feature,
+  « Développement » pour le ticket). Filtre par projet mémorisé, compteurs d'éléments en attente par onglet.
+- `GET /api/pipeline` renvoie `features`, `tickets` et `projects` au lieu d'une liste unique `columns`.
+
 ## [Non publié]
 
 ### Ajouté

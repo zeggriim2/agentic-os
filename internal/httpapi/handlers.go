@@ -731,12 +731,19 @@ func (s *Server) ticketAction(w http.ResponseWriter, r *http.Request) {
 
 // ================================================================== pipeline
 
-var pipelineColumns = []struct{ state, label string }{
+// Deux tableaux : le cycle de vie des features, et le travail des agents sur les tickets. Les
+// libellés distinguent « Tickets en cours » (feature) de « Développement » (ticket).
+var featureColumns = []struct{ state, label string }{
 	{"IDEA", "Idées"}, {"SPEC", "Spécification"}, {"SPEC_REVIEW", "Revue de spec"}, {"TECH_DESIGN", "Conception"},
 	{"TECH_DESIGN_REVIEW", "Revue de conception"}, {"ISSUES_OPENED", "Issues"}, {"HUMAN_GATE", "Feu vert"},
-	{"READY_FOR_DEV", "Prêt pour le dev"}, {"IN_DEV", "En développement"}, {"DEV", "Développement"}, {"REVIEW", "Revue"},
-	{"QA", "QA"}, {"CHANGES_REQUESTED", "Corrections demandées"}, {"AWAITING_PR_APPROVAL", "PR à approuver"},
-	{"PR_OPENED", "PR ouverte"}, {"HUMAN_MERGE", "Merge humain"}, {"BLOCKED", "Bloqué"}, {"DONE", "Terminé"},
+	{"READY_FOR_DEV", "Prête pour le dev"}, {"IN_DEV", "Tickets en cours"}, {"BLOCKED", "Bloquée"}, {"DONE", "Terminée"},
+	{"CANCELLED", "Annulée"},
+}
+
+var ticketColumns = []struct{ state, label string }{
+	{"READY_FOR_DEV", "Prêt pour le dev"}, {"DEV", "Développement"}, {"REVIEW", "Revue de code"}, {"QA", "QA"},
+	{"CHANGES_REQUESTED", "Corrections demandées"}, {"AWAITING_PR_APPROVAL", "PR à approuver"}, {"PR_OPENED", "PR ouverte"},
+	{"HUMAN_MERGE", "Merge humain"}, {"BLOCKED", "Bloqué"}, {"DONE", "Terminé"}, {"CANCELLED", "Annulé"},
 }
 
 var attentionStates = map[string]bool{"SPEC_REVIEW": true, "TECH_DESIGN_REVIEW": true, "HUMAN_GATE": true, "CHANGES_REQUESTED": true,
@@ -755,28 +762,61 @@ func (s *Server) pipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	names, _ := store.ProjectNames(ctx, s.Store.Pool)
-	byState := map[string][]map[string]any{}
+	fids := make([]int64, 0, len(features))
 	for _, f := range features {
-		byState[f.State] = append(byState[f.State], map[string]any{"type": "feature", "id": f.ID, "title": f.Title, "project": names[f.ProjectID],
-			"state": f.State, "updated_at": ts(f.UpdatedAt), "attention": attentionStates[f.State]})
+		fids = append(fids, f.ID)
 	}
+	progress, err := store.FeatureTicketProgress(ctx, s.Store.Pool, fids)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	tfids := make([]int64, 0, len(tickets))
+	for _, t := range tickets {
+		tfids = append(tfids, t.FeatureID)
+	}
+	titles, err := store.FeatureTitles(ctx, s.Store.Pool, tfids)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	fByState := map[string][]map[string]any{}
+	for _, f := range features {
+		item := map[string]any{"type": "feature", "id": f.ID, "title": f.Title, "project": names[f.ProjectID],
+			"project_id": f.ProjectID, "state": f.State, "updated_at": ts(f.UpdatedAt), "attention": attentionStates[f.State]}
+		if p := progress[f.ID]; p != nil {
+			item["progress"] = p
+		}
+		fByState[f.State] = append(fByState[f.State], item)
+	}
+	tByState := map[string][]map[string]any{}
 	for _, t := range tickets {
 		if t.State == "PLANNED" {
 			continue
 		}
-		byState[t.State] = append(byState[t.State], map[string]any{"type": "ticket", "id": t.ID, "title": t.Key + " · " + t.Title,
-			"project": names[t.ProjectID], "state": t.State, "updated_at": ts(t.UpdatedAt),
+		tByState[t.State] = append(tByState[t.State], map[string]any{"type": "ticket", "id": t.ID, "key": t.Key,
+			"title": t.Key + " · " + t.Title, "project": names[t.ProjectID], "project_id": t.ProjectID,
+			"feature_id": t.FeatureID, "feature_title": titles[t.FeatureID], "state": t.State, "updated_at": ts(t.UpdatedAt),
 			"attention": attentionStates[t.State] || t.CIState == domain.CIFailure})
 	}
-	cols := make([]map[string]any, 0, len(pipelineColumns))
-	for _, c := range pipelineColumns {
-		items := byState[c.state]
-		if items == nil {
-			items = []map[string]any{}
+	board := func(cols []struct{ state, label string }, byState map[string][]map[string]any) map[string]any {
+		out := make([]map[string]any, 0, len(cols))
+		for _, c := range cols {
+			items := byState[c.state]
+			if items == nil {
+				items = []map[string]any{}
+			}
+			out = append(out, map[string]any{"state": c.state, "label": c.label, "items": items})
 		}
-		cols = append(cols, map[string]any{"state": c.state, "label": c.label, "items": items})
+		return map[string]any{"columns": out}
 	}
-	writeJSON(w, 200, map[string]any{"columns": cols})
+	projects := []map[string]any{}
+	for id, slug := range names {
+		projects = append(projects, map[string]any{"id": id, "slug": slug})
+	}
+	slices.SortFunc(projects, func(a, b map[string]any) int { return strings.Compare(a["slug"].(string), b["slug"].(string)) })
+	writeJSON(w, 200, map[string]any{"features": board(featureColumns, fByState), "tickets": board(ticketColumns, tByState),
+		"projects": projects})
 }
 
 // ================================================================== runs

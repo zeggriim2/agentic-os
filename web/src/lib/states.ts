@@ -21,7 +21,7 @@ export const STATE_META: Record<string, StateMeta> = {
   ISSUES_OPENED: { label: "Issues ouvertes", tone: "info" },
   HUMAN_GATE: { label: "Feu vert humain", tone: "review" },
   READY_FOR_DEV: { label: "Prêt pour dev", tone: "info" },
-  IN_DEV: { label: "En développement", tone: "progress" },
+  IN_DEV: { label: "Tickets en cours", tone: "progress" },
   DONE: { label: "Terminé", tone: "success" },
   BLOCKED: { label: "Bloqué", tone: "danger" },
   CANCELLED: { label: "Annulé", tone: "neutral" },
