@@ -180,6 +180,10 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 422, code, msg)
 		return
 	}
+	if ue := s.checkProfilesConfigured(in.AgentProfiles); ue != nil {
+		writeError(w, ue.status, ue.code, ue.message)
+		return
+	}
 	var p *store.Project
 	err := s.Store.InTx(r.Context(), func(tx pgx.Tx) error {
 		var err error
@@ -267,6 +271,11 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		if code, msg := validateProject(&in); code != "" {
 			return &userError{422, code, msg}
 		}
+		if req.AgentProfiles != nil {
+			if ue := s.checkProfilesConfigured(in.AgentProfiles); ue != nil {
+				return ue
+			}
+		}
 		structuralChange := in.Repository != cur.Repository || in.BaseBranch != cur.BaseBranch || !slices.Equal(in.RequiredChecks, cur.RequiredChecks)
 		if structuralChange {
 			active, err := store.ProjectHasActiveFeatures(r.Context(), tx, id)
@@ -307,6 +316,50 @@ func (s *Server) failUser(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 	s.fail(w, r, err)
+}
+
+// profileRole devine le rôle d'un profil d'après son suffixe (aos-fraiszen-developer → developer).
+func profileRole(name string) string {
+	for _, role := range domain.Roles {
+		if strings.HasSuffix(name, "-"+strings.ReplaceAll(role, "_", "-")) {
+			return role
+		}
+	}
+	return ""
+}
+
+// listHermesProfiles : profils proposés dans les formulaires (ceux dont la clé existe).
+func (s *Server) listHermesProfiles(w http.ResponseWriter, r *http.Request) {
+	names := []string{}
+	if s.HermesProfiles != nil {
+		var err error
+		if names, err = s.HermesProfiles(); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
+	items := make([]map[string]string, 0, len(names))
+	for _, n := range names {
+		items = append(items, map[string]string{"profile": n, "role": profileRole(n)})
+	}
+	writeJSON(w, 200, map[string]any{"items": items, "next_cursor": nil})
+}
+
+// checkProfilesConfigured refuse un profil sans clé Hermes : il échouerait au premier run.
+func (s *Server) checkProfilesConfigured(profiles map[string]string) *userError {
+	if s.HermesProfiles == nil || len(profiles) == 0 {
+		return nil
+	}
+	known, err := s.HermesProfiles()
+	if err != nil {
+		return &userError{503, "profiles_unavailable", "liste des profils Hermes indisponible"}
+	}
+	for role, p := range profiles {
+		if !slices.Contains(known, p) {
+			return &userError{422, "unknown_agent_profile", "profil " + p + " (" + role + ") : aucune clé secrets/hermes/" + p + ".key"}
+		}
+	}
+	return nil
 }
 
 // ================================================================== agents

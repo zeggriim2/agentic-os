@@ -129,6 +129,11 @@ export interface Project extends Timestamps {
   /** Rôle → profil Hermes propre au projet (absent = profil par défaut de l'agent). */
   agent_profiles?: Partial<Record<AgentRole, string>>;
 }
+/** Profil Hermes utilisable (clé configurée) ; rôle deviné d'après le suffixe du nom. */
+export interface HermesProfile {
+  profile: string;
+  role: AgentRole | "";
+}
 export interface ProjectCreate {
   slug: string;
   name: string;

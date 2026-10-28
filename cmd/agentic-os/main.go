@@ -264,6 +264,7 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) int {
 		Version:       version, Revision: revision, Workers: cfg.Workers,
 		Health:   httpapi.HealthDeps{Hermes: d.hermes, GitHub: d.github, Telegram: d.telegram},
 		GitGraph: d.git, GitHubWebURL: cfg.GitHubWebURL,
+		HermesProfiles: d.secrets.HermesProfiles,
 	}
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr, Handler: api.Router(),

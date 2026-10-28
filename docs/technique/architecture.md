@@ -420,4 +420,8 @@ lease owner) et le ticket expose `worktree` relatif (`<slug>/<key>`).
   exister, ce que signalent `/api/health` et `doctor`.
 - Usage prévu : `aos-<projet>-developer|reviewer|qa`, avec l'image Docker du projet et seulement
   `workspaces/<projet>` monté (voir `docs/technique/agents-projets.md`).
+- `GET /api/hermes-profiles` liste les profils dont la clé `secrets/hermes/<profil>.key` existe (aucune
+  clé n'est lue), avec le rôle déduit du suffixe (`-developer`, `-tech-lead`…). Le formulaire projet
+  s'en sert pour ses listes déroulantes ; création et `PATCH` refusent un profil absent de cette liste
+  (`422 unknown_agent_profile`).
 

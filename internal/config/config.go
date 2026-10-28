@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -131,6 +132,27 @@ func (s Secrets) HermesKey(profile string) (string, error) {
 		return "", fmt.Errorf("profil Hermes invalide")
 	}
 	return s.Read("hermes/" + profile + ".key")
+}
+
+// HermesProfiles liste les profils Hermes utilisables : ceux dont la clé <secrets>/hermes/<profil>.key
+// existe (nom validé, tri alphabétique). Aucune clé n'est lue.
+func (s Secrets) HermesProfiles() ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(s.Dir, "hermes"))
+	if errors.Is(err, os.ErrNotExist) {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("lecture des profils Hermes impossible")
+	}
+	out := []string{}
+	for _, e := range entries {
+		name, ok := strings.CutSuffix(e.Name(), ".key")
+		if ok && e.Type().IsRegular() && domain.ValidProfile(name) {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // SessionKey lit la clé de session (32 octets minimum).
