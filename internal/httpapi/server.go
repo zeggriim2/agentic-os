@@ -54,6 +54,8 @@ type Server struct {
 	Workers       int
 	GitGraph      GitGraphSource // lecture du graphe Git des projets (nil : indisponible)
 	GitHubWebURL  string         // base des liens commits/PR/tags (défaut https://github.com)
+	// HermesProfiles liste les profils Hermes dont la clé est configurée (nil : pas de contrôle).
+	HermesProfiles func() ([]string, error)
 
 	gitCache    gitGraphCache
 	limiter     *rateLimiter
@@ -98,6 +100,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/projects/{id}/git-graph", s.projectGitGraph)
 			r.Patch("/projects/{id}", s.patchProject)
 			r.Get("/agents", s.listAgents)
+			r.Get("/hermes-profiles", s.listHermesProfiles)
 			r.Post("/agents/sync", s.syncAgents)
 			r.Patch("/agents/{role}", s.patchAgent)
 			r.Get("/features", s.listFeatures)

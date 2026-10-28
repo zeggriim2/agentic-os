@@ -2,8 +2,19 @@ import { useEffect, useState, type FormEvent } from "react";
 import { FolderGit2, GitBranch, Pencil, Plus, ShieldAlert } from "lucide-react";
 import { Link } from "react-router-dom";
 import { errorMessage } from "@/api/client";
-import { useCreateProject, usePatchProject, useProjects } from "@/api/queries";
-import type { AgentRole, Project, ProjectMode } from "@/api/types";
+import {
+  useAgents,
+  useCreateProject,
+  useHermesProfiles,
+  usePatchProject,
+  useProjects,
+} from "@/api/queries";
+import type {
+  AgentRole,
+  HermesProfile,
+  Project,
+  ProjectMode,
+} from "@/api/types";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -105,6 +116,61 @@ function parseChecks(s: string): string[] {
     .filter(Boolean);
 }
 
+// Liste des profils d'un rôle : défaut de l'agent, profils du rôle, puis les autres profils.
+// Une valeur enregistrée dont la clé a disparu reste visible (signalée) plutôt que d'être effacée.
+export function ProfileSelect({
+  role,
+  value,
+  onChange,
+  defaultProfile,
+  profiles,
+  ...rest
+}: {
+  role: AgentRole;
+  value: string;
+  onChange: (v: string) => void;
+  defaultProfile?: string;
+  profiles: HermesProfile[];
+  id?: string;
+  "aria-invalid"?: boolean;
+  "aria-describedby"?: string;
+}) {
+  const own = profiles.filter(
+    (p) => p.role === role && p.profile !== defaultProfile,
+  );
+  const others = profiles.filter(
+    (p) => p.role !== role && p.profile !== defaultProfile,
+  );
+  const known = value === "" || profiles.some((p) => p.profile === value);
+  return (
+    <Select
+      {...rest}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="font-mono"
+    >
+      <option value="">
+        {defaultProfile ? `Par défaut (${defaultProfile})` : "Par défaut"}
+      </option>
+      {!known && <option value={value}>{value} — clé absente</option>}
+      {own.map((p) => (
+        <option key={p.profile} value={p.profile}>
+          {p.profile}
+        </option>
+      ))}
+      {others.length > 0 && (
+        <optgroup label="Autres profils">
+          {others.map((p) => (
+            <option key={p.profile} value={p.profile}>
+              {p.profile}
+            </option>
+          ))}
+        </optgroup>
+      )}
+    </Select>
+  );
+}
+
 function ProjectDialog({
   open,
   project,
@@ -143,6 +209,11 @@ function ProjectDialog({
     );
   }, [open, project]);
 
+  const profiles = useHermesProfiles(open);
+  const agents = useAgents();
+  const defaults = Object.fromEntries(
+    (agents.data ?? []).map((a) => [a.role, a.hermes_profile]),
+  ) as Partial<Record<AgentRole, string>>;
   const errors = validateProject(f, isCreate);
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setF((s) => ({ ...s, [k]: v }));
@@ -292,20 +363,21 @@ function ProjectDialog({
             />
           )}
         </Field>
-        {PROFILE_ROLES.map(({ key, label }) => (
+        {PROFILE_ROLES.map(({ role, key, label }) => (
           <Field
             key={key}
             label={label}
             error={err(key)}
-            hint="Vide = profil par défaut de l'agent."
+            hint="Profils Hermes dont la clé est configurée."
           >
             {(p) => (
-              <Input
+              <ProfileSelect
                 {...p}
+                role={role}
                 value={f[key]}
-                onChange={(e) => set(key, e.target.value)}
-                className="font-mono"
-                placeholder="par défaut"
+                onChange={(v) => set(key, v)}
+                defaultProfile={defaults[role]}
+                profiles={profiles.data ?? []}
               />
             )}
           </Field>
