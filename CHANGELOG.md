@@ -2,20 +2,24 @@
 
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [SemVer](https://semver.org/lang/fr/).
 
-## [Non publié]
+## [1.4.0] — 2026-10-28
 
-### Modifié
-- Formulaire projet : les profils développeur / reviewer / QA se choisissent dans une liste
-  déroulante (profils dont la clé Hermes est configurée, ceux du rôle d'abord) au lieu d'être saisis.
-  L'API refuse un profil sans clé (`unknown_agent_profile`) ; `GET /api/hermes-profiles`.
+Notifications par projet dans un canal Telegram (groupe et sujet de forum).
 
 ### Ajouté
 - Canal Telegram par projet (migration 0006) : groupe et sujet de forum où partent les
   notifications du projet (spécification/conception à valider, feu vert, rework, PR ouverte, CI
   verte, merge, blocage). Sans canal, le chat par défaut est utilisé, message préfixé du nom du
   projet. Formulaire projet : champs groupe/sujet, lien « Ouvrir dans Telegram » et bouton
-  « Envoyer un message de test » (`POST /api/projects/{id}/telegram-test`).
+  « Envoyer un message de test » (`POST /api/projects/{id}/telegram-test`) (#40).
 - `doctor`/santé : Telegram n'exige plus de chat par défaut, le token du bot suffit.
+
+## [1.3.1] — 2026-10-28
+
+### Modifié
+- Formulaire projet : les profils développeur / reviewer / QA se choisissent dans une liste
+  déroulante (profils dont la clé Hermes est configurée, ceux du rôle d'abord) au lieu d'être saisis.
+  L'API refuse un profil sans clé (`unknown_agent_profile`) ; `GET /api/hermes-profiles` (#38).
 
 ## [1.3.0] — 2026-10-28
 
