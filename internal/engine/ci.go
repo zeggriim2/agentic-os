@@ -106,7 +106,7 @@ func (e *Engine) ReconcilePR(ctx context.Context, ticketID int64) error {
 		return nil
 	})
 	if err == nil && notice != "" {
-		e.Notifier.Notify(ctx, notice)
+		e.notifyProject(ctx, t.ProjectID, notice)
 	}
 	return err
 }

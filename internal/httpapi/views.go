@@ -38,6 +38,8 @@ type projectView struct {
 	Enabled        bool              `json:"enabled"`
 	TestCommand    string            `json:"test_command"`
 	AgentProfiles  map[string]string `json:"agent_profiles"`
+	TelegramChat   string            `json:"telegram_chat_id"`
+	TelegramThread int64             `json:"telegram_thread_id"`
 	CreatedAt      string            `json:"created_at"`
 	UpdatedAt      string            `json:"updated_at"`
 }
@@ -51,7 +53,8 @@ func viewProject(p *store.Project) projectView {
 	if ap == nil {
 		ap = map[string]string{}
 	}
-	return projectView{p.ID, p.Slug, p.Name, p.Repository, p.BaseBranch, rc, p.Mode, p.Enabled, p.TestCommand, ap, ts(p.CreatedAt), ts(p.UpdatedAt)}
+	return projectView{p.ID, p.Slug, p.Name, p.Repository, p.BaseBranch, rc, p.Mode, p.Enabled, p.TestCommand, ap, p.TelegramChatID, p.TelegramThreadID,
+		ts(p.CreatedAt), ts(p.UpdatedAt)}
 }
 
 type agentView struct {

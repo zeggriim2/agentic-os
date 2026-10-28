@@ -20,6 +20,7 @@ import (
 	gh "github.com/zeggriim2/agentic-os/internal/github"
 	"github.com/zeggriim2/agentic-os/internal/gitops"
 	"github.com/zeggriim2/agentic-os/internal/hermes"
+	"github.com/zeggriim2/agentic-os/internal/notify"
 	"github.com/zeggriim2/agentic-os/internal/store"
 	"github.com/zeggriim2/agentic-os/internal/testutil/pgtest"
 )
@@ -176,13 +177,15 @@ func (f *fakeGitHub) CIState(context.Context, string, string, []string) (string,
 }
 
 type notes struct {
-	mu   sync.Mutex
-	msgs []string
+	mu    sync.Mutex
+	msgs  []string
+	dests []notify.Destination
 }
 
-func (n *notes) Notify(_ context.Context, s string) {
+func (n *notes) Notify(_ context.Context, to notify.Destination, s string) {
 	n.mu.Lock()
 	n.msgs = append(n.msgs, s)
+	n.dests = append(n.dests, to)
 	n.mu.Unlock()
 }
 
@@ -207,19 +210,21 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 }
 
 type env struct {
-	agentProfiles map[string]string // profils propres au projet de test (nil = défaut)
-	t             *testing.T
-	s             *store.Store
-	e             *engine.Engine
-	h             *fakeHermes
-	g             *fakeGitHub
-	n             *notes
-	root          string
-	review        func(sha string, call int) string
-	qa            func(sha string, call int) string
-	po            func() (string, int64)
-	calls         map[string]int
-	mu            sync.Mutex
+	telegramChat   string // canal Telegram du projet de test
+	telegramThread int64
+	agentProfiles  map[string]string // profils propres au projet de test (nil = défaut)
+	t              *testing.T
+	s              *store.Store
+	e              *engine.Engine
+	h              *fakeHermes
+	g              *fakeGitHub
+	n              *notes
+	root           string
+	review         func(sha string, call int) string
+	qa             func(sha string, call int) string
+	po             func() (string, int64)
+	calls          map[string]int
+	mu             sync.Mutex
 	// devHook est appelé après le commit du développeur (simule un événement concurrent).
 	devHook func(worktree string)
 	// design remplace le livrable du Tech Lead (vide = designOK, un ticket).
@@ -300,7 +305,7 @@ func newEnv(t *testing.T) *env {
 func (ev *env) project() *store.Project {
 	p, err := store.CreateProject(context.Background(), ev.s.Pool, store.ProjectInput{Slug: "demo", Name: "Demo", Repository: "o/r",
 		BaseBranch: "main", Mode: "sandbox", Enabled: true, RequiredChecks: []string{"tests"}, TestCommand: "go test ./...",
-		AgentProfiles: ev.agentProfiles})
+		AgentProfiles: ev.agentProfiles, TelegramChatID: ev.telegramChat, TelegramThreadID: ev.telegramThread})
 	if err != nil {
 		ev.t.Fatal(err)
 	}
@@ -1370,5 +1375,37 @@ func TestProjectAgentProfilesOverrideDefaultProfiles(t *testing.T) {
 	profiles, err := store.ProjectAgentProfiles(context.Background(), ev.s.Pool)
 	if err != nil || strings.Join(profiles, ",") != "aos-demo-developer,aos-demo-qa,aos-demo-reviewer" {
 		t.Fatalf("profils des projets : %v %v", profiles, err)
+	}
+}
+
+func TestNotificationsGoToProjectChannel(t *testing.T) {
+	ev := newEnv(t)
+	ev.telegramChat, ev.telegramThread = "-1004205411589", 13
+	f, _ := ev.startToDev()
+	ev.drain()
+	expect(t, "ticket", ev.ticket(f.ID).State, "AWAITING_PR_APPROVAL")
+	ev.n.mu.Lock()
+	defer ev.n.mu.Unlock()
+	if len(ev.n.dests) < 3 {
+		t.Fatalf("notifications attendues (spec, conception, issues, PR) : %v", ev.n.msgs)
+	}
+	for i, d := range ev.n.dests {
+		if d.ChatID != "-1004205411589" || d.ThreadID != 13 || d.Label != "Demo" {
+			t.Fatalf("notification %d « %s » : destination %+v", i, ev.n.msgs[i], d)
+		}
+	}
+}
+
+func TestNotificationsWithoutChannelCarryProjectLabel(t *testing.T) {
+	ev := newEnv(t)
+	f, _ := ev.startToDev()
+	ev.drain()
+	expect(t, "ticket", ev.ticket(f.ID).State, "AWAITING_PR_APPROVAL")
+	ev.n.mu.Lock()
+	defer ev.n.mu.Unlock()
+	for i, d := range ev.n.dests {
+		if d.ChatID != "" || d.ThreadID != 0 || d.Label != "Demo" {
+			t.Fatalf("notification %d : destination %+v", i, d)
+		}
 	}
 }

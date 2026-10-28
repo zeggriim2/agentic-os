@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -48,3 +49,11 @@ func ValidDesiredModel(s string) bool { return s == "" || ValidModelName(s) }
 
 // ValidMaxTokens : budget par run entre 1 000 et 50 000 000 tokens.
 func ValidMaxTokens(n int) bool { return n >= MinTokensPerRun && n <= MaxTokensPerRunCap }
+
+var telegramChatRe = regexp.MustCompile(`^-?[0-9]{1,20}$`)
+
+// ValidTelegramChat : identifiant de chat Telegram (vide = chat par défaut). Les groupes sont négatifs.
+func ValidTelegramChat(s string) bool { return s == "" || telegramChatRe.MatchString(s) }
+
+// ValidTelegramThread : identifiant de sujet de forum (0 = aucun).
+func ValidTelegramThread(n int64) bool { return n >= 0 && n <= 1<<31 }

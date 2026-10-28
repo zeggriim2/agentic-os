@@ -222,7 +222,8 @@ func (e *Engine) StopRun(ctx context.Context, runID int64, login string) (*store
 		return nil, userErr(409, "run_finished", "le run est déjà terminé")
 	}
 	actor := audit.User(login)
-	var notice string
+	var notice, subjType string
+	var subjID int64
 	// 1) arrêt demandé, job annulé et sujet bloqué atomiquement ; 2) arrêt envoyé à Hermes et
 	// statut relu. Si Hermes ne confirme pas, le run reste « stopping » et ReconcileStops retente.
 	err = e.Store.InTx(ctx, func(tx pgx.Tx) error {
@@ -240,6 +241,7 @@ func (e *Engine) StopRun(ctx context.Context, runID int64, login string) (*store
 			RunID: &r.ID, After: map[string]any{"run_id": r.ID, "job_id": j.ID}}); err != nil {
 			return err
 		}
+		subjType, subjID = j.SubjectType, j.SubjectID
 		notice, err = e.blockSubject(ctx, tx, j, "arrêté")
 		if err != nil {
 			return err
@@ -253,7 +255,7 @@ func (e *Engine) StopRun(ctx context.Context, runID int64, login string) (*store
 		return nil, err
 	}
 	if notice != "" {
-		e.Notifier.Notify(ctx, notice)
+		e.notifySubject(ctx, subjType, subjID, notice)
 	}
 	if _, err := e.tryStop(ctx, r.ID); err != nil {
 		e.Log.Warn("arrêt du run non confirmé, nouvelle tentative plus tard", "run_id", r.ID, "error", err.Error())

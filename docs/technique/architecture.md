@@ -425,3 +425,14 @@ lease owner) et le ticket expose `worktree` relatif (`<slug>/<key>`).
   s'en sert pour ses listes déroulantes ; création et `PATCH` refusent un profil absent de cette liste
   (`422 unknown_agent_profile`).
 
+### Canal Telegram par projet (migration 0006)
+
+- `projects.telegram_chat_id` (vide ou entier signé) et `projects.telegram_thread_id` (0 = aucun sujet).
+- Le moteur notifie via `notifyProject` / `notifySubject` (feature, ticket ou approbation → projet) :
+  `notify.Destination{ChatID, ThreadID, Label}`. Canal vide → chat par défaut (`secrets/telegram_chat_id`),
+  message préfixé `[<nom du projet>]`, sujet ignoré.
+- Secrets : `telegram_bot_token` (obligatoire pour envoyer), `telegram_chat_id` (facultatif). Le bot peut
+  être celui de Hermes : `sendMessage` n'interfère pas avec la réception (`getUpdates`) de Hermes.
+- `POST /api/projects/{id}/telegram-test` envoie un message de test sur la configuration enregistrée
+  (audit `project.telegram_tested`) ; 422 `telegram_not_configured` si le token manque.
+
