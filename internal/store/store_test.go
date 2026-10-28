@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/zeggriim2/agentic-os/internal/audit"
+	"github.com/zeggriim2/agentic-os/internal/domain"
 	"github.com/zeggriim2/agentic-os/internal/store"
 	"github.com/zeggriim2/agentic-os/internal/testutil/pgtest"
 	"github.com/zeggriim2/agentic-os/migrations"
@@ -480,5 +481,76 @@ func TestTokenSplitMigrationBackfillsFromRunEvents(t *testing.T) {
 		if r.CacheReadTokens != want[0] || r.CacheWriteTokens != want[1] {
 			t.Fatalf("run %d : cache %d/%d, attendu %v", id, r.CacheReadTokens, r.CacheWriteTokens, want)
 		}
+	}
+}
+
+func TestAgentModelsMigrationUpgradesLegacyRows(t *testing.T) {
+	s := pgtest.New(t)
+	ctx := context.Background()
+	p := mkProject(t, s, "legacy")
+	job, _, err := store.EnqueueJob(ctx, s.Pool, store.NewJob{Kind: "po_spec", SubjectType: "feature", SubjectID: 1, IdempotencyKey: "legacy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, _ := store.CreateRun(ctx, s.Pool, job.ID, "po", "aos-po")
+	if err := store.FinishRun(ctx, s.Pool, r.ID, store.RunResult{Status: "completed", Model: "m1", Provider: "p"}); err != nil {
+		t.Fatal(err)
+	}
+	// Simule une base 0006 (sans les colonnes) puis rejoue la migration 0007 sur les lignes existantes.
+	if _, err := s.Pool.Exec(ctx, `ALTER TABLE projects DROP COLUMN agent_models;
+		ALTER TABLE runs DROP COLUMN requested_model, DROP COLUMN requested_provider, DROP COLUMN model_fallback`); err != nil {
+		t.Fatal(err)
+	}
+	sql, err := migrations.FS.ReadFile("0007_project_agent_models.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Pool.Exec(ctx, string(sql)); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := s.SchemaVersion(ctx); err != nil || v != 7 || store.ExpectedSchemaVersion() != 7 {
+		t.Fatalf("version %d (attendue 7) %v", v, err)
+	}
+	got, err := store.GetProject(ctx, s.Pool, p.ID)
+	if err != nil || got.AgentModels == nil || len(got.AgentModels) != 0 {
+		t.Fatalf("projet legacy : agent_models=%v err=%v", got.AgentModels, err)
+	}
+	run, err := store.GetRun(ctx, s.Pool, r.ID)
+	if err != nil || run.RequestedModel != nil || run.RequestedProvider != nil || run.ModelFallback || *run.Model != "m1" {
+		t.Fatalf("run legacy : %+v err=%v", run, err)
+	}
+	// Les nouvelles colonnes fonctionnent : projet avec modèles, run avec surcharge puis repli.
+	up, err := store.UpdateProject(ctx, s.Pool, p.ID, store.ProjectInput{Slug: p.Slug, Name: p.Name, Repository: p.Repository,
+		BaseBranch: p.BaseBranch, Mode: p.Mode, RequiredChecks: p.RequiredChecks,
+		AgentModels: map[string]domain.ModelChoice{"developer": {Provider: "anthropic", Model: "claude-sonnet-5"}}})
+	if err != nil || up.AgentModels["developer"].Model != "claude-sonnet-5" || up.AgentModels["developer"].Provider != "anthropic" {
+		t.Fatalf("agent_models : %v %v", up.AgentModels, err)
+	}
+	if m := up.ModelFor("developer", "gpt-9"); m.Provider != "anthropic" || m.Model != "claude-sonnet-5" {
+		t.Fatalf("ModelFor projet : %+v", m)
+	}
+	if m := up.ModelFor("qa", "gpt-9"); m.Provider != "" || m.Model != "gpt-9" {
+		t.Fatalf("ModelFor agent : %+v", m)
+	}
+	if m := up.ModelFor("qa", ""); !m.Empty() {
+		t.Fatalf("ModelFor défaut : %+v", m)
+	}
+	// CHECK jsonb_typeof = object.
+	if _, err := s.Pool.Exec(ctx, `UPDATE projects SET agent_models='[]'::jsonb WHERE id=$1`, p.ID); err == nil {
+		t.Fatal("agent_models non objet doit être refusé")
+	}
+	r2, _ := store.CreateRun(ctx, s.Pool, job.ID, "developer", "aos-developer")
+	if err := store.SetRunRequestedModel(ctx, s.Pool, r2.ID, domain.ModelChoice{Provider: "anthropic", Model: "claude-sonnet-5"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetRunHermesID(ctx, s.Pool, r2.ID, "run_a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkRunModelFallback(ctx, s.Pool, r2.ID, "run_b"); err != nil {
+		t.Fatal(err)
+	}
+	run, _ = store.GetRun(ctx, s.Pool, r2.ID)
+	if !run.ModelFallback || *run.HermesRunID != "run_b" || *run.RequestedProvider != "anthropic" || *run.RequestedModel != "claude-sonnet-5" || run.Status != "running" {
+		t.Fatalf("run après repli : %+v", run)
 	}
 }

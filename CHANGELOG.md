@@ -2,6 +2,19 @@
 
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [SemVer](https://semver.org/lang/fr/).
 
+## [Non publié]
+
+### Ajouté
+- Modèle LLM par agent et par projet (migration 0007) : `projects.agent_models` (rôle → fournisseur +
+  modèle), bloc « Modèles par agent » du formulaire projet alimenté par `GET /api/hermes/models`
+  (fournisseurs authentifiés du catalogue Hermes, aucun secret). Résolution à chaque run : modèle du
+  projet → modèle souhaité de l'agent → défaut du profil ; `model`/`provider` envoyés à Hermes seulement
+  quand une valeur est résolue. L'API refuse un modèle hors catalogue (`invalid_agent_models`) et refuse
+  tout réglage quand Hermes est injoignable (`hermes_unreachable`).
+- Repli unique : un run refusé pour résolution du fournisseur est re-soumis une fois sans surcharge
+  (clé `-fallback`), `runs.model_fallback` + `requested_model`/`requested_provider`, audit
+  `run.model_fallback`. Les vues Runs signalent « modèle demandé ≠ servi » et le repli.
+
 ## [1.4.0] — 2026-10-28
 
 Notifications par projet dans un canal Telegram (groupe et sujet de forum).

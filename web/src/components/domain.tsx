@@ -7,7 +7,7 @@ import { formatCompact, formatNumber, shortSha } from "@/lib/format";
 import { newTokens, runTokenSplit } from "@/lib/tokens";
 import { approvalKindLabel, approvalStatusLabel, roleLabel } from "@/lib/states";
 import { CodeBlock } from "./ui/CodeBlock";
-import { StateBadge, Tag } from "./ui/StateBadge";
+import { StateBadge, Tag, ToneBadge } from "./ui/StateBadge";
 import { EmptyState } from "./ui/States";
 import { Time } from "./ui/Time";
 
@@ -198,6 +198,38 @@ export function Timeline({
   );
 }
 
+/** Surcharge de modèle demandée mais non servie (fournisseur/modèle différents, ou repli sur le défaut du profil). */
+export function modelDrift(r: Pick<Run, "model" | "provider" | "requested_model" | "requested_provider" | "model_fallback">): {
+  requested: string;
+  fallback: boolean;
+} | null {
+  if (!r.requested_model && !r.requested_provider) return null;
+  const requested = [r.requested_provider, r.requested_model].filter(Boolean).join("/");
+  const fallback = !!r.model_fallback;
+  const differs =
+    (r.requested_model && r.model && r.requested_model !== r.model) ||
+    (r.requested_provider && r.provider && r.requested_provider !== r.provider);
+  return fallback || differs ? { requested, fallback } : null;
+}
+
+/** Badge « modèle demandé ≠ servi » et avertissement de repli. */
+export function ModelDriftBadge({ r }: { r: Parameters<typeof modelDrift>[0] }) {
+  const d = modelDrift(r);
+  if (!d) return null;
+  return (
+    <span className="ml-1 inline-flex flex-wrap gap-1 align-middle">
+      <ToneBadge tone="warning" title={`Demandé : ${d.requested}`}>
+        modèle demandé ≠ servi
+      </ToneBadge>
+      {d.fallback && (
+        <ToneBadge tone="warning" title="Le fournisseur demandé a été refusé par Hermes ; le run a été re-soumis sans surcharge.">
+          repli sur le modèle par défaut du profil
+        </ToneBadge>
+      )}
+    </span>
+  );
+}
+
 export function RunsTable({ runs, empty = "Aucun run." }: { runs: Run[]; empty?: string }) {
   if (!runs.length) return <EmptyState title={empty} />;
   return (
@@ -228,7 +260,10 @@ export function RunsTable({ runs, empty = "Aucun run." }: { runs: Run[]; empty?:
               <td className="px-3 py-2">
                 <StateBadge state={r.status} />
               </td>
-              <td className="px-3 py-2 font-mono text-xs text-fg-muted">{r.model ?? "—"}</td>
+              <td className="px-3 py-2 font-mono text-xs text-fg-muted">
+                {r.model ?? "—"}
+                <ModelDriftBadge r={r} />
+              </td>
               <td className="px-3 py-2 text-right tabular-nums text-fg-muted">
                 <RunTokensCell r={r} />
               </td>

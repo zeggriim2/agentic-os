@@ -8,7 +8,8 @@ une idée en Pull Request **draft**, sous contrôle humain. Le merge reste toujo
 1. **Projets** — dépôt GitHub, branche de base, checks CI requis, mode `sandbox` / `product`.
    Un projet `product` ne peut être activé qu'explicitement par un admin.
 2. **Agents** — un agent par rôle, lié à un profil Hermes ; modèle souhaité vs observé (dérive),
-   budget de tokens par run.
+   budget de tokens par run ; par projet, fournisseur et modèle imposés à chaque rôle (catalogue
+   Hermes), avec repli unique et signalé sur le défaut du profil si le fournisseur est refusé.
 3. **Workflow Feature** : `IDEA → SPEC → SPEC_REVIEW → TECH_DESIGN → TECH_DESIGN_REVIEW →
    ISSUES_OPENED → HUMAN_GATE → READY_FOR_DEV → IN_DEV → DONE`.
    **Workflow Ticket** : `READY_FOR_DEV → DEV → REVIEW → QA → AWAITING_PR_APPROVAL → PR_OPENED →

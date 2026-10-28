@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -38,10 +39,14 @@ type fakeHermes struct {
 	stopErr  error // erreur renvoyée par StopRun
 	stopEnds bool  // un StopRun réussi termine le run (statut "cancelled")
 	sequence int
+	// reqs garde le corps envoyé par clé d'idempotence (vérification de model/provider).
+	reqs map[string]hermes.RunRequest
+	// rejectProvider simule le refus de résolution du fournisseur par Hermes (run failed, 0 token).
+	rejectProvider func(req hermes.RunRequest) bool
 }
 
 func newFakeHermes(respond func(string, hermes.RunRequest) (string, int64)) *fakeHermes {
-	return &fakeHermes{runs: map[string]hermes.RunStatus{}, keys: map[string]string{}, respond: respond}
+	return &fakeHermes{runs: map[string]hermes.RunStatus{}, keys: map[string]string{}, reqs: map[string]hermes.RunRequest{}, respond: respond}
 }
 
 func (f *fakeHermes) CreateRun(_ context.Context, profile, key string, req hermes.RunRequest) (hermes.CreateResult, error) {
@@ -54,6 +59,13 @@ func (f *fakeHermes) CreateRun(_ context.Context, profile, key string, req herme
 	f.sequence++
 	id := fmt.Sprintf("run_%d", f.sequence)
 	f.keys[key] = id
+	f.reqs[key] = req
+	if f.rejectProvider != nil && f.rejectProvider(req) {
+		f.runs[id] = hermes.RunStatus{Status: "failed", Error: "⚠️ Échec d'authentification du fournisseur: " + req.Provider + " non configuré",
+			Requested: &hermes.Runtime{Provider: req.Provider, Model: req.Model}, RouteSource: "raw_request"}
+		f.mu.Unlock()
+		return hermes.CreateResult{RunID: id, Status: "started"}, nil
+	}
 	f.mu.Unlock()
 	out, total := f.respond(profile, req)
 	f.mu.Lock()
@@ -99,6 +111,12 @@ func (f *fakeHermes) StopRun(_ context.Context, _, id string) error {
 }
 func (f *fakeHermes) Capabilities(context.Context, string) error       { return nil }
 func (f *fakeHermes) Models(context.Context, string) ([]string, error) { return []string{"m1"}, nil }
+func (f *fakeHermes) ModelOptions(context.Context, string) (hermes.ModelOptions, error) {
+	return hermes.ModelOptions{Model: "m1", Provider: "p", Providers: []hermes.ModelProvider{
+		{Slug: "p", Name: "P", IsCurrent: true, Authenticated: true, Models: []string{"m1", "m2"}},
+		{Slug: "autre", Name: "Autre", Authenticated: false, Models: []string{}},
+	}}, nil
+}
 
 type fakeGitHub struct {
 	mu        sync.Mutex
@@ -229,6 +247,8 @@ type env struct {
 	devHook func(worktree string)
 	// design remplace le livrable du Tech Lead (vide = designOK, un ticket).
 	design string
+	// agentModels : modèles imposés par le projet (rôle → fournisseur/modèle).
+	agentModels map[string]domain.ModelChoice
 }
 
 const poOK = "Voici la spec.\n```json\n{\"summary\":\"s\",\"user_stories\":[\"en tant que…\"],\"acceptance_criteria\":[\"c1\"],\"open_questions\":[]}\n```"
@@ -305,7 +325,7 @@ func newEnv(t *testing.T) *env {
 func (ev *env) project() *store.Project {
 	p, err := store.CreateProject(context.Background(), ev.s.Pool, store.ProjectInput{Slug: "demo", Name: "Demo", Repository: "o/r",
 		BaseBranch: "main", Mode: "sandbox", Enabled: true, RequiredChecks: []string{"tests"}, TestCommand: "go test ./...",
-		AgentProfiles: ev.agentProfiles, TelegramChatID: ev.telegramChat, TelegramThreadID: ev.telegramThread})
+		AgentProfiles: ev.agentProfiles, AgentModels: ev.agentModels, TelegramChatID: ev.telegramChat, TelegramThreadID: ev.telegramThread})
 	if err != nil {
 		ev.t.Fatal(err)
 	}
@@ -1408,4 +1428,169 @@ func TestNotificationsWithoutChannelCarryProjectLabel(t *testing.T) {
 			t.Fatalf("notification %d : destination %+v", i, d)
 		}
 	}
+}
+
+// runRow lit les colonnes de modèle d'un run par rôle.
+func (ev *env) runRow(role string) (reqModel, reqProvider, served, servedProvider string, fallback bool, status string) {
+	ev.t.Helper()
+	var rm, rp, m, p *string
+	err := ev.s.Pool.QueryRow(context.Background(), `SELECT requested_model, requested_provider, model, provider, model_fallback, status
+		FROM runs WHERE agent_role=$1 ORDER BY id DESC LIMIT 1`, role).Scan(&rm, &rp, &m, &p, &fallback, &status)
+	if err != nil {
+		ev.t.Fatal(err)
+	}
+	deref := func(s *string) string {
+		if s == nil {
+			return ""
+		}
+		return *s
+	}
+	return deref(rm), deref(rp), deref(m), deref(p), fallback, status
+}
+
+func TestModelResolutionProjectThenAgentThenDefault(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	// Niveau 1 : le projet impose fournisseur + modèle au développeur.
+	ev.agentModels = map[string]domain.ModelChoice{domain.RoleDeveloper: {Provider: "anthropic", Model: "claude-sonnet-5"}}
+	// Niveau 2 : l'agent reviewer a un modèle souhaité global (sans fournisseur) ; le projet impose aussi
+	// un modèle au PO pour vérifier que le projet prime sur l'agent.
+	for role, desired := range map[string]string{domain.RoleReviewer: "gpt-9", domain.RolePO: "gpt-vieux"} {
+		a, _ := store.GetAgent(ctx, ev.s.Pool, role)
+		a.DesiredModel = desired
+		if _, err := store.UpdateAgent(ctx, ev.s.Pool, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ev.agentModels[domain.RolePO] = domain.ModelChoice{Provider: "p", Model: "m2"}
+	f, _ := ev.startToDev()
+	ev.drain()
+	expect(t, "ticket après dev/review/qa", ev.ticket(f.ID).State, "AWAITING_PR_APPROVAL")
+
+	// Le corps envoyé à Hermes : surcharge présente seulement quand une valeur est résolue.
+	rows, err := ev.s.Pool.Query(ctx, `SELECT agent_role, requested_model, requested_provider, model_fallback FROM runs ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][2]string{}
+	for rows.Next() {
+		var role string
+		var m, p *string
+		var fb bool
+		if err := rows.Scan(&role, &m, &p, &fb); err != nil {
+			t.Fatal(err)
+		}
+		if fb {
+			t.Fatalf("aucun repli attendu (%s)", role)
+		}
+		pair := [2]string{}
+		if m != nil {
+			pair[0] = *m
+		}
+		if p != nil {
+			pair[1] = *p
+		}
+		got[role] = pair
+	}
+	want := map[string][2]string{
+		domain.RolePO:        {"m2", "p"},                      // projet prime sur l'agent
+		domain.RoleDeveloper: {"claude-sonnet-5", "anthropic"}, // projet
+		domain.RoleReviewer:  {"gpt-9", ""},                    // agent, sans fournisseur
+		domain.RoleQA:        {"", ""},                         // défaut du profil
+		domain.RoleTechLead:  {"", ""},
+	}
+	for role, w := range want {
+		if got[role] != w {
+			t.Fatalf("rôle %s : requested %v, attendu %v (%v)", role, got[role], w, got)
+		}
+	}
+	// Et dans les corps réellement soumis à Hermes.
+	ev.h.mu.Lock()
+	defer ev.h.mu.Unlock()
+	seen := map[[2]string]int{}
+	for _, req := range ev.h.reqs {
+		seen[[2]string{req.Model, req.Provider}]++
+	}
+	if seen[[2]string{"claude-sonnet-5", "anthropic"}] != 1 || seen[[2]string{"gpt-9", ""}] != 1 || seen[[2]string{"m2", "p"}] != 1 || seen[[2]string{"", ""}] != 2 {
+		t.Fatalf("corps envoyés à Hermes : %v", seen)
+	}
+}
+
+func TestModelFallbackOnceWithAudit(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	ev.agentModels = map[string]domain.ModelChoice{domain.RoleDeveloper: {Provider: "inconnu", Model: "x-1"}}
+	// Hermes refuse tout run demandant le fournisseur « inconnu » ; sans surcharge, il sert m1.
+	ev.h.rejectProvider = func(req hermes.RunRequest) bool { return req.Provider == "inconnu" }
+	f, _ := ev.startToDev()
+	ev.drain()
+	expect(t, "ticket après dev/review/qa", ev.ticket(f.ID).State, "AWAITING_PR_APPROVAL")
+	rm, rp, served, sp, fb, status := ev.runRow(domain.RoleDeveloper)
+	if rm != "x-1" || rp != "inconnu" || served != "m1" || sp != "p" || !fb || status != domain.RunCompleted {
+		t.Fatalf("run développeur : requested %s/%s servi %s/%s repli=%v statut=%s", rp, rm, sp, served, fb, status)
+	}
+	expect(t, "deux soumissions développeur (initiale + repli)", ev.calls["aos-developer"], 1) // respond n'est appelé qu'au repli
+	ev.h.mu.Lock()
+	fallbackKeys, withOverride := 0, 0
+	for key, req := range ev.h.reqs {
+		if strings.HasSuffix(key, "-fallback") {
+			fallbackKeys++
+			if req.Model != "" || req.Provider != "" {
+				t.Fatalf("le repli doit être soumis sans surcharge : %+v", req)
+			}
+		}
+		if req.Provider == "inconnu" {
+			withOverride++
+		}
+	}
+	ev.h.mu.Unlock()
+	if fallbackKeys != 1 || withOverride != 1 {
+		t.Fatalf("clés de repli %d, soumissions avec surcharge %d", fallbackKeys, withOverride)
+	}
+	// Un seul run (rattaché à sa re-soumission), une entrée d'audit système.
+	var runs int
+	_ = ev.s.Pool.QueryRow(ctx, `SELECT count(*) FROM runs WHERE agent_role='developer'`).Scan(&runs)
+	expect(t, "un seul run développeur", runs, 1)
+	var actor, after string
+	if err := ev.s.Pool.QueryRow(ctx, `SELECT actor, after::text FROM audit_log WHERE action=$1`, engine.AuditRunModelFallback).Scan(&actor, &after); err != nil {
+		t.Fatalf("audit run.model_fallback absent : %v", err)
+	}
+	var entry struct {
+		Requested map[string]string `json:"requested"`
+		Served    string            `json:"served"`
+		Reason    string            `json:"reason"`
+	}
+	if err := json.Unmarshal([]byte(after), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if actor != "system" || entry.Requested["provider"] != "inconnu" || entry.Requested["model"] != "x-1" || entry.Served == "" ||
+		!strings.Contains(entry.Reason, "fournisseur") {
+		t.Fatalf("audit : %s %s", actor, after)
+	}
+}
+
+func TestModelFallbackHappensOnlyOnce(t *testing.T) {
+	ev := newEnv(t)
+	ev.agentModels = map[string]domain.ModelChoice{domain.RolePO: {Provider: "p", Model: "m2"}}
+	// Hermes échoue même sans surcharge (panne du fournisseur) : pas de second repli, le run échoue.
+	ev.h.rejectProvider = func(hermes.RunRequest) bool { return true }
+	ctx := context.Background()
+	p := ev.project()
+	f, err := store.CreateFeature(ctx, ev.s.Pool, p.ID, "Hello", "Dire bonjour")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ev.e.FeatureAction(ctx, f.ID, "start_spec", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	ev.drain()
+	ev.h.mu.Lock()
+	creates := ev.h.creates
+	ev.h.mu.Unlock()
+	expect(t, "soumissions Hermes (initiale + un seul repli)", creates, 2)
+	_, _, _, _, fb, status := ev.runRow(domain.RolePO)
+	if !fb || status != domain.RunFailed {
+		t.Fatalf("run PO : repli=%v statut=%s", fb, status)
+	}
+	expect(t, "feature bloquée", ev.feature(f.ID).State, "BLOCKED")
 }

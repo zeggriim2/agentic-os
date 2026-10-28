@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
 import { Square } from "lucide-react";
 import { errorMessage } from "@/api/client";
 import { subscribeEvents, useStreamStatus } from "@/api/events";
 import { useRun, useStopRun } from "@/api/queries";
 import type { RunEvent } from "@/api/types";
-import { SubjectLink, TruncatedNotice } from "@/components/domain";
+import { ModelDriftBadge, SubjectLink, TruncatedNotice, modelDrift } from "@/components/domain";
 import { Button } from "@/components/ui/Button";
 import { CodeBlock, prettyJson } from "@/components/ui/CodeBlock";
 import { ConfirmDialog } from "@/components/ui/Dialog";
@@ -188,16 +188,37 @@ export default function RunDetailPage() {
             <CardHeader title="Détails" />
             <div className="p-4">
               <DefList
-                items={[
-                  ["Modèle", r.model ? <Mono>{r.model}</Mono> : "—"],
+                items={([
+                  [
+                    "Modèle",
+                    <span key="m">
+                      {r.model ? <Mono>{r.model}</Mono> : "—"}
+                      <ModelDriftBadge r={r} />
+                    </span>,
+                  ],
                   ["Fournisseur", r.provider ?? "—"],
+                  ...(r.requested_model || r.requested_provider
+                    ? [
+                        [
+                          "Modèle demandé",
+                          <span key="rq">
+                            <Mono>{[r.requested_provider, r.requested_model].filter(Boolean).join("/")}</Mono>
+                            {modelDrift(r)?.fallback && (
+                              <span className="ml-2 text-xs text-warning">
+                                refusé par Hermes, repli sur le modèle par défaut du profil
+                              </span>
+                            )}
+                          </span>,
+                        ],
+                      ]
+                    : []),
                   ["Profil Hermes", <Mono key="p">{r.hermes_profile}</Mono>],
                   ["Run Hermes", r.hermes_run_id ? <Mono>{r.hermes_run_id}</Mono> : "—"],
                   ["Job", `#${r.job_id}`],
                   ["Démarré", <Time key="s" value={r.started_at} />],
                   ["Terminé", <Time key="f" value={r.finished_at} />],
                   ["Durée", formatDuration(r.started_at, r.finished_at)],
-                ]}
+                ] as [ReactNode, ReactNode][])}
               />
             </div>
           </Card>

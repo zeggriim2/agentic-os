@@ -102,6 +102,8 @@ type projectCreate struct {
 	TestCommand    string   `json:"test_command"`
 	// AgentProfiles : rôle → profil Hermes propre au projet (vide ou absent = profil par défaut).
 	AgentProfiles map[string]string `json:"agent_profiles"`
+	// AgentModels : rôle → {provider, model} imposés aux runs du projet (absent/vide = défaut).
+	AgentModels map[string]domain.ModelChoice `json:"agent_models"`
 	// Canal Telegram du projet : groupe (ex. -1001234567890) et sujet de forum (0 = aucun).
 	TelegramChatID   string `json:"telegram_chat_id"`
 	TelegramThreadID int64  `json:"telegram_thread_id"`
@@ -158,6 +160,11 @@ func validateProject(in *store.ProjectInput) (string, string) {
 		profiles[role] = prof
 	}
 	in.AgentProfiles = profiles
+	models, code, msg := validateAgentModels(in.AgentModels)
+	if code != "" {
+		return code, msg
+	}
+	in.AgentModels = models
 	in.TelegramChatID = trim(in.TelegramChatID)
 	switch {
 	case !domain.ValidTelegramChat(in.TelegramChatID):
@@ -190,12 +197,16 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	}
 	in := store.ProjectInput{Slug: trim(req.Slug), Name: req.Name, Repository: trim(req.Repository), BaseBranch: req.BaseBranch,
 		RequiredChecks: req.RequiredChecks, Mode: req.Mode, TestCommand: req.TestCommand, Enabled: false, AgentProfiles: req.AgentProfiles,
-		TelegramChatID: req.TelegramChatID, TelegramThreadID: req.TelegramThreadID}
+		AgentModels: req.AgentModels, TelegramChatID: req.TelegramChatID, TelegramThreadID: req.TelegramThreadID}
 	if code, msg := validateProject(&in); code != "" {
 		writeError(w, 422, code, msg)
 		return
 	}
 	if ue := s.checkProfilesConfigured(in.AgentProfiles); ue != nil {
+		writeError(w, ue.status, ue.code, ue.message)
+		return
+	}
+	if ue := s.checkModelsAvailable(r.Context(), in.AgentModels); ue != nil {
 		writeError(w, ue.status, ue.code, ue.message)
 		return
 	}
@@ -237,10 +248,12 @@ type projectPatch struct {
 	Enabled        *bool     `json:"enabled"`
 	TestCommand    *string   `json:"test_command"`
 	// AgentProfiles remplace l'ensemble des profils propres au projet ({} = tous par défaut).
-	AgentProfiles    *map[string]string `json:"agent_profiles"`
-	TelegramChatID   *string            `json:"telegram_chat_id"`
-	TelegramThreadID *int64             `json:"telegram_thread_id"`
-	Confirm          *string            `json:"confirm"`
+	AgentProfiles *map[string]string `json:"agent_profiles"`
+	// AgentModels remplace l'ensemble des modèles imposés ({} = défaut partout).
+	AgentModels      *map[string]domain.ModelChoice `json:"agent_models"`
+	TelegramChatID   *string                        `json:"telegram_chat_id"`
+	TelegramThreadID *int64                         `json:"telegram_thread_id"`
+	Confirm          *string                        `json:"confirm"`
 }
 
 func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
@@ -260,7 +273,7 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		}
 		in := store.ProjectInput{Slug: cur.Slug, Name: cur.Name, Repository: cur.Repository, BaseBranch: cur.BaseBranch,
 			RequiredChecks: cur.RequiredChecks, Mode: cur.Mode, Enabled: cur.Enabled, TestCommand: cur.TestCommand,
-			AgentProfiles: cur.AgentProfiles, TelegramChatID: cur.TelegramChatID, TelegramThreadID: cur.TelegramThreadID}
+			AgentProfiles: cur.AgentProfiles, AgentModels: cur.AgentModels, TelegramChatID: cur.TelegramChatID, TelegramThreadID: cur.TelegramThreadID}
 		if req.Name != nil {
 			in.Name = *req.Name
 		}
@@ -285,6 +298,9 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		if req.AgentProfiles != nil {
 			in.AgentProfiles = *req.AgentProfiles
 		}
+		if req.AgentModels != nil {
+			in.AgentModels = *req.AgentModels
+		}
 		if req.TelegramChatID != nil {
 			in.TelegramChatID = *req.TelegramChatID
 		}
@@ -296,6 +312,11 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AgentProfiles != nil {
 			if ue := s.checkProfilesConfigured(in.AgentProfiles); ue != nil {
+				return ue
+			}
+		}
+		if req.AgentModels != nil {
+			if ue := s.checkModelsAvailable(r.Context(), in.AgentModels); ue != nil {
 				return ue
 			}
 		}

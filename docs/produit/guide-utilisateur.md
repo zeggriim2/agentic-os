@@ -55,6 +55,11 @@ quelque chose passe par votre approbation, et le merge reste toujours le vôtre.
   reconnue : activer la suppression automatique des branches après merge sur GitHub évite ce cas.
 - **Agents** : le profil Hermes de chaque rôle, le modèle souhaité (laisser vide pour ne pas en imposer)
   et le budget de tokens par run.
+- **Projets → Modifier → Modèles par agent** : pour ce projet, le fournisseur et le modèle de chaque rôle,
+  choisis dans la liste des fournisseurs authentifiés de Hermes (« Défaut du profil » = ne rien imposer ;
+  le modèle souhaité de la page Agents s'applique alors). Si Hermes refuse le fournisseur demandé, le run
+  est relancé une fois sur le modèle par défaut du profil et la page du run l'indique (« modèle demandé
+  ≠ servi », « repli »).
 - **Audit** : l'historique complet de qui a fait quoi.
 - **Santé** : état de la base, de Hermes, de GitHub, de Telegram et des workers.
 

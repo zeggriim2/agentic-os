@@ -50,6 +50,8 @@ export const validFeatureDescription = (s: string) => {
 };
 export const validDesiredModel = (s: string) => s === "" || MODEL.test(s);
 export const validProfile = (s: string) => PROFILE.test(s);
+const PROVIDER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+export const validProvider = (s: string) => PROVIDER.test(s);
 const TELEGRAM_CHAT = /^-?[0-9]{1,20}$/;
 export const validTelegramChat = (s: string) =>
   s === "" || TELEGRAM_CHAT.test(s);
