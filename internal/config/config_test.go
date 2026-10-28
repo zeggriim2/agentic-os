@@ -59,3 +59,19 @@ func TestSecrets(t *testing.T) {
 		t.Fatal("erreur inattendue")
 	}
 }
+
+func TestHermesProfilesListsOnlyValidKeyFiles(t *testing.T) {
+	dir := t.TempDir()
+	s := Secrets{Dir: dir}
+	if got, err := s.HermesProfiles(); err != nil || len(got) != 0 {
+		t.Fatalf("sans dossier hermes : %v %v", got, err)
+	}
+	_ = os.MkdirAll(filepath.Join(dir, "hermes", "sub.key"), 0o700)
+	for _, f := range []string{"aos-qa.key", "aos-fz-developer.key", "Bad.key", "notes.txt", ".hidden.key"} {
+		_ = os.WriteFile(filepath.Join(dir, "hermes", f), []byte("k"), 0o600)
+	}
+	got, err := s.HermesProfiles()
+	if err != nil || strings.Join(got, ",") != "aos-fz-developer,aos-qa" {
+		t.Fatalf("profils : %v %v", got, err)
+	}
+}

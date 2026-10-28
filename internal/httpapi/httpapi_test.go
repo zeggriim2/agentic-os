@@ -45,6 +45,12 @@ type client struct {
 
 func setup(t *testing.T, web fstest.MapFS) *client {
 	t.Helper()
+	return setupWith(t, web, nil)
+}
+
+// setupWith permet d'ajuster le serveur (dépendances optionnelles) avant son démarrage.
+func setupWith(t *testing.T, web fstest.MapFS, mod func(*httpapi.Server)) *client {
+	t.Helper()
 	s := pgtest.New(t)
 	hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -60,6 +66,9 @@ func setup(t *testing.T, web fstest.MapFS) *client {
 	}
 	if web != nil {
 		srv.Web = web
+	}
+	if mod != nil {
+		mod(srv)
 	}
 	ts := httptest.NewServer(srv.Router())
 	t.Cleanup(ts.Close)
@@ -755,4 +764,27 @@ func TestProjectAgentProfiles(t *testing.T) {
 	if ap, _ := r.body["agent_profiles"].(map[string]any); r.status != 200 || len(ap) != 0 {
 		t.Fatalf("patch {} remet les profils par défaut : %s", r.raw)
 	}
+}
+
+func TestHermesProfilesListAndProjectCheck(t *testing.T) {
+	c := setupWith(t, nil, func(s *httpapi.Server) {
+		s.HermesProfiles = func() ([]string, error) {
+			return []string{"aos-developer", "aos-fz-developer", "aos-fz-qa", "aos-tech-lead", "perso"}, nil
+		}
+	})
+	c.login()
+	r := c.do("GET", "/api/hermes-profiles", nil, false)
+	if r.status != 200 || !strings.Contains(r.raw, `{"profile":"aos-fz-developer","role":"developer"}`) ||
+		!strings.Contains(r.raw, `{"profile":"aos-tech-lead","role":"tech_lead"}`) || !strings.Contains(r.raw, `{"profile":"perso","role":""}`) {
+		t.Fatalf("liste des profils : %s", r.raw)
+	}
+	base := map[string]any{"slug": "fz", "name": "FZ", "repository": "o/fz"}
+	base["agent_profiles"] = map[string]string{"developer": "aos-fz-developpeur"}
+	expectStatus(t, "profil sans clé", c.do("POST", "/api/projects", base, true), 422, "unknown_agent_profile")
+	base["agent_profiles"] = map[string]string{"developer": "aos-fz-developer", "qa": "aos-fz-qa"}
+	r = c.do("POST", "/api/projects", base, true)
+	expectStatus(t, "profils connus", r, 201, "")
+	path := fmt.Sprintf("/api/projects/%d", int64(r.body["id"].(float64)))
+	expectStatus(t, "patch profil sans clé", c.do("PATCH", path, map[string]any{"agent_profiles": map[string]string{"reviewer": "inconnu"}}, true), 422, "unknown_agent_profile")
+	expectStatus(t, "patch sans agent_profiles", c.do("PATCH", path, map[string]any{"name": "FZ2"}, true), 200, "")
 }
