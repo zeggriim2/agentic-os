@@ -84,6 +84,19 @@ func doctor(ctx context.Context, cfg config.Config) *Report {
 					}
 				}
 			}
+			// Profils propres aux projets actifs (ex. aos-fraiszen-developer).
+			if extra, err := store.ProjectAgentProfiles(ctx, s.Pool); err == nil {
+				seen := map[string]bool{}
+				for _, p := range profiles {
+					seen[p] = true
+				}
+				for _, p := range extra {
+					if !seen[p] {
+						seen[p] = true
+						profiles = append(profiles, p)
+					}
+				}
+			}
 			if ps, err := store.ListProjects(ctx, s.Pool, store.Page{Limit: 200}); err == nil {
 				for _, p := range ps {
 					if p.Enabled {

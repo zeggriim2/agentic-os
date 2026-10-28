@@ -7,20 +7,33 @@ import (
 
 // Project est une ligne de projects.
 type Project struct {
-	ID             int64     `db:"id"`
-	Slug           string    `db:"slug"`
-	Name           string    `db:"name"`
-	Repository     string    `db:"repository"`
-	BaseBranch     string    `db:"base_branch"`
-	RequiredChecks []string  `db:"required_checks"`
-	Mode           string    `db:"mode"`
-	Enabled        bool      `db:"enabled"`
-	TestCommand    string    `db:"test_command"`
-	CreatedAt      time.Time `db:"created_at"`
-	UpdatedAt      time.Time `db:"updated_at"`
+	ID             int64    `db:"id"`
+	Slug           string   `db:"slug"`
+	Name           string   `db:"name"`
+	Repository     string   `db:"repository"`
+	BaseBranch     string   `db:"base_branch"`
+	RequiredChecks []string `db:"required_checks"`
+	Mode           string   `db:"mode"`
+	Enabled        bool     `db:"enabled"`
+	TestCommand    string   `db:"test_command"`
+	// AgentProfiles : rôle → profil Hermes propre au projet (absent = profil par défaut de l'agent).
+	AgentProfiles map[string]string `db:"agent_profiles"`
+	CreatedAt     time.Time         `db:"created_at"`
+	UpdatedAt     time.Time         `db:"updated_at"`
 }
 
-const projectCols = `id, slug, name, repository, base_branch, required_checks, mode, enabled, test_command, created_at, updated_at`
+const projectCols = `id, slug, name, repository, base_branch, required_checks, mode, enabled, test_command, agent_profiles, created_at, updated_at`
+
+// ProfileFor renvoie le profil Hermes à utiliser pour role : celui du projet s'il en définit un,
+// sinon le profil par défaut de l'agent.
+func (p *Project) ProfileFor(role, defaultProfile string) string {
+	if p != nil {
+		if v := p.AgentProfiles[role]; v != "" {
+			return v
+		}
+	}
+	return defaultProfile
+}
 
 // Agent est une ligne d'agents.
 type Agent struct {

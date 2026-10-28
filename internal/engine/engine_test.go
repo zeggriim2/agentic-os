@@ -207,18 +207,19 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 }
 
 type env struct {
-	t      *testing.T
-	s      *store.Store
-	e      *engine.Engine
-	h      *fakeHermes
-	g      *fakeGitHub
-	n      *notes
-	root   string
-	review func(sha string, call int) string
-	qa     func(sha string, call int) string
-	po     func() (string, int64)
-	calls  map[string]int
-	mu     sync.Mutex
+	agentProfiles map[string]string // profils propres au projet de test (nil = défaut)
+	t             *testing.T
+	s             *store.Store
+	e             *engine.Engine
+	h             *fakeHermes
+	g             *fakeGitHub
+	n             *notes
+	root          string
+	review        func(sha string, call int) string
+	qa            func(sha string, call int) string
+	po            func() (string, int64)
+	calls         map[string]int
+	mu            sync.Mutex
 	// devHook est appelé après le commit du développeur (simule un événement concurrent).
 	devHook func(worktree string)
 	// design remplace le livrable du Tech Lead (vide = designOK, un ticket).
@@ -258,7 +259,8 @@ func newEnv(t *testing.T) *env {
 		ev.calls[profile]++
 		call := ev.calls[profile]
 		ev.mu.Unlock()
-		switch profile {
+		// Les profils propres au projet (aos-demo-<rôle>) se comportent comme les profils par défaut.
+		switch strings.Replace(profile, "aos-demo-", "aos-", 1) {
 		case "aos-po":
 			return ev.po()
 		case "aos-tech-lead":
@@ -297,7 +299,8 @@ func newEnv(t *testing.T) *env {
 
 func (ev *env) project() *store.Project {
 	p, err := store.CreateProject(context.Background(), ev.s.Pool, store.ProjectInput{Slug: "demo", Name: "Demo", Repository: "o/r",
-		BaseBranch: "main", Mode: "sandbox", Enabled: true, RequiredChecks: []string{"tests"}, TestCommand: "go test ./..."})
+		BaseBranch: "main", Mode: "sandbox", Enabled: true, RequiredChecks: []string{"tests"}, TestCommand: "go test ./...",
+		AgentProfiles: ev.agentProfiles})
 	if err != nil {
 		ev.t.Fatal(err)
 	}
@@ -1331,5 +1334,41 @@ func TestPRBodyIsShortAndTicketFocused(t *testing.T) {
 	}
 	if len([]rune(body)) > 1500 {
 		t.Fatalf("corps trop long : %d caractères", len([]rune(body)))
+	}
+}
+
+func TestProjectAgentProfilesOverrideDefaultProfiles(t *testing.T) {
+	ev := newEnv(t)
+	ev.agentProfiles = map[string]string{"developer": "aos-demo-developer", "reviewer": "aos-demo-reviewer", "qa": "aos-demo-qa"}
+	f, _ := ev.startToDev()
+	ev.drain()
+	expect(t, "ticket après dev/review/qa", ev.ticket(f.ID).State, "AWAITING_PR_APPROVAL")
+	rows, err := ev.s.Pool.Query(context.Background(), `SELECT agent_role, hermes_profile FROM runs ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for rows.Next() {
+		var role, prof string
+		if err := rows.Scan(&role, &prof); err != nil {
+			t.Fatal(err)
+		}
+		got[role] = prof
+	}
+	want := map[string]string{"po": "aos-po", "tech_lead": "aos-tech-lead", "developer": "aos-demo-developer",
+		"reviewer": "aos-demo-reviewer", "qa": "aos-demo-qa"}
+	for role, prof := range want {
+		if got[role] != prof {
+			t.Fatalf("rôle %s : profil %q, attendu %q (%v)", role, got[role], prof, got)
+		}
+	}
+	for _, prof := range []string{"aos-developer", "aos-reviewer", "aos-qa"} {
+		if ev.calls[prof] != 0 {
+			t.Fatalf("profil par défaut %s appelé %d fois", prof, ev.calls[prof])
+		}
+	}
+	profiles, err := store.ProjectAgentProfiles(context.Background(), ev.s.Pool)
+	if err != nil || strings.Join(profiles, ",") != "aos-demo-developer,aos-demo-qa,aos-demo-reviewer" {
+		t.Fatalf("profils des projets : %v %v", profiles, err)
 	}
 }

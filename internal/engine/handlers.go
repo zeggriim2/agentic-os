@@ -83,7 +83,7 @@ func (e *Engine) handlePOSpec(ctx context.Context, j *store.Job, owner string) e
 		return err
 	}
 	instr, input := poPrompt(p, f, payloadOf(j).Feedback)
-	o, err := e.runAgent(ctx, j, domain.RolePO, 0, hermes.RunRequest{Input: input, Instructions: instr})
+	o, err := e.runAgent(ctx, j, p, domain.RolePO, 0, hermes.RunRequest{Input: input, Instructions: instr})
 	if err != nil {
 		return err
 	}
@@ -138,7 +138,7 @@ func (e *Engine) handleTechDesign(ctx context.Context, j *store.Job, owner strin
 		return err
 	}
 	instr, input := techLeadPrompt(p, f, payloadOf(j).Feedback)
-	o, err := e.runAgent(ctx, j, domain.RoleTechLead, 0, hermes.RunRequest{Input: input, Instructions: instr})
+	o, err := e.runAgent(ctx, j, p, domain.RoleTechLead, 0, hermes.RunRequest{Input: input, Instructions: instr})
 	if err != nil {
 		return err
 	}
@@ -347,7 +347,7 @@ func (e *Engine) handleDevelop(ctx context.Context, j *store.Job, owner string) 
 		return err
 	}
 	instr, input := developerPrompt(p, t, wt, branch, payloadOf(j).Feedback)
-	o, err := e.runAgent(ctx, j, domain.RoleDeveloper, t.Attempt, hermes.RunRequest{Input: input, Instructions: instr})
+	o, err := e.runAgent(ctx, j, p, domain.RoleDeveloper, t.Attempt, hermes.RunRequest{Input: input, Instructions: instr})
 	if err != nil {
 		return err
 	}
@@ -516,7 +516,7 @@ func (e *Engine) handleReview(ctx context.Context, j *store.Job, owner string) e
 		return err
 	}
 	instr, input := reviewerPrompt(p, t, wt, sha)
-	o, err := e.runAgent(ctx, j, domain.RoleReviewer, t.Attempt, hermes.RunRequest{Input: input, Instructions: instr})
+	o, err := e.runAgent(ctx, j, p, domain.RoleReviewer, t.Attempt, hermes.RunRequest{Input: input, Instructions: instr})
 	if err != nil {
 		return err
 	}
@@ -611,7 +611,7 @@ func (e *Engine) handleQA(ctx context.Context, j *store.Job, owner string) error
 		return permanent(domain.ErrClassInternal, "critères d'acceptation du ticket absents ou illisibles")
 	}
 	instr, input := qaPrompt(p, t, wt, sha)
-	o, err := e.runAgent(ctx, j, domain.RoleQA, t.Attempt, hermes.RunRequest{Input: input, Instructions: instr})
+	o, err := e.runAgent(ctx, j, p, domain.RoleQA, t.Attempt, hermes.RunRequest{Input: input, Instructions: instr})
 	if err != nil {
 		return err
 	}
