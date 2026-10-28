@@ -2,7 +2,9 @@
 
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [SemVer](https://semver.org/lang/fr/).
 
-## [Non publié]
+## [1.3.0] — 2026-10-28
+
+Agents par projet : image Docker outillée et profils Hermes dédiés (premier projet : FraisZen).
 
 ### Ajouté
 - Image Docker des agents par projet (`projects/<slug>/`) : outillage de la CI du projet et caches
@@ -12,7 +14,7 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 - Profils Hermes par projet : un projet peut confier le développement, la revue et la QA à des
   profils dédiés (`agent_profiles`, migration 0005), par exemple avec l'image Docker outillée du
   projet et ses seuls worktrees montés. Sans réglage, les profils par défaut des agents s'appliquent.
-  Santé et `doctor` vérifient aussi ces profils.
+  Santé et `doctor` vérifient aussi ces profils (#35).
 
 ## [1.2.0] — 2026-10-28
 
