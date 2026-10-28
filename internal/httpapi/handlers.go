@@ -76,14 +76,15 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 		tokens7d = []store.DayTokens{}
 	}
 	writeJSON(w, 200, map[string]any{
-		"pending_approvals": o.PendingApprovals,
-		"blocked":           map[string]int{"features": o.BlockedFeatures, "tickets": o.BlockedTickets},
-		"active_runs":       o.ActiveRuns,
-		"tokens_today":      o.TokensToday,
-		"tokens_7d":         tokens7d,
-		"dispatch_paused":   paused,
-		"alerts":            alerts,
-		"recent_activity":   mapSlice(recent, viewAudit),
+		"pending_approvals":  o.PendingApprovals,
+		"blocked":            map[string]int{"features": o.BlockedFeatures, "tickets": o.BlockedTickets},
+		"active_runs":        o.ActiveRuns,
+		"tokens_today":       o.TokensToday,
+		"tokens_today_split": o.TokensTodaySplit,
+		"tokens_7d":          tokens7d,
+		"dispatch_paused":    paused,
+		"alerts":             alerts,
+		"recent_activity":    mapSlice(recent, viewAudit),
 	})
 }
 

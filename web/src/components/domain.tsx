@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { Bot, ChevronRight, Cog, User } from "lucide-react";
 import type { Approval, AuditEntry, Run } from "@/api/types";
 import { cn } from "@/lib/cn";
-import { formatNumber, shortSha } from "@/lib/format";
+import { formatCompact, formatNumber, shortSha } from "@/lib/format";
+import { newTokens, runTokenSplit } from "@/lib/tokens";
 import { approvalKindLabel, approvalStatusLabel, roleLabel } from "@/lib/states";
 import { CodeBlock } from "./ui/CodeBlock";
 import { StateBadge, Tag } from "./ui/StateBadge";
@@ -208,7 +209,9 @@ export function RunsTable({ runs, empty = "Aucun run." }: { runs: Run[]; empty?:
             <th className="px-3 py-2 font-medium">Rôle</th>
             <th className="px-3 py-2 font-medium">Statut</th>
             <th className="px-3 py-2 font-medium">Modèle</th>
-            <th className="px-3 py-2 text-right font-medium">Tokens</th>
+            <th className="px-3 py-2 text-right font-medium" title="Entrée nouvelle + sortie ; la relecture du cache est indiquée à part">
+              Tokens nouveaux
+            </th>
             <th className="px-3 py-2 text-right font-medium">Démarré</th>
           </tr>
         </thead>
@@ -226,7 +229,9 @@ export function RunsTable({ runs, empty = "Aucun run." }: { runs: Run[]; empty?:
                 <StateBadge state={r.status} />
               </td>
               <td className="px-3 py-2 font-mono text-xs text-fg-muted">{r.model ?? "—"}</td>
-              <td className="px-3 py-2 text-right tabular-nums text-fg-muted">{formatNumber(r.total_tokens)}</td>
+              <td className="px-3 py-2 text-right tabular-nums text-fg-muted">
+                <RunTokensCell r={r} />
+              </td>
               <td className="px-3 py-2 text-right text-xs text-fg-subtle">
                 <Time value={r.started_at ?? r.created_at} />
               </td>
@@ -257,5 +262,15 @@ export function ApprovalList({ approvals, empty = "Aucune approbation." }: { app
         </li>
       ))}
     </ul>
+  );
+}
+
+function RunTokensCell({ r }: { r: Parameters<typeof runTokenSplit>[0] }) {
+  const t = runTokenSplit(r);
+  return (
+    <span title={`Entrée nouvelle ${formatNumber(t.fresh)} · relue du cache ${formatNumber(t.cache)} · sortie ${formatNumber(t.output)} · total brut ${formatNumber(t.total)}`}>
+      {formatNumber(newTokens(t))}
+      {t.cache > 0 && <span className="ml-1 text-2xs text-fg-subtle">+{formatCompact(t.cache)} cache</span>}
+    </span>
   );
 }

@@ -51,6 +51,35 @@ const renderRun = () =>
 
 const eventRows = () => within(screen.getByRole("list", { hidden: true })).getAllByRole("listitem");
 
+describe("Détail d'un run : tokens", () => {
+  beforeEach(() => {
+    FakeEventSource.instances = [];
+    vi.stubGlobal("EventSource", FakeEventSource);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("sépare l'entrée nouvelle, la relecture du cache et la sortie", async () => {
+    const run = { ...runBody().run, status: "completed", input_tokens: 305443, output_tokens: 2637, total_tokens: 308080,
+      fresh_input_tokens: 56483, cache_read_tokens: 248960, cache_write_tokens: 0 };
+    mockFetch({ "GET /api/runs/5": { body: runBody({ run }) } });
+    renderRun();
+    const card = await screen.findByTestId("run-tokens");
+    const cells = within(card).getAllByText(/\d/).map((e) => e.textContent?.replace(/\s/g, ""));
+    expect(cells).toEqual(["56483", "248960", "2637"]);
+    expect(within(card).getByText("Entrée nouvelle")).toBeInTheDocument();
+    expect(within(card).getByText("Relue du cache")).toBeInTheDocument();
+    expect(screen.getByText(/Total brut/).textContent?.replace(/\s/g, "")).toContain("308080,dont81%relusducache");
+  });
+
+  it("reste lisible avec une ancienne API sans répartition", async () => {
+    const run = { ...runBody().run, status: "completed", input_tokens: 1000, output_tokens: 50, total_tokens: 1050 };
+    mockFetch({ "GET /api/runs/5": { body: runBody({ run }) } });
+    renderRun();
+    const card = await screen.findByTestId("run-tokens");
+    expect(within(card).getAllByText(/\d/).map((e) => e.textContent?.replace(/\s/g, ""))).toEqual(["1000", "0", "50"]);
+  });
+});
+
 describe("Détail d'un run : flux en direct", () => {
   beforeEach(() => {
     FakeEventSource.instances = [];

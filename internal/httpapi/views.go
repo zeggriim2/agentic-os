@@ -142,29 +142,33 @@ func viewJob(j *store.Job) jobView {
 }
 
 type runView struct {
-	ID            int64           `json:"id"`
-	JobID         int64           `json:"job_id"`
-	AgentRole     string          `json:"agent_role"`
-	HermesProfile string          `json:"hermes_profile"`
-	HermesRunID   *string         `json:"hermes_run_id"`
-	Status        string          `json:"status"`
-	InputTokens   int64           `json:"input_tokens"`
-	OutputTokens  int64           `json:"output_tokens"`
-	TotalTokens   int64           `json:"total_tokens"`
-	Model         *string         `json:"model"`
-	Provider      *string         `json:"provider"`
-	Error         *string         `json:"error"`
-	HasArtifact   bool            `json:"has_artifact"`
-	StartedAt     string          `json:"started_at"`
-	FinishedAt    *string         `json:"finished_at"`
-	StopAttempts  int             `json:"stop_attempts"`
-	StopError     *string         `json:"stop_error"`
-	Artifact      json.RawMessage `json:"artifact,omitempty"`
+	ID            int64   `json:"id"`
+	JobID         int64   `json:"job_id"`
+	AgentRole     string  `json:"agent_role"`
+	HermesProfile string  `json:"hermes_profile"`
+	HermesRunID   *string `json:"hermes_run_id"`
+	Status        string  `json:"status"`
+	InputTokens   int64   `json:"input_tokens"`
+	OutputTokens  int64   `json:"output_tokens"`
+	TotalTokens   int64   `json:"total_tokens"`
+	// Répartition : input_tokens = fresh_input_tokens + cache_read_tokens.
+	FreshInputTokens int64           `json:"fresh_input_tokens"`
+	CacheReadTokens  int64           `json:"cache_read_tokens"`
+	CacheWriteTokens int64           `json:"cache_write_tokens"`
+	Model            *string         `json:"model"`
+	Provider         *string         `json:"provider"`
+	Error            *string         `json:"error"`
+	HasArtifact      bool            `json:"has_artifact"`
+	StartedAt        string          `json:"started_at"`
+	FinishedAt       *string         `json:"finished_at"`
+	StopAttempts     int             `json:"stop_attempts"`
+	StopError        *string         `json:"stop_error"`
+	Artifact         json.RawMessage `json:"artifact,omitempty"`
 }
 
 func viewRun(r *store.Run, withArtifact bool) runView {
 	v := runView{r.ID, r.JobID, r.AgentRole, r.HermesProfile, r.HermesRunID, r.Status, r.InputTokens, r.OutputTokens, r.TotalTokens,
-		r.Model, r.Provider, r.Error, len(r.Artifact) > 0, ts(r.StartedAt), tsp(r.FinishedAt), r.StopAttempts, r.StopError, nil}
+		max(r.InputTokens-r.CacheReadTokens, 0), r.CacheReadTokens, r.CacheWriteTokens, r.Model, r.Provider, r.Error, len(r.Artifact) > 0, ts(r.StartedAt), tsp(r.FinishedAt), r.StopAttempts, r.StopError, nil}
 	if withArtifact {
 		v.Artifact = rawOrNull(r.Artifact)
 	}

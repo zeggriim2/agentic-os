@@ -553,6 +553,7 @@ func SetRunHermesID(ctx context.Context, q Q, id int64, hermesID string) error {
 type RunResult struct {
 	Status                                 string
 	InputTokens, OutputTokens, TotalTokens int64
+	CacheReadTokens, CacheWriteTokens      int64
 	Model, Provider                        string
 	Output                                 string
 	Artifact                               any
@@ -575,9 +576,13 @@ func FinishRun(ctx context.Context, q Q, id int64, r RunResult) error {
 	if r.Artifact != nil {
 		art = JSON(r.Artifact)
 	}
+	// Le cache relu est compris dans l'entrée : borné à [0, input] pour garder une entrée nouvelle ≥ 0.
+	cacheRead := min(max(r.CacheReadTokens, 0), max(r.InputTokens, 0))
 	_, err := q.Exec(ctx, `UPDATE runs SET status=$2, input_tokens=$3, output_tokens=$4, total_tokens=$5, model=NULLIF($6,''),
-		provider=NULLIF($7,''), output=$8, artifact=$9, error=NULLIF($10,''), finished_at=now(), updated_at=now() WHERE id=$1`,
-		id, r.Status, r.InputTokens, r.OutputTokens, r.TotalTokens, r.Model, r.Provider, out, art, truncate(r.Error, 2000))
+		provider=NULLIF($7,''), output=$8, artifact=$9, error=NULLIF($10,''), cache_read_tokens=$11, cache_write_tokens=$12,
+		finished_at=now(), updated_at=now() WHERE id=$1`,
+		id, r.Status, r.InputTokens, r.OutputTokens, r.TotalTokens, r.Model, r.Provider, out, art, truncate(r.Error, 2000),
+		cacheRead, max(r.CacheWriteTokens, 0))
 	return err
 }
 
@@ -932,13 +937,22 @@ type Overview struct {
 	BlockedTickets   int
 	ActiveRuns       int
 	TokensToday      int64
+	TokensTodaySplit TokenSplit
 	Tokens7d         []DayTokens
+}
+
+// TokenSplit répartit une consommation : entrée nouvelle, relue du cache, sortie.
+type TokenSplit struct {
+	FreshInput int64 `json:"fresh_input"`
+	CacheRead  int64 `json:"cache_read"`
+	Output     int64 `json:"output"`
 }
 
 // DayTokens est une consommation journalière.
 type DayTokens struct {
 	Day   string `json:"day"`
 	Total int64  `json:"total"`
+	TokenSplit
 }
 
 // GetOverview calcule les compteurs.
@@ -949,21 +963,28 @@ func GetOverview(ctx context.Context, q Q) (*Overview, error) {
 		(SELECT count(*) FROM features WHERE state='BLOCKED'),
 		(SELECT count(*) FROM tickets WHERE state='BLOCKED'),
 		(SELECT count(*) FROM runs WHERE status IN ('submitted','running','stopping')),
-		(SELECT COALESCE(sum(total_tokens),0) FROM runs WHERE started_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')`).
-		Scan(&o.PendingApprovals, &o.BlockedFeatures, &o.BlockedTickets, &o.ActiveRuns, &o.TokensToday)
+		(SELECT COALESCE(sum(total_tokens),0) FROM runs WHERE started_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'),
+		(SELECT COALESCE(sum(GREATEST(input_tokens-cache_read_tokens,0)),0) FROM runs WHERE started_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'),
+		(SELECT COALESCE(sum(cache_read_tokens),0) FROM runs WHERE started_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'),
+		(SELECT COALESCE(sum(output_tokens),0) FROM runs WHERE started_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')`).
+		Scan(&o.PendingApprovals, &o.BlockedFeatures, &o.BlockedTickets, &o.ActiveRuns, &o.TokensToday,
+			&o.TokensTodaySplit.FreshInput, &o.TokensTodaySplit.CacheRead, &o.TokensTodaySplit.Output)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := q.Query(ctx, `SELECT to_char(d, 'YYYY-MM-DD'), COALESCE((SELECT sum(total_tokens) FROM runs
-		WHERE (started_at AT TIME ZONE 'UTC')::date = d::date),0)::bigint
-		FROM generate_series((now() AT TIME ZONE 'UTC')::date - 6, (now() AT TIME ZONE 'UTC')::date, interval '1 day') d ORDER BY d`)
+	rows, err := q.Query(ctx, `SELECT to_char(d, 'YYYY-MM-DD'),
+		COALESCE(sum(r.total_tokens),0)::bigint, COALESCE(sum(GREATEST(r.input_tokens-r.cache_read_tokens,0)),0)::bigint,
+		COALESCE(sum(r.cache_read_tokens),0)::bigint, COALESCE(sum(r.output_tokens),0)::bigint
+		FROM generate_series((now() AT TIME ZONE 'UTC')::date - 6, (now() AT TIME ZONE 'UTC')::date, interval '1 day') d
+		LEFT JOIN runs r ON (r.started_at AT TIME ZONE 'UTC')::date = d::date
+		GROUP BY d ORDER BY d`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var d DayTokens
-		if err := rows.Scan(&d.Day, &d.Total); err != nil {
+		if err := rows.Scan(&d.Day, &d.Total, &d.FreshInput, &d.CacheRead, &d.Output); err != nil {
 			return nil, err
 		}
 		o.Tokens7d = append(o.Tokens7d, d)

@@ -218,6 +218,10 @@ export interface Run extends Timestamps {
   input_tokens: number | null;
   output_tokens: number | null;
   total_tokens: number | null;
+  /** input_tokens = fresh_input_tokens + cache_read_tokens (absents sur une ancienne API). */
+  fresh_input_tokens?: number | null;
+  cache_read_tokens?: number | null;
+  cache_write_tokens?: number | null;
   model: string | null;
   provider: string | null;
   error: string | null;
@@ -317,7 +321,8 @@ export interface Overview {
   blocked: { features: number | BlockedRef[]; tickets: number | BlockedRef[] };
   active_runs: number;
   tokens_today: number;
-  tokens_7d: { day: string; total: number }[];
+  tokens_today_split?: TokenUsageSplit;
+  tokens_7d: ({ day: string; total: number } & Partial<TokenUsageSplit>)[];
   dispatch_paused: boolean;
   alerts: OverviewAlert[];
   recent_activity: AuditEntry[];
@@ -424,4 +429,11 @@ export interface GitGraph {
   refs: GitRef[];
   tags: GitTag[];
   commits: GitCommit[];
+}
+
+/** Répartition d'une consommation de tokens (entrée nouvelle, relue du cache, sortie). */
+export interface TokenUsageSplit {
+  fresh_input: number;
+  cache_read: number;
+  output: number;
 }

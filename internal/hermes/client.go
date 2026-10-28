@@ -49,9 +49,12 @@ type CreateResult struct {
 
 // Usage décrit la consommation de tokens.
 type Usage struct {
-	InputTokens  int64 `json:"input_tokens"`
+	InputTokens  int64 `json:"input_tokens"` // inclut les tokens relus du cache
 	OutputTokens int64 `json:"output_tokens"`
 	TotalTokens  int64 `json:"total_tokens"`
+	// Tokens d'entrée relus du cache du fournisseur (comptés dans InputTokens) / écrits en cache.
+	CacheReadTokens  int64 `json:"cache_read_tokens"`
+	CacheWriteTokens int64 `json:"cache_write_tokens"`
 }
 
 // Runtime décrit le modèle effectif.
