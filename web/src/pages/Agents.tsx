@@ -17,7 +17,13 @@ import { formatNumber } from "@/lib/format";
 import { roleLabel } from "@/lib/states";
 import { LIMITS, validDesiredModel, validMaxTokens } from "@/lib/validation";
 
-function EditAgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => void }) {
+function EditAgentDialog({
+  agent,
+  onClose,
+}: {
+  agent: Agent | null;
+  onClose: () => void;
+}) {
   const [model, setModel] = useState("");
   const [budget, setBudget] = useState("");
   const [touched, setTouched] = useState(false);
@@ -31,16 +37,22 @@ function EditAgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () 
     }
   }, [agent]);
   const n = Number(budget);
-  const budgetErr = !/^\d+$/.test(budget) || !validMaxTokens(n)
-    ? `Entier entre ${formatNumber(LIMITS.minTokens)} et ${formatNumber(LIMITS.maxTokens)}.`
-    : undefined;
-  const modelErr = validDesiredModel(model.trim()) ? undefined : "Nom de modèle invalide (lettres, chiffres, . _ : / @ -).";
+  const budgetErr =
+    !/^\d+$/.test(budget) || !validMaxTokens(n)
+      ? `Entier entre ${formatNumber(LIMITS.minTokens)} et ${formatNumber(LIMITS.maxTokens)}.`
+      : undefined;
+  const modelErr = validDesiredModel(model.trim())
+    ? undefined
+    : "Nom de modèle invalide (lettres, chiffres, . _ : / @ -).";
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setTouched(true);
     if (!agent || budgetErr || modelErr) return;
     m.mutate(
-      { role: agent.role, patch: { desired_model: model.trim(), max_tokens_per_run: n } },
+      {
+        role: agent.role,
+        patch: { desired_model: model.trim(), max_tokens_per_run: n },
+      },
       {
         onSuccess: () => {
           toast.success("Agent mis à jour");
@@ -59,7 +71,12 @@ function EditAgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () 
           <Button variant="ghost" onClick={onClose}>
             Annuler
           </Button>
-          <Button variant="primary" type="submit" form="edit-agent" loading={m.isPending}>
+          <Button
+            variant="primary"
+            type="submit"
+            form="edit-agent"
+            loading={m.isPending}
+          >
             Enregistrer
           </Button>
         </>
@@ -71,11 +88,35 @@ function EditAgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () 
             {errorMessage(m.error)}
           </p>
         )}
-        <Field label="Modèle souhaité" error={touched ? modelErr : undefined} hint="Vide = aucun modèle imposé. Sinon comparé au modèle observé pour détecter une dérive.">
-          {(p) => <Input {...p} value={model} onChange={(e) => setModel(e.target.value)} className="font-mono" data-autofocus />}
+        <Field
+          label="Modèle souhaité"
+          error={touched ? modelErr : undefined}
+          hint="Vide = aucun modèle imposé. Sinon comparé au modèle observé pour détecter une dérive."
+        >
+          {(p) => (
+            <Input
+              {...p}
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              className="font-mono"
+              data-autofocus
+            />
+          )}
         </Field>
-        <Field label="Budget max de tokens par run" required error={touched ? budgetErr : undefined} hint="Au-delà, le run est rejeté (erreur budget).">
-          {(p) => <Input {...p} inputMode="numeric" value={budget} onChange={(e) => setBudget(e.target.value)} />}
+        <Field
+          label="Budget max de tokens par run"
+          required
+          error={touched ? budgetErr : undefined}
+          hint="Tokens nouveaux (entrée nouvelle + sortie) ; les tokens relus du cache ne comptent pas. Au-delà, le run est rejeté (erreur budget)."
+        >
+          {(p) => (
+            <Input
+              {...p}
+              inputMode="numeric"
+              value={budget}
+              onChange={(e) => setBudget(e.target.value)}
+            />
+          )}
         </Field>
       </form>
     </Dialog>
@@ -85,17 +126,28 @@ function EditAgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () 
 function AgentCard({ a, onEdit }: { a: Agent; onEdit: () => void }) {
   const patch = usePatchAgent();
   const toast = useToast();
-  const drift = a.sync_state === "DRIFT_DETECTED" || (a.desired_model && a.observed_model && a.desired_model !== a.observed_model);
+  const drift =
+    a.sync_state === "DRIFT_DETECTED" ||
+    (a.desired_model &&
+      a.observed_model &&
+      a.desired_model !== a.observed_model);
   return (
     <Card className={cn("flex flex-col", !a.enabled && "opacity-75")}>
       <div className="flex items-start justify-between gap-3 border-b border-border p-4">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="rounded-md border border-border bg-panel p-2 text-fg-muted" aria-hidden>
+          <span
+            className="rounded-md border border-border bg-panel p-2 text-fg-muted"
+            aria-hidden
+          >
             <Bot className="h-4 w-4" />
           </span>
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-fg">{roleLabel(a.role)}</h2>
-            <p className="truncate font-mono text-xs text-fg-subtle">profil {a.hermes_profile}</p>
+            <h2 className="text-sm font-semibold text-fg">
+              {roleLabel(a.role)}
+            </h2>
+            <p className="truncate font-mono text-xs text-fg-subtle">
+              profil {a.hermes_profile}
+            </p>
           </div>
         </div>
         <Switch
@@ -106,8 +158,10 @@ function AgentCard({ a, onEdit }: { a: Agent; onEdit: () => void }) {
             patch.mutate(
               { role: a.role, patch: { enabled: v } },
               {
-                onSuccess: () => toast.success(v ? "Agent activé" : "Agent désactivé"),
-                onError: (e) => toast.error("Modification refusée", errorMessage(e)),
+                onSuccess: () =>
+                  toast.success(v ? "Agent activé" : "Agent désactivé"),
+                onError: (e) =>
+                  toast.error("Modification refusée", errorMessage(e)),
               },
             )
           }
@@ -116,13 +170,22 @@ function AgentCard({ a, onEdit }: { a: Agent; onEdit: () => void }) {
       <dl className="grid flex-1 grid-cols-2 gap-x-4 gap-y-3 p-4 text-sm">
         <div>
           <dt className="text-xs text-fg-subtle">Modèle souhaité</dt>
-          <dd className="mt-0.5 truncate font-mono text-xs text-fg">{a.desired_model || "—"}</dd>
+          <dd className="mt-0.5 truncate font-mono text-xs text-fg">
+            {a.desired_model || "—"}
+          </dd>
         </div>
         <div>
           <dt className="text-xs text-fg-subtle">Modèle observé</dt>
-          <dd className={cn("mt-0.5 truncate font-mono text-xs", drift ? "text-warning" : "text-fg")}>
+          <dd
+            className={cn(
+              "mt-0.5 truncate font-mono text-xs",
+              drift ? "text-warning" : "text-fg",
+            )}
+          >
             {a.observed_model || "—"}
-            {a.observed_provider && <span className="text-fg-subtle"> · {a.observed_provider}</span>}
+            {a.observed_provider && (
+              <span className="text-fg-subtle"> · {a.observed_provider}</span>
+            )}
           </dd>
         </div>
         <div>
@@ -133,7 +196,9 @@ function AgentCard({ a, onEdit }: { a: Agent; onEdit: () => void }) {
         </div>
         <div>
           <dt className="text-xs text-fg-subtle">Budget / run</dt>
-          <dd className="mt-0.5 tabular-nums text-fg">{formatNumber(a.max_tokens_per_run)} tokens</dd>
+          <dd className="mt-0.5 tabular-nums text-fg">
+            {formatNumber(a.max_tokens_per_run)} tokens
+          </dd>
         </div>
         <div>
           <dt className="text-xs text-fg-subtle">Observé</dt>
@@ -149,7 +214,12 @@ function AgentCard({ a, onEdit }: { a: Agent; onEdit: () => void }) {
         </div>
       </dl>
       <div className="flex justify-end border-t border-border px-4 py-2.5">
-        <Button size="sm" variant="ghost" onClick={onEdit} icon={<Pencil className="h-3.5 w-3.5" aria-hidden />}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onEdit}
+          icon={<Pencil className="h-3.5 w-3.5" aria-hidden />}
+        >
           Modifier
         </Button>
       </div>
@@ -163,20 +233,42 @@ export default function AgentsPage() {
   const toast = useToast();
   const [editing, setEditing] = useState<Agent | null>(null);
   const [confirmSync, setConfirmSync] = useState(false);
-  const drift = q.data?.filter((a) => a.sync_state === "DRIFT_DETECTED").length ?? 0;
+  const drift =
+    q.data?.filter((a) => a.sync_state === "DRIFT_DETECTED").length ?? 0;
   return (
     <>
       <PageHeader
         title="Agents"
         description="Un agent par rôle, lié à un profil Hermes."
-        meta={drift > 0 ? <StateBadge state="DRIFT_DETECTED" label={`${drift} agent(s) en dérive`} /> : undefined}
+        meta={
+          drift > 0 ? (
+            <StateBadge
+              state="DRIFT_DETECTED"
+              label={`${drift} agent(s) en dérive`}
+            />
+          ) : undefined
+        }
         actions={
-          <Button onClick={() => setConfirmSync(true)} icon={<RefreshCw className="h-4 w-4" aria-hidden />}>
+          <Button
+            onClick={() => setConfirmSync(true)}
+            icon={<RefreshCw className="h-4 w-4" aria-hidden />}
+          >
             Synchroniser
           </Button>
         }
       />
-      <QueryView query={q} isEmpty={(d) => d.length === 0} empty={<Card><EmptyState icon={<Bot className="h-5 w-5" />} title="Aucun agent configuré" /></Card>}>
+      <QueryView
+        query={q}
+        isEmpty={(d) => d.length === 0}
+        empty={
+          <Card>
+            <EmptyState
+              icon={<Bot className="h-5 w-5" />}
+              title="Aucun agent configuré"
+            />
+          </Card>
+        }
+      >
         {(d) => (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {d.map((a) => (
@@ -193,9 +285,13 @@ export default function AgentsPage() {
           sync.mutate(undefined, {
             onSuccess: () => {
               setConfirmSync(false);
-              toast.success("Synchronisation demandée", "Un job sync_agents a été créé.");
+              toast.success(
+                "Synchronisation demandée",
+                "Un job sync_agents a été créé.",
+              );
             },
-            onError: (e) => toast.error("Synchronisation impossible", errorMessage(e)),
+            onError: (e) =>
+              toast.error("Synchronisation impossible", errorMessage(e)),
           })
         }
         loading={sync.isPending}

@@ -258,10 +258,21 @@ func (e *Engine) evaluate(ctx context.Context, o *agentOutcome, parse func(strin
 	}
 	// Le run est déjà notifié « terminé » : renotifier pour que la vue en direct affiche le livrable.
 	_ = store.Notify(ctx, e.Store.Pool, "run.updated", o.Run.ID)
-	if o.Status.Usage.TotalTokens > int64(o.Agent.MaxTokensPerRun) {
-		msg := fmt.Sprintf("budget dépassé : %d tokens > %d", o.Status.Usage.TotalTokens, o.Agent.MaxTokensPerRun)
+	// Budget sur les tokens nouveaux (entrée nouvelle + sortie) : les tokens relus du cache, souvent
+	// plus de 90 % du total brut d'un run outillé, ne comptent pas.
+	if fresh := freshTokens(o.Status.Usage); fresh > int64(o.Agent.MaxTokensPerRun) {
+		msg := fmt.Sprintf("budget dépassé : %d tokens nouveaux (entrée nouvelle + sortie) > %d", fresh, o.Agent.MaxTokensPerRun)
 		_, _ = e.Store.Pool.Exec(ctx, `UPDATE runs SET error=$2, updated_at=now() WHERE id=$1`, o.Run.ID, msg)
 		return nil, permanent(domain.ErrClassBudget, "%s", msg)
 	}
 	return art, nil
+}
+
+// freshTokens : entrée nouvelle (entrée - relue du cache, bornée à 0) + sortie.
+func freshTokens(u hermes.Usage) int64 {
+	in := u.InputTokens - u.CacheReadTokens
+	if in < 0 {
+		in = 0
+	}
+	return in + u.OutputTokens
 }

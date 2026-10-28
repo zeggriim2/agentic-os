@@ -54,7 +54,7 @@ quelque chose passe par votre approbation, et le merge reste toujours le vôtre.
   réaffiche. Une branche mergée en squash puis modifiée en conflit par la suite n'est pas toujours
   reconnue : activer la suppression automatique des branches après merge sur GitHub évite ce cas.
 - **Agents** : le profil Hermes de chaque rôle, le modèle souhaité (laisser vide pour ne pas en imposer)
-  et le budget de tokens par run.
+  et le budget de tokens nouveaux par run (entrée nouvelle + sortie, cache non compté).
 - **Projets → Modifier → Modèles par agent** : pour ce projet, le fournisseur et le modèle de chaque rôle,
   choisis dans la liste des fournisseurs authentifiés de Hermes (« Défaut du profil » = ne rien imposer ;
   le modèle souhaité de la page Agents s'applique alors). Si Hermes refuse le fournisseur demandé, le run

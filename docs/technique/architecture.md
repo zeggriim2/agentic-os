@@ -188,7 +188,7 @@ Règles fail-closed :
 - `GET /p/<profil>/v1/capabilities` (health) ; modèle observé = `runtime.model` du dernier run, et
   `GET /p/<profil>/v1/models` si disponible.
 - Le livrable est le **dernier bloc JSON** de `output` (balise ```json … ``` ou objet brut). Budget :
-  si `usage.total_tokens > max_tokens_per_run` → erreur `budget` (le livrable est quand même stocké mais rejeté).
+  si les tokens nouveaux (`input_tokens - cache_read_tokens + output_tokens`) dépassent `max_tokens_per_run` → erreur `budget` (le livrable est quand même stocké mais rejeté). Depuis 1.5.1 ; avant, le total brut (cache compris) était compté.
 
 Livrables (schémas stricts, clés inconnues refusées) :
 - `po_spec` : `{"summary": str, "user_stories": [str], "acceptance_criteria": [str], "open_questions": [str]}`
@@ -407,7 +407,7 @@ lease owner) et le ticket expose `worktree` relatif (`<slug>/<key>`).
   `fresh_input_tokens = input_tokens − cache_read_tokens`. La migration reprend les runs existants depuis
   l'usage de leur événement `run.completed`.
 - L'interface affiche « tokens nouveaux » (entrée nouvelle + sortie) avec la relecture du cache à part.
-  `total_tokens` garde son sens (et reste la base du budget `max_tokens_per_run`, inchangé).
+  `total_tokens` garde son sens ; depuis 1.5.1 le budget `max_tokens_per_run` porte sur les tokens nouveaux, pas sur ce total.
 
 ### Économie de contexte des agents
 
