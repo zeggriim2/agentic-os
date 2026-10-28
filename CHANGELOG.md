@@ -2,14 +2,16 @@
 
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [SemVer](https://semver.org/lang/fr/).
 
-## [Non publié]
+## [1.2.0] — 2026-10-28
+
+Réduction et lisibilité de la consommation de tokens des agents.
 
 ### Modifié
 - Consignes des agents plus économes en contexte : skills du rôle seulement, lectures et recherches
   ciblées, sorties bornées, commandes regroupées, base de comparaison `origin/<base>` (la branche
-  locale peut être périmée et faire relire des changements déjà intégrés).
+  locale peut être périmée et faire relire des changements déjà intégrés) (#31).
 - Tokens : entrée nouvelle, relue du cache et sortie affichées séparément (détail d'un run, liste des
-  runs, vue d'ensemble, histogramme 7 jours) ; migration 0004 avec reprise des runs existants.
+  runs, vue d'ensemble, histogramme 7 jours) ; migration 0004 avec reprise des runs existants (#30).
 
 ## [1.1.0] — 2026-10-27
 
