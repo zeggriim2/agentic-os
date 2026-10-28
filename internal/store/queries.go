@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/zeggriim2/agentic-os/internal/domain"
 )
 
 func one[T any](ctx context.Context, q Q, sql string, args ...any) (*T, error) {
@@ -59,6 +61,7 @@ type ProjectInput struct {
 	RequiredChecks                                        []string
 	Enabled                                               bool
 	AgentProfiles                                         map[string]string
+	AgentModels                                           map[string]domain.ModelChoice
 	TelegramChatID                                        string
 	TelegramThreadID                                      int64
 }
@@ -71,10 +74,13 @@ func CreateProject(ctx context.Context, q Q, in ProjectInput) (*Project, error) 
 	if in.AgentProfiles == nil {
 		in.AgentProfiles = map[string]string{}
 	}
+	if in.AgentModels == nil {
+		in.AgentModels = map[string]domain.ModelChoice{}
+	}
 	p, err := one[Project](ctx, q, `INSERT INTO projects (slug, name, repository, base_branch, required_checks, mode, enabled, test_command, agent_profiles,
-		telegram_chat_id, telegram_thread_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING `+projectCols,
+		telegram_chat_id, telegram_thread_id, agent_models) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING `+projectCols,
 		in.Slug, in.Name, in.Repository, in.BaseBranch, in.RequiredChecks, in.Mode, in.Enabled, in.TestCommand, in.AgentProfiles,
-		in.TelegramChatID, in.TelegramThreadID)
+		in.TelegramChatID, in.TelegramThreadID, in.AgentModels)
 	if IsUniqueViolation(err) {
 		return nil, ErrDuplicate
 	}
@@ -105,11 +111,14 @@ func UpdateProject(ctx context.Context, q Q, id int64, in ProjectInput) (*Projec
 	if in.AgentProfiles == nil {
 		in.AgentProfiles = map[string]string{}
 	}
+	if in.AgentModels == nil {
+		in.AgentModels = map[string]domain.ModelChoice{}
+	}
 	return one[Project](ctx, q, `UPDATE projects SET name=$2, repository=$3, base_branch=$4, required_checks=$5, mode=$6,
-		enabled=$7, test_command=$8, agent_profiles=$9, telegram_chat_id=$10, telegram_thread_id=$11, updated_at=now()
+		enabled=$7, test_command=$8, agent_profiles=$9, telegram_chat_id=$10, telegram_thread_id=$11, agent_models=$12, updated_at=now()
 		WHERE id=$1 RETURNING `+projectCols,
 		id, in.Name, in.Repository, in.BaseBranch, in.RequiredChecks, in.Mode, in.Enabled, in.TestCommand, in.AgentProfiles,
-		in.TelegramChatID, in.TelegramThreadID)
+		in.TelegramChatID, in.TelegramThreadID, in.AgentModels)
 }
 
 // ProjectAgentProfiles liste les profils Hermes propres aux projets actifs (sans doublon, triés).
@@ -546,6 +555,20 @@ func truncate(s string, n int) string {
 // CreateRun crée un run soumis.
 func CreateRun(ctx context.Context, q Q, jobID int64, role, profile string) (*Run, error) {
 	return one[Run](ctx, q, `INSERT INTO runs (job_id, agent_role, hermes_profile) VALUES ($1,$2,$3) RETURNING `+runCols, jobID, role, profile)
+}
+
+// SetRunRequestedModel enregistre la surcharge de modèle envoyée à Hermes (vide = aucune).
+func SetRunRequestedModel(ctx context.Context, q Q, id int64, m domain.ModelChoice) error {
+	_, err := q.Exec(ctx, `UPDATE runs SET requested_model=NULLIF($2,''), requested_provider=NULLIF($3,''), updated_at=now() WHERE id=$1`,
+		id, m.Model, m.Provider)
+	return err
+}
+
+// MarkRunModelFallback rattache le run à sa re-soumission sans surcharge (repli sur le défaut du profil).
+// La surcharge demandée est conservée pour l'affichage « demandé ≠ servi ».
+func MarkRunModelFallback(ctx context.Context, q Q, id int64, hermesID string) error {
+	_, err := q.Exec(ctx, `UPDATE runs SET model_fallback=true, hermes_run_id=$2, status='running', error=NULL, updated_at=now() WHERE id=$1`, id, hermesID)
+	return err
 }
 
 // GetRun lit un run.

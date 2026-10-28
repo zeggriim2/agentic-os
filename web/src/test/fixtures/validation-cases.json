@@ -225,5 +225,30 @@
         "count": 21
       }
     ]
+  },
+  "provider": {
+    "valid": [
+      "anthropic",
+      "openai-codex",
+      "OpenRouter",
+      "a",
+      "x.y_z",
+      {
+        "repeat": "a",
+        "count": 64
+      }
+    ],
+    "invalid": [
+      "",
+      " anthropic",
+      "-x",
+      "a b",
+      "a/b",
+      "é",
+      {
+        "repeat": "a",
+        "count": 65
+      }
+    ]
   }
 }

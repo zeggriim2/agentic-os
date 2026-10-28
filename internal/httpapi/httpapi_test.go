@@ -13,6 +13,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/zeggriim2/agentic-os/internal/engine"
 	gh "github.com/zeggriim2/agentic-os/internal/github"
 	"github.com/zeggriim2/agentic-os/internal/gitops"
+	"github.com/zeggriim2/agentic-os/internal/hermes"
 	"github.com/zeggriim2/agentic-os/internal/httpapi"
 	"github.com/zeggriim2/agentic-os/internal/notify"
 	"github.com/zeggriim2/agentic-os/internal/store"
@@ -840,4 +842,150 @@ func TestProjectTelegramChannel(t *testing.T) {
 	}
 	fail = true
 	expectStatus(t, "Telegram non configuré", c.do("POST", path+"/telegram-test", map[string]any{}, true), 422, "telegram_not_configured")
+}
+
+// fakeCatalog simule le catalogue Hermes (ou son indisponibilité).
+type fakeCatalog struct {
+	mu    sync.Mutex
+	calls int
+	err   error
+}
+
+func (f *fakeCatalog) ModelOptions(_ context.Context, profile string) (hermes.ModelOptions, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.err != nil {
+		return hermes.ModelOptions{}, f.err
+	}
+	if profile != "aos-po" {
+		return hermes.ModelOptions{}, &hermes.Error{Status: 401, Class: domain.ErrClassPolicy, Msg: "profil inattendu " + profile}
+	}
+	return hermes.ModelOptions{Model: "gpt-6-sol", Provider: "openai-codex", Providers: []hermes.ModelProvider{
+		{Slug: "openai-codex", Name: "OpenAI Codex", IsCurrent: true, Authenticated: true, Models: []string{"gpt-6-sol", "gpt-5.6-luna-900k"}},
+		{Slug: "anthropic", Name: "Anthropic", Authenticated: true, Models: []string{"claude-sonnet-5"}},
+		{Slug: "ollama", Name: "Ollama", Authenticated: false, Models: []string{}},
+	}}, nil
+}
+
+func TestHermesModelsCatalogFiltersAndLeaksNothing(t *testing.T) {
+	cat := &fakeCatalog{}
+	c := setupWith(t, nil, func(s *httpapi.Server) { s.Models = cat })
+	expectStatus(t, "non authentifié", c.do("GET", "/api/hermes/models", nil, false), 401, "")
+	c.login()
+	r := c.do("GET", "/api/hermes/models", nil, false)
+	expectStatus(t, "catalogue", r, 200, "")
+	items, _ := r.body["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("seuls les fournisseurs authentifiés : %s", r.raw)
+	}
+	first, _ := items[0].(map[string]any)
+	if first["provider"] != "openai-codex" || first["name"] != "OpenAI Codex" || first["is_current"] != true {
+		t.Fatalf("premier fournisseur : %v", first)
+	}
+	models, _ := first["models"].([]any)
+	if len(models) != 2 || models[0] != "gpt-5.6-luna-900k" {
+		t.Fatalf("modèles triés : %v", models)
+	}
+	for _, k := range []string{"key", "secret", "token", "api_key", "warning", "authenticated", "ollama"} {
+		if strings.Contains(strings.ToLower(r.raw), k) {
+			t.Fatalf("champ %q exposé : %s", k, r.raw)
+		}
+	}
+	// Chaque entrée n'expose que les quatre champs attendus.
+	for _, it := range items {
+		m, _ := it.(map[string]any)
+		if len(m) != 4 {
+			t.Fatalf("champs inattendus : %v", m)
+		}
+	}
+	c.do("GET", "/api/hermes/models", nil, false)
+	if cat.calls != 1 {
+		t.Fatalf("le catalogue doit être mis en cache : %d appels", cat.calls)
+	}
+}
+
+func TestProjectAgentModelsValidatedAgainstCatalog(t *testing.T) {
+	cat := &fakeCatalog{}
+	c := setupWith(t, nil, func(s *httpapi.Server) { s.Models = cat })
+	c.login()
+	base := func(am any) map[string]any {
+		return map[string]any{"slug": "mdl", "name": "Modèles", "repository": "o/mdl", "agent_models": am}
+	}
+	choice := func(p, m string) map[string]string { return map[string]string{"provider": p, "model": m} }
+	expectStatus(t, "rôle inconnu", c.do("POST", "/api/projects", base(map[string]any{"admin": choice("anthropic", "claude-sonnet-5")}), true), 422, "invalid_agent_models")
+	expectStatus(t, "fournisseur manquant", c.do("POST", "/api/projects", base(map[string]any{"developer": choice("", "claude-sonnet-5")}), true), 422, "invalid_agent_models")
+	expectStatus(t, "fournisseur invalide", c.do("POST", "/api/projects", base(map[string]any{"developer": choice("a b", "claude-sonnet-5")}), true), 422, "invalid_agent_models")
+	expectStatus(t, "modèle invalide", c.do("POST", "/api/projects", base(map[string]any{"developer": choice("anthropic", "a b")}), true), 422, "invalid_agent_models")
+	expectStatus(t, "fournisseur non authentifié", c.do("POST", "/api/projects", base(map[string]any{"developer": choice("ollama", "llama")}), true), 422, "invalid_agent_models")
+	r := c.do("POST", "/api/projects", base(map[string]any{"developer": choice("anthropic", "claude-zzz")}), true)
+	expectStatus(t, "modèle hors liste", r, 422, "invalid_agent_models")
+	if !strings.Contains(r.raw, "anthropic/claude-zzz") || !strings.Contains(r.raw, "developer") || !strings.Contains(r.raw, "openai-codex") {
+		t.Fatalf("message : %s", r.raw)
+	}
+	r = c.do("POST", "/api/projects", base(map[string]any{"developer": choice(" anthropic ", " claude-sonnet-5 "), "qa": choice("", "")}), true)
+	expectStatus(t, "modèle du catalogue (entrée vide ignorée)", r, 201, "")
+	am, _ := r.body["agent_models"].(map[string]any)
+	dev, _ := am["developer"].(map[string]any)
+	if len(am) != 1 || dev["provider"] != "anthropic" || dev["model"] != "claude-sonnet-5" {
+		t.Fatalf("agent_models créés : %s", r.raw)
+	}
+	path := fmt.Sprintf("/api/projects/%d", int64(r.body["id"].(float64)))
+	r = c.do("PATCH", path, map[string]any{"name": "Modèles 2"}, true)
+	if am, _ := r.body["agent_models"].(map[string]any); r.status != 200 || len(am) != 1 {
+		t.Fatalf("patch sans agent_models doit les conserver : %s", r.raw)
+	}
+	expectStatus(t, "patch hors liste", c.do("PATCH", path, map[string]any{"agent_models": map[string]any{"reviewer": choice("openai-codex", "gpt-4")}}, true), 422, "invalid_agent_models")
+	r = c.do("PATCH", path, map[string]any{"agent_models": map[string]any{"reviewer": choice("openai-codex", "gpt-6-sol")}}, true)
+	if am, _ := r.body["agent_models"].(map[string]any); r.status != 200 || len(am) != 1 || am["reviewer"] == nil {
+		t.Fatalf("patch remplace l'ensemble : %s", r.raw)
+	}
+	r = c.do("PATCH", path, map[string]any{"agent_models": map[string]any{}}, true)
+	if am, _ := r.body["agent_models"].(map[string]any); r.status != 200 || len(am) != 0 {
+		t.Fatalf("patch {} remet le défaut : %s", r.raw)
+	}
+	// Hermes injoignable (cache expiré simulé par un nouveau serveur) : refus explicite, pas d'acceptation aveugle.
+	down := setupWith(t, nil, func(s *httpapi.Server) {
+		s.Models = &fakeCatalog{err: &hermes.Error{Class: domain.ErrClassProvider, Msg: "Hermes injoignable"}}
+	})
+	down.login()
+	expectStatus(t, "catalogue indisponible", down.do("GET", "/api/hermes/models", nil, false), 503, "hermes_unreachable")
+	expectStatus(t, "création refusée", down.do("POST", "/api/projects", base(map[string]any{"developer": choice("anthropic", "claude-sonnet-5")}), true), 503, "hermes_unreachable")
+	r = down.do("POST", "/api/projects", base(map[string]any{}), true)
+	expectStatus(t, "sans modèle : accepté", r, 201, "")
+	path = fmt.Sprintf("/api/projects/%d", int64(r.body["id"].(float64)))
+	expectStatus(t, "patch refusé", down.do("PATCH", path, map[string]any{"agent_models": map[string]any{"qa": choice("anthropic", "claude-sonnet-5")}}, true), 503, "hermes_unreachable")
+	expectStatus(t, "patch sans modèle accepté", down.do("PATCH", path, map[string]any{"name": "ok"}, true), 200, "")
+	// Catalogue non configuré (nil) : même refus.
+	none := setup(t, nil)
+	none.login()
+	expectStatus(t, "non configuré", none.do("POST", "/api/projects", base(map[string]any{"developer": choice("anthropic", "claude-sonnet-5")}), true), 503, "hermes_unreachable")
+}
+
+func TestRunViewExposesRequestedModelAndFallback(t *testing.T) {
+	c := setup(t, nil)
+	c.login()
+	ctx := context.Background()
+	job, _, err := store.EnqueueJob(ctx, c.s.Pool, store.NewJob{Kind: "po_spec", SubjectType: "feature", SubjectID: 1, IdempotencyKey: "fb"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _ := store.CreateRun(ctx, c.s.Pool, job.ID, "developer", "aos-developer")
+	_ = store.SetRunRequestedModel(ctx, c.s.Pool, run.ID, domain.ModelChoice{Provider: "anthropic", Model: "claude-sonnet-5"})
+	_ = store.SetRunHermesID(ctx, c.s.Pool, run.ID, "run_a")
+	_ = store.MarkRunModelFallback(ctx, c.s.Pool, run.ID, "run_b")
+	if err := store.FinishRun(ctx, c.s.Pool, run.ID, store.RunResult{Status: "completed", Model: "gpt-6-sol", Provider: "openai-codex"}); err != nil {
+		t.Fatal(err)
+	}
+	r := c.do("GET", fmt.Sprintf("/api/runs/%d", run.ID), nil, false)
+	expectStatus(t, "run", r, 200, "")
+	rv, _ := r.body["run"].(map[string]any)
+	if rv["requested_model"] != "claude-sonnet-5" || rv["requested_provider"] != "anthropic" || rv["model_fallback"] != true ||
+		rv["model"] != "gpt-6-sol" || rv["provider"] != "openai-codex" {
+		t.Fatalf("vue du run : %s", r.raw)
+	}
+	l := c.do("GET", "/api/runs", nil, false)
+	if !strings.Contains(l.raw, `"model_fallback":true`) || !strings.Contains(l.raw, `"requested_provider":"anthropic"`) {
+		t.Fatalf("liste des runs : %s", l.raw)
+	}
 }

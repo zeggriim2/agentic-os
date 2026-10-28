@@ -31,6 +31,7 @@ type Hermes interface {
 	StopRun(ctx context.Context, profile, runID string) error
 	Capabilities(ctx context.Context, profile string) error
 	Models(ctx context.Context, profile string) ([]string, error)
+	ModelOptions(ctx context.Context, profile string) (hermes.ModelOptions, error)
 }
 
 // GitHub est le sous-ensemble du client GitHub utilisé par le moteur.

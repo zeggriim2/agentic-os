@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -34,10 +35,13 @@ func New(baseURL string, keys KeySource) *Client {
 	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), Keys: keys, HTTP: &http.Client{Timeout: 30 * time.Second}}
 }
 
-// RunRequest est le corps de création de run.
+// RunRequest est le corps de création de run. Model/Provider (facultatifs) imposent le modèle servi :
+// omis du corps quand vides, Hermes applique alors le défaut du profil.
 type RunRequest struct {
 	Input        string `json:"input"`
 	Instructions string `json:"instructions"`
+	Model        string `json:"model,omitempty"`
+	Provider     string `json:"provider,omitempty"`
 }
 
 // CreateResult est la réponse 202.
@@ -63,16 +67,40 @@ type Runtime struct {
 	Model    string `json:"model"`
 }
 
-// RunStatus est la réponse de GET /runs/<id>.
+// RunStatus est la réponse de GET /runs/<id>. Runtime est le modèle réellement servi ; Requested
+// (présent seulement après une surcharge) et RouteSource (global | raw_request | model_routes) le complètent.
 type RunStatus struct {
-	Status      string  `json:"status"`
-	Output      string  `json:"output"`
-	Usage       Usage   `json:"usage"`
-	Runtime     Runtime `json:"runtime"`
-	Completed   bool    `json:"completed"`
-	Partial     bool    `json:"partial"`
-	Interrupted bool    `json:"interrupted"`
-	Error       string  `json:"error"`
+	Status      string   `json:"status"`
+	Output      string   `json:"output"`
+	Usage       Usage    `json:"usage"`
+	Runtime     Runtime  `json:"runtime"`
+	Requested   *Runtime `json:"requested,omitempty"`
+	RouteSource string   `json:"route_source,omitempty"`
+	Completed   bool     `json:"completed"`
+	Partial     bool     `json:"partial"`
+	Interrupted bool     `json:"interrupted"`
+	Error       string   `json:"error"`
+}
+
+// Indices (insensibles à la casse) d'un échec de résolution du fournisseur dans le message d'erreur
+// Hermes (texte localisé : « Provider authentication failed », « Échec d'authentification du
+// fournisseur »…).
+var ProviderResolutionHints = []string{"provider", "fournisseur", "auth"}
+
+// IsProviderResolutionFailure indique un run terminé en échec parce que Hermes n'a pas pu résoudre le
+// fournisseur/modèle demandé : erreur citant le fournisseur ou l'authentification, ou échec immédiat
+// sans aucun token consommé ni sortie. C'est le seul cas où le moteur replie sur le défaut du profil.
+func IsProviderResolutionFailure(s RunStatus) bool {
+	if s.NormalizedStatus() != domain.RunFailed {
+		return false
+	}
+	msg := strings.ToLower(s.Error)
+	for _, h := range ProviderResolutionHints {
+		if strings.Contains(msg, h) {
+			return true
+		}
+	}
+	return s.Usage.TotalTokens == 0 && s.Usage.InputTokens == 0 && s.Usage.OutputTokens == 0 && s.Output == ""
 }
 
 // Terminal indique si Hermes considère le run terminé.
@@ -297,6 +325,82 @@ func (c *Client) Models(ctx context.Context, profile string) ([]string, error) {
 		}
 	}
 	return ids, nil
+}
+
+// ModelProvider est un fournisseur LLM du catalogue Hermes (seuls les champs non sensibles).
+type ModelProvider struct {
+	Slug          string   `json:"slug"`
+	Name          string   `json:"name"`
+	IsCurrent     bool     `json:"is_current"`
+	Authenticated bool     `json:"authenticated"`
+	Models        []string `json:"models"`
+}
+
+// ModelOptions est le catalogue GET /p/<profil>/api/model/options : modèle courant et fournisseurs.
+type ModelOptions struct {
+	Model     string          `json:"model"`
+	Provider  string          `json:"provider"`
+	Providers []ModelProvider `json:"providers"`
+}
+
+// Authenticated ne garde que les fournisseurs authentifiés sur l'hôte Hermes (ceux qu'un run peut servir).
+func (o ModelOptions) Authenticated() []ModelProvider {
+	out := []ModelProvider{}
+	for _, p := range o.Providers {
+		if p.Authenticated && p.Slug != "" {
+			if p.Models == nil {
+				p.Models = []string{}
+			}
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// Has indique si provider/model figure dans le catalogue (fournisseurs authentifiés seulement).
+func (o ModelOptions) Has(provider, model string) bool {
+	for _, p := range o.Authenticated() {
+		if p.Slug == provider && slices.Contains(p.Models, model) {
+			return true
+		}
+	}
+	return false
+}
+
+// ModelOptions lit le catalogue des modèles via l'API du tableau de bord du profil (même clé Bearer que
+// /v1/runs). Le catalogue reflète l'authentification de l'hôte Hermes, partagée par tous les profils.
+func (c *Client) ModelOptions(ctx context.Context, profile string) (ModelOptions, error) {
+	var out ModelOptions
+	if !domain.ValidProfile(profile) {
+		return out, &Error{Class: domain.ErrClassInternal, Msg: "profil invalide"}
+	}
+	key, err := c.Keys.HermesKey(profile)
+	if err != nil {
+		return out, &Error{Class: domain.ErrClassInternal, Msg: "clé du profil indisponible"}
+	}
+	u := c.BaseURL + "/p/" + url.PathEscape(profile) + "/api/model/options"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return out, err
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return out, ctx.Err()
+		}
+		return out, &Error{Class: domain.ErrClassProvider, Msg: "Hermes injoignable"}
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	if resp.StatusCode >= 300 {
+		return out, httpError(resp.StatusCode, data)
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return out, &Error{Status: resp.StatusCode, Class: domain.ErrClassProvider, Msg: "catalogue des modèles illisible"}
+	}
+	return out, nil
 }
 
 // StreamEvents consomme le flux SSE et appelle fn pour chaque ligne `data:` JSON.

@@ -195,3 +195,109 @@ func TestUnreachable(t *testing.T) {
 		t.Fatalf("injoignable → provider: %v", err)
 	}
 }
+
+func TestCreateRunSendsModelOverrideOnlyWhenSet(t *testing.T) {
+	var bodies []map[string]any
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var m map[string]any
+		_ = json.Unmarshal(raw, &m)
+		bodies = append(bodies, m)
+		w.WriteHeader(202)
+		_, _ = w.Write([]byte(`{"run_id":"run_1","status":"started"}`))
+	})
+	ctx := context.Background()
+	if _, err := c.CreateRun(ctx, "aos-dev", "k1", RunRequest{Input: "i", Instructions: "s"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateRun(ctx, "aos-dev", "k2", RunRequest{Input: "i", Instructions: "s", Model: "claude-sonnet-5", Provider: "anthropic"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateRun(ctx, "aos-dev", "k3", RunRequest{Input: "i", Instructions: "s", Model: "gpt-9"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 3 {
+		t.Fatalf("%d corps", len(bodies))
+	}
+	// Sans surcharge : les clés model/provider sont absentes (Hermes applique le défaut du profil).
+	if _, ok := bodies[0]["model"]; ok {
+		t.Fatalf("model ne doit pas être envoyé sans surcharge : %v", bodies[0])
+	}
+	if _, ok := bodies[0]["provider"]; ok {
+		t.Fatalf("provider ne doit pas être envoyé sans surcharge : %v", bodies[0])
+	}
+	if bodies[1]["model"] != "claude-sonnet-5" || bodies[1]["provider"] != "anthropic" || bodies[1]["input"] != "i" {
+		t.Fatalf("surcharge complète : %v", bodies[1])
+	}
+	if _, ok := bodies[2]["provider"]; ok || bodies[2]["model"] != "gpt-9" {
+		t.Fatalf("modèle seul : %v", bodies[2])
+	}
+}
+
+func TestGetRunReadsRequestedAndRouteSource(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"completed","output":"ok","usage":{"total_tokens":5},"completed":true,
+			"runtime":{"provider":"openai-codex","model":"gpt-6-sol","route_source":"raw_request"},
+			"requested":{"provider":"anthropic","model":"claude-sonnet-5"},"route_source":"raw_request"}`))
+	})
+	st, err := c.GetRun(context.Background(), "aos-dev", "run_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Runtime.Model != "gpt-6-sol" || st.Requested == nil || st.Requested.Provider != "anthropic" || st.RouteSource != "raw_request" {
+		t.Fatalf("%+v", st)
+	}
+}
+
+func TestIsProviderResolutionFailure(t *testing.T) {
+	cases := []struct {
+		name string
+		st   RunStatus
+		want bool
+	}{
+		{"échec auth fournisseur (fr)", RunStatus{Status: "failed", Error: "⚠️ Échec d'authentification du fournisseur: anthropic"}, true},
+		{"échec provider (en)", RunStatus{Status: "failed", Error: "⚠️ Provider authentication failed: no credentials"}, true},
+		{"échec immédiat sans token ni sortie", RunStatus{Status: "failed", Error: "agent run failed"}, true},
+		{"échec après travail", RunStatus{Status: "failed", Error: "agent run failed", Usage: Usage{TotalTokens: 1200}}, false},
+		{"échec avec sortie", RunStatus{Status: "failed", Error: "boom", Output: "partiel"}, false},
+		{"terminé", RunStatus{Status: "completed", Usage: Usage{TotalTokens: 0}}, false},
+		{"arrêté", RunStatus{Status: "cancelled", Error: "provider"}, false},
+		{"en cours", RunStatus{Status: "running"}, false},
+	}
+	for _, c := range cases {
+		if got := IsProviderResolutionFailure(c.st); got != c.want {
+			t.Errorf("%s : %v, attendu %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestModelOptionsCatalog(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/p/aos-dev/api/model/options" || r.Header.Get("Authorization") != "Bearer secret-dev" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"model":"gpt-6-sol","provider":"openai-codex","providers":[
+			{"slug":"openai-codex","name":"OpenAI Codex","is_current":true,"authenticated":true,"total_models":2,"models":["gpt-6-sol","gpt-5.6-luna-900k"],"api_key":"sk-secret","warning":""},
+			{"slug":"anthropic","name":"Anthropic","is_current":false,"authenticated":true,"models":["claude-sonnet-5"]},
+			{"slug":"ollama","name":"Ollama","authenticated":false,"models":[],"warning":"non configuré"}]}`))
+	})
+	o, err := c.ModelOptions(context.Background(), "aos-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := o.Authenticated()
+	if len(auth) != 2 || auth[0].Slug != "openai-codex" || !auth[0].IsCurrent || auth[1].Slug != "anthropic" {
+		t.Fatalf("%+v", auth)
+	}
+	if !o.Has("anthropic", "claude-sonnet-5") || o.Has("ollama", "llama") || o.Has("anthropic", "gpt-6-sol") || o.Has("", "") {
+		t.Fatal("Has incohérent")
+	}
+	if _, err := c.ModelOptions(context.Background(), "inconnu"); err == nil {
+		t.Fatal("profil sans clé doit échouer")
+	}
+	down := New("http://127.0.0.1:1", keys{"aos-dev": "k"})
+	if _, err := down.ModelOptions(context.Background(), "aos-dev"); err == nil || ClassOf(err) != domain.ErrClassProvider {
+		t.Fatalf("injoignable : %v", err)
+	}
+}

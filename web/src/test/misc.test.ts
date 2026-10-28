@@ -76,6 +76,7 @@ describe("utilitaires d'écran", () => {
       profile_developer: "",
       profile_reviewer: "",
       profile_qa: "",
+      models: {},
       telegram_chat: "",
       telegram_thread: "",
     };

@@ -19,6 +19,7 @@ import (
 
 	"github.com/zeggriim2/agentic-os/internal/domain"
 	"github.com/zeggriim2/agentic-os/internal/engine"
+	"github.com/zeggriim2/agentic-os/internal/hermes"
 	"github.com/zeggriim2/agentic-os/internal/notify"
 	"github.com/zeggriim2/agentic-os/internal/store"
 )
@@ -59,12 +60,17 @@ type Server struct {
 	HermesProfiles func() ([]string, error)
 	// TelegramSend envoie un message (test du canal d'un projet ; nil : indisponible).
 	TelegramSend func(ctx context.Context, to notify.Destination, text string) error
+	// Models lit le catalogue des modèles Hermes (nil : indisponible, tout réglage de modèle est refusé).
+	Models ModelCatalog
 
 	gitCache    gitGraphCache
 	limiter     *rateLimiter
 	healthMu    sync.Mutex
 	healthCache map[string]any
 	healthAt    time.Time
+	modelsMu    sync.Mutex
+	modelsCache *hermes.ModelOptions
+	modelsAt    time.Time
 }
 
 // Router construit le routeur chi.
@@ -105,6 +111,7 @@ func (s *Server) Router() http.Handler {
 			r.Post("/projects/{id}/telegram-test", s.testProjectTelegram)
 			r.Get("/agents", s.listAgents)
 			r.Get("/hermes-profiles", s.listHermesProfiles)
+			r.Get("/hermes/models", s.listHermesModels)
 			r.Post("/agents/sync", s.syncAgents)
 			r.Patch("/agents/{role}", s.patchAgent)
 			r.Get("/features", s.listFeatures)

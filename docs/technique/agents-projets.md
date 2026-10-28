@@ -9,7 +9,12 @@ dépendances du projet. Chaque projet a donc :
 - des **profils Hermes** `aos-<slug>-developer|reviewer|qa` : clonés des profils par défaut
   (consignes, skills, outils, isolation), avec l'image du projet et **seulement** `workspaces/<slug>`
   monté (lecture seule pour Reviewer et QA) ;
-- le réglage `agent_profiles` du projet dans Agentic OS, qui confie ces rôles à ces profils.
+- le réglage `agent_profiles` du projet dans Agentic OS, qui confie ces rôles à ces profils ;
+- facultativement le réglage `agent_models` du projet (formulaire « Modifier » → « Modèles par agent ») :
+  fournisseur et modèle imposés à chaque rôle, choisis dans le catalogue des fournisseurs authentifiés
+  de l'hôte Hermes (`GET /api/hermes/models`). Sans choix, le modèle souhaité de l'agent (page Agents)
+  s'applique, sinon le défaut du profil Hermes. Si Hermes refuse le fournisseur demandé, le run est
+  re-soumis une fois sur le défaut du profil et le run le signale (« repli »).
 
 Le PO et le Tech Lead n'exécutent rien : ils restent communs à tous les projets.
 
