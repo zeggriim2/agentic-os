@@ -2,12 +2,12 @@
 
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [SemVer](https://semver.org/lang/fr/).
 
-## [Non publié]
+## [1.3.1] — 2026-10-28
 
 ### Modifié
 - Formulaire projet : les profils développeur / reviewer / QA se choisissent dans une liste
   déroulante (profils dont la clé Hermes est configurée, ceux du rôle d'abord) au lieu d'être saisis.
-  L'API refuse un profil sans clé (`unknown_agent_profile`) ; `GET /api/hermes-profiles`.
+  L'API refuse un profil sans clé (`unknown_agent_profile`) ; `GET /api/hermes-profiles` (#38).
 
 ## [1.3.0] — 2026-10-28
 
