@@ -2,6 +2,12 @@
 
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [SemVer](https://semver.org/lang/fr/).
 
+## [1.4.1] — 2026-10-28
+
+### Corrigé
+- Création des issues bloquée (`open_issues` en échec, HTTP 422) : GitHub exige désormais
+  `is:issue` dans la recherche d'issue par marqueur. Constaté sur la première feature FraisZen.
+
 ## [1.4.0] — 2026-10-28
 
 Notifications par projet dans un canal Telegram (groupe et sujet de forum).
