@@ -4,6 +4,10 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 
 ## [Non publié]
 
+## [1.5.0] — 2026-10-28
+
+Choix du modèle LLM par agent et par projet (#43).
+
 ### Ajouté
 - Modèle LLM par agent et par projet (migration 0007) : `projects.agent_models` (rôle → fournisseur +
   modèle), bloc « Modèles par agent » du formulaire projet alimenté par `GET /api/hermes/models`
