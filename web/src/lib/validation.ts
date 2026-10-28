@@ -25,12 +25,17 @@ const CONTROL = /[\x00-\x1f]/;
 
 export const validSlug = (s: string) => SLUG.test(s);
 export const validRepository = (s: string) => REPO.test(s) && !s.includes("..");
-export const validBranch = (s: string) => BRANCH.test(s) && !s.includes("..") && !s.endsWith("/") && !s.endsWith(".lock");
+export const validBranch = (s: string) =>
+  BRANCH.test(s) &&
+  !s.includes("..") &&
+  !s.endsWith("/") &&
+  !s.endsWith(".lock");
 export const validProjectName = (s: string) => {
   const t = s.trim();
   return t !== "" && chars(t) <= LIMITS.projectName;
 };
-export const validTestCommand = (s: string) => chars(s.trim()) <= LIMITS.testCommand;
+export const validTestCommand = (s: string) =>
+  chars(s.trim()) <= LIMITS.testCommand;
 export const validCheckName = (s: string) => {
   const t = s.trim();
   return t !== "" && !CONTROL.test(t) && chars(t) <= LIMITS.checkName;
@@ -45,4 +50,8 @@ export const validFeatureDescription = (s: string) => {
 };
 export const validDesiredModel = (s: string) => s === "" || MODEL.test(s);
 export const validProfile = (s: string) => PROFILE.test(s);
-export const validMaxTokens = (n: number) => Number.isInteger(n) && n >= LIMITS.minTokens && n <= LIMITS.maxTokens;
+const TELEGRAM_CHAT = /^-?[0-9]{1,20}$/;
+export const validTelegramChat = (s: string) =>
+  s === "" || TELEGRAM_CHAT.test(s);
+export const validMaxTokens = (n: number) =>
+  Number.isInteger(n) && n >= LIMITS.minTokens && n <= LIMITS.maxTokens;

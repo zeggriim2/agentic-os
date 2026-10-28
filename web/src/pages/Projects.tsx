@@ -8,6 +8,7 @@ import {
   useHermesProfiles,
   usePatchProject,
   useProjects,
+  useTestProjectTelegram,
 } from "@/api/queries";
 import type {
   AgentRole,
@@ -32,6 +33,7 @@ import {
   validProjectName,
   validRepository,
   validSlug,
+  validTelegramChat,
   validTestCommand,
 } from "@/lib/validation";
 
@@ -46,6 +48,8 @@ interface FormState {
   profile_developer: string;
   profile_reviewer: string;
   profile_qa: string;
+  telegram_chat: string;
+  telegram_thread: string;
 }
 
 // Rôles qui exécutent du code : ils peuvent avoir un profil Hermes propre au projet (image Docker
@@ -67,7 +71,19 @@ const EMPTY: FormState = {
   profile_developer: "",
   profile_reviewer: "",
   profile_qa: "",
+  telegram_chat: "",
+  telegram_thread: "",
 };
+
+/** Lien vers le groupe/sujet Telegram (supergroupes : -100… → t.me/c/…). */
+export function telegramLink(chat: string, thread: string): string | null {
+  const m = /^-100(\d+)$/.exec(chat.trim());
+  if (!m) return null;
+  const t = thread.trim();
+  return /^[1-9]\d*$/.test(t)
+    ? `https://t.me/c/${m[1]}/${t}`
+    : `https://t.me/c/${m[1]}`;
+}
 
 function agentProfiles(f: FormState): Partial<Record<AgentRole, string>> {
   const out: Partial<Record<AgentRole, string>> = {};
@@ -106,6 +122,13 @@ export function validateProject(
     e.required_checks = `${LIMITS.requiredChecks} checks maximum.`;
   else if (checks.some((c) => !validCheckName(c)))
     e.required_checks = `Nom de check invalide (${LIMITS.checkName} caractères maximum, sans tabulation).`;
+  const chat = f.telegram_chat.trim();
+  const thread = f.telegram_thread.trim();
+  if (!validTelegramChat(chat))
+    e.telegram_chat = "Identifiant de groupe numérique (ex. -1001234567890).";
+  if (thread && !/^[1-9]\d{0,9}$/.test(thread))
+    e.telegram_thread = "Numéro de sujet (entier positif).";
+  else if (thread && !chat) e.telegram_thread = "Un sujet exige un groupe.";
   return e;
 }
 
@@ -171,6 +194,62 @@ export function ProfileSelect({
   );
 }
 
+// Lien vers le canal et envoi d'un message de test (configuration enregistrée uniquement).
+function TelegramTest({
+  project,
+  chat,
+  thread,
+}: {
+  project: Project | null;
+  chat: string;
+  thread: string;
+}) {
+  const test = useTestProjectTelegram();
+  const toast = useToast();
+  const link = telegramLink(chat, thread);
+  const dirty =
+    !!project &&
+    (chat.trim() !== (project.telegram_chat_id ?? "") ||
+      thread.trim() !==
+        (project.telegram_thread_id ? String(project.telegram_thread_id) : ""));
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-sm sm:col-span-2">
+      {link && (
+        <a
+          href={link}
+          target="_blank"
+          rel="noreferrer"
+          className="text-accent underline"
+        >
+          Ouvrir dans Telegram
+        </a>
+      )}
+      {project && (
+        <Button
+          type="button"
+          variant="ghost"
+          loading={test.isPending}
+          disabled={dirty}
+          title={dirty ? "Enregistre d'abord le canal" : undefined}
+          onClick={() =>
+            test.mutate(project.id, {
+              onSuccess: () => toast.success("Message de test envoyé"),
+              onError: (e) => toast.error(errorMessage(e)),
+            })
+          }
+        >
+          Envoyer un message de test
+        </Button>
+      )}
+      {dirty && (
+        <span className="text-muted">
+          Enregistre d&apos;abord pour tester ce canal.
+        </span>
+      )}
+    </div>
+  );
+}
+
 function ProjectDialog({
   open,
   project,
@@ -204,6 +283,10 @@ function ProjectDialog({
             profile_developer: project.agent_profiles?.developer ?? "",
             profile_reviewer: project.agent_profiles?.reviewer ?? "",
             profile_qa: project.agent_profiles?.qa ?? "",
+            telegram_chat: project.telegram_chat_id ?? "",
+            telegram_thread: project.telegram_thread_id
+              ? String(project.telegram_thread_id)
+              : "",
           }
         : EMPTY,
     );
@@ -231,6 +314,10 @@ function ProjectDialog({
       mode: f.mode,
       test_command: f.test_command.trim(),
       agent_profiles: agentProfiles(f),
+      telegram_chat_id: f.telegram_chat.trim(),
+      telegram_thread_id: f.telegram_thread.trim()
+        ? Number(f.telegram_thread.trim())
+        : 0,
     };
     const done = {
       onSuccess: () => {
@@ -382,6 +469,42 @@ function ProjectDialog({
             )}
           </Field>
         ))}
+        <Field
+          label="Groupe Telegram"
+          error={err("telegram_chat")}
+          hint="Identifiant du groupe (vide = chat par défaut)."
+        >
+          {(p) => (
+            <Input
+              {...p}
+              value={f.telegram_chat}
+              onChange={(e) => set("telegram_chat", e.target.value)}
+              className="font-mono"
+              placeholder="-1001234567890"
+            />
+          )}
+        </Field>
+        <Field
+          label="Sujet Telegram"
+          error={err("telegram_thread")}
+          hint="Numéro du sujet du forum (vide = aucun)."
+        >
+          {(p) => (
+            <Input
+              {...p}
+              value={f.telegram_thread}
+              onChange={(e) => set("telegram_thread", e.target.value)}
+              className="font-mono"
+              inputMode="numeric"
+              placeholder="13"
+            />
+          )}
+        </Field>
+        <TelegramTest
+          project={project}
+          chat={f.telegram_chat}
+          thread={f.telegram_thread}
+        />
         <Field
           label="Checks CI requis"
           error={err("required_checks")}

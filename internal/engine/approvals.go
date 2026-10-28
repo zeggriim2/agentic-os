@@ -71,6 +71,8 @@ func (e *Engine) DecideApproval(ctx context.Context, id int64, decision, comment
 // sur l'approbation rend l'effet idempotent même si le job est repris.
 func (e *Engine) handleExecuteApproval(ctx context.Context, j *store.Job, owner string) error {
 	var notices []string
+	var apType string
+	var apID int64
 	err := e.finish(ctx, j, owner, func(tx pgx.Tx) error {
 		current, err := store.GetApproval(ctx, tx, j.SubjectID)
 		if err != nil {
@@ -116,12 +118,12 @@ func (e *Engine) handleExecuteApproval(ctx context.Context, j *store.Job, owner 
 			After: map[string]any{"approval_id": ap.ID, "ok": ok, "result": result}}); err != nil {
 			return err
 		}
-		notices = ns
+		notices, apType, apID = ns, ap.SubjectType, ap.SubjectID
 		return store.Notify(ctx, tx, "approval.updated", ap.ID)
 	})
 	if err == nil {
 		for _, notice := range notices {
-			e.Notifier.Notify(ctx, notice)
+			e.notifySubject(ctx, apType, apID, notice)
 		}
 	}
 	return err

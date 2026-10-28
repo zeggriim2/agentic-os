@@ -25,6 +25,7 @@ import (
 	gh "github.com/zeggriim2/agentic-os/internal/github"
 	"github.com/zeggriim2/agentic-os/internal/gitops"
 	"github.com/zeggriim2/agentic-os/internal/httpapi"
+	"github.com/zeggriim2/agentic-os/internal/notify"
 	"github.com/zeggriim2/agentic-os/internal/store"
 	"github.com/zeggriim2/agentic-os/internal/testutil/pgtest"
 )
@@ -787,4 +788,56 @@ func TestHermesProfilesListAndProjectCheck(t *testing.T) {
 	path := fmt.Sprintf("/api/projects/%d", int64(r.body["id"].(float64)))
 	expectStatus(t, "patch profil sans clé", c.do("PATCH", path, map[string]any{"agent_profiles": map[string]string{"reviewer": "inconnu"}}, true), 422, "unknown_agent_profile")
 	expectStatus(t, "patch sans agent_profiles", c.do("PATCH", path, map[string]any{"name": "FZ2"}, true), 200, "")
+}
+
+func TestProjectTelegramChannel(t *testing.T) {
+	type sent struct {
+		to   notify.Destination
+		text string
+	}
+	var got []sent
+	fail := false
+	c := setupWith(t, nil, func(s *httpapi.Server) {
+		s.TelegramSend = func(_ context.Context, to notify.Destination, text string) error {
+			if fail {
+				return notify.ErrNotConfigured
+			}
+			got = append(got, sent{to, text})
+			return nil
+		}
+	})
+	c.login()
+	base := map[string]any{"slug": "fz", "name": "FraisZen", "repository": "o/fz"}
+	with := func(chat any, thread any) map[string]any {
+		m := map[string]any{}
+		for k, v := range base {
+			m[k] = v
+		}
+		m["telegram_chat_id"], m["telegram_thread_id"] = chat, thread
+		return m
+	}
+	expectStatus(t, "chat invalide", c.do("POST", "/api/projects", with("@groupe", 0), true), 422, "invalid_telegram_chat")
+	expectStatus(t, "sujet sans groupe", c.do("POST", "/api/projects", with("", 13), true), 422, "invalid_telegram_thread")
+	expectStatus(t, "sujet négatif", c.do("POST", "/api/projects", with("-100", -1), true), 422, "invalid_telegram_thread")
+	r := c.do("POST", "/api/projects", with(" -1004205411589 ", 13), true)
+	expectStatus(t, "création", r, 201, "")
+	if r.body["telegram_chat_id"] != "-1004205411589" || r.body["telegram_thread_id"] != float64(13) {
+		t.Fatalf("canal : %s", r.raw)
+	}
+	path := fmt.Sprintf("/api/projects/%d", int64(r.body["id"].(float64)))
+	expectStatus(t, "test sans CSRF", c.do("POST", path+"/telegram-test", map[string]any{}, false), 403, "csrf_invalid")
+	expectStatus(t, "test", c.do("POST", path+"/telegram-test", map[string]any{}, true), 200, "")
+	if len(got) != 1 || got[0].to.ChatID != "-1004205411589" || got[0].to.ThreadID != 13 || !strings.Contains(got[0].text, "FraisZen") {
+		t.Fatalf("message de test : %+v", got)
+	}
+	r = c.do("PATCH", path, map[string]any{"name": "FZ"}, true)
+	if r.status != 200 || r.body["telegram_thread_id"] != float64(13) {
+		t.Fatalf("PATCH sans canal doit le conserver : %s", r.raw)
+	}
+	r = c.do("PATCH", path, map[string]any{"telegram_chat_id": "", "telegram_thread_id": 0}, true)
+	if r.status != 200 || r.body["telegram_chat_id"] != "" {
+		t.Fatalf("PATCH retire le canal : %s", r.raw)
+	}
+	fail = true
+	expectStatus(t, "Telegram non configuré", c.do("POST", path+"/telegram-test", map[string]any{}, true), 422, "telegram_not_configured")
 }

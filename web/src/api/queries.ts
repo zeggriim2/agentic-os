@@ -363,6 +363,13 @@ export function useCreateProject() {
   });
 }
 
+export function useTestProjectTelegram() {
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.post<{ sent: boolean }>(`/api/projects/${id}/telegram-test`, {}),
+  });
+}
+
 export function usePatchProject() {
   const qc = useQueryClient();
   return useMutation({

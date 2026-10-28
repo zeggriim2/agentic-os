@@ -18,11 +18,14 @@ type Project struct {
 	TestCommand    string   `db:"test_command"`
 	// AgentProfiles : rôle → profil Hermes propre au projet (absent = profil par défaut de l'agent).
 	AgentProfiles map[string]string `db:"agent_profiles"`
-	CreatedAt     time.Time         `db:"created_at"`
-	UpdatedAt     time.Time         `db:"updated_at"`
+	// Canal Telegram du projet (groupe, sujet de forum ; vide/0 = chat par défaut).
+	TelegramChatID   string    `db:"telegram_chat_id"`
+	TelegramThreadID int64     `db:"telegram_thread_id"`
+	CreatedAt        time.Time `db:"created_at"`
+	UpdatedAt        time.Time `db:"updated_at"`
 }
 
-const projectCols = `id, slug, name, repository, base_branch, required_checks, mode, enabled, test_command, agent_profiles, created_at, updated_at`
+const projectCols = `id, slug, name, repository, base_branch, required_checks, mode, enabled, test_command, agent_profiles, telegram_chat_id, telegram_thread_id, created_at, updated_at`
 
 // ProfileFor renvoie le profil Hermes à utiliser pour role : celui du projet s'il en définit un,
 // sinon le profil par défaut de l'agent.
