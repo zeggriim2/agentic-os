@@ -152,7 +152,9 @@ func (c *Client) FindIssueByMarker(ctx context.Context, repo, key string) (*Issu
 	if !domain.ValidRepository(repo) {
 		return nil, &Error{Class: domain.ErrClassPolicy, Msg: "dépôt invalide"}
 	}
-	q := fmt.Sprintf(`repo:%s "agentic-os:ticket=%s" in:body`, repo, key)
+	// is:issue est obligatoire : GitHub refuse désormais une recherche sans type (HTTP 422
+	// « Query must include 'is:issue' or 'is:pull-request' »).
+	q := fmt.Sprintf(`repo:%s is:issue "agentic-os:ticket=%s" in:body`, repo, key)
 	var res struct {
 		Items []Issue `json:"items"`
 	}
