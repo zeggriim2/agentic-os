@@ -1,0 +1,49 @@
+# Commandes d'exploitation des projets d'Agentic OS (https://taskfile.dev).
+#   task --list
+# Un projet = un dossier projects/<slug>/ (project.env, Dockerfile, scripts de l'image).
+version: "3"
+
+tasks:
+  project:image:build:
+    desc: Construit l'image des agents du projet (outillage + caches des dépendances). PROJECT=<slug>
+    requires:
+      vars: [PROJECT]
+    cmds:
+      - "deploy/agents/project-image.sh build {{.PROJECT}}"
+
+  project:image:check:
+    desc: Indique si l'image est à jour par rapport aux fichiers lock de la branche de base. PROJECT=<slug>
+    requires:
+      vars: [PROJECT]
+    cmds:
+      - "deploy/agents/project-image.sh check {{.PROJECT}}"
+
+  project:image:verify:
+    desc: Rejoue la CI du projet dans l'image, sans réseau, sur la branche de base. PROJECT=<slug>
+    requires:
+      vars: [PROJECT]
+    cmds:
+      - "deploy/agents/project-image.sh verify {{.PROJECT}}"
+
+  project:profiles:
+    desc: Crée ou met à jour les profils Hermes aos-<slug>-developer|reviewer|qa. PROJECT=<slug>
+    requires:
+      vars: [PROJECT]
+    cmds:
+      - "deploy/agents/project-profiles.sh {{.PROJECT}}"
+
+  project:setup:
+    desc: Image, vérification hors ligne puis profils, en une commande. PROJECT=<slug>
+    requires:
+      vars: [PROJECT]
+    cmds:
+      - task: project:image:build
+      - task: project:image:verify
+      - task: project:profiles
+
+  project:image:refresh:
+    desc: Reconstruit et revérifie l'image seulement si les fichiers lock ont changé. PROJECT=<slug>
+    requires:
+      vars: [PROJECT]
+    cmds:
+      - 'deploy/agents/project-image.sh check {{.PROJECT}} || { task project:image:build PROJECT={{.PROJECT}} && task project:image:verify PROJECT={{.PROJECT}}; }'

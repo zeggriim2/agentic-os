@@ -1,0 +1,53 @@
+#!/bin/bash
+# Prépare un worktree FraisZen pour les vérifications, SANS réseau.
+#   aos-setup [chemin du worktree]   (défaut : répertoire courant)
+# - .env de test (valeurs factices, comme la CI) et clés JWT de test, seulement s'ils manquent ;
+#   tous deux sont ignorés par git (.gitignore du projet) ;
+# - vendor/ et frontend/node_modules/ installés depuis les caches de l'image.
+# Si une dépendance manque du cache (lock modifié par le ticket), l'installation échoue : il faut
+# reconstruire l'image (`task project:image:build PROJECT=fraiszen`).
+set -euo pipefail
+cd "${1:-.}"
+[ -f composer.lock ] || { echo "aos-setup : composer.lock introuvable dans $(pwd)" >&2; exit 2; }
+
+if [ ! -f .env ]; then
+  cat > .env <<'EOF'
+APP_ENV=dev
+APP_SECRET=aos_test_only_not_a_secret
+APP_SHARE_DIR=var/share
+DEFAULT_URI=http://localhost
+DATABASE_URL="mysql://app:app@127.0.0.1:3306/app?serverVersion=8.0.32&charset=utf8mb4"
+MESSENGER_TRANSPORT_DSN=doctrine://default?auto_setup=0
+JWT_SECRET_KEY=%kernel.project_dir%/config/jwt/private.pem
+JWT_PUBLIC_KEY=%kernel.project_dir%/config/jwt/public.pem
+JWT_PASSPHRASE=aos_test_passphrase
+STRIPE_SECRET_KEY=sk_test_aos
+STRIPE_PUBLISHABLE_KEY=pk_test_aos
+STRIPE_WEBHOOK_SECRET=whsec_aos
+STRIPE_PRICE_ID=price_aos
+ORS_API_KEY=ors_aos
+EOF
+  echo "aos-setup : .env de test créé"
+fi
+
+if [ ! -f config/jwt/private.pem ]; then
+  mkdir -p config/jwt
+  openssl genrsa -passout pass:aos_test_passphrase -out config/jwt/private.pem 2048 2>/dev/null
+  openssl rsa -passin pass:aos_test_passphrase -in config/jwt/private.pem -pubout -out config/jwt/public.pem 2>/dev/null
+  echo "aos-setup : clés JWT de test générées"
+fi
+
+# Sorties détaillées dans un journal : l'agent ne reçoit que le résultat (moins de tokens).
+quiet() { # $1 = libellé, suite = commande
+  local label="$1" log; shift
+  log="$(mktemp /tmp/aos-setup-XXXXXX.log)"
+  if "$@" >"$log" 2>&1; then echo "aos-setup : $label OK"; else
+    echo "aos-setup : $label ÉCHEC — fin du journal ($log) :" >&2; tail -n 40 "$log" >&2
+    echo "aos-setup : une dépendance absente du cache impose de reconstruire l'image (task project:image:build PROJECT=fraiszen)." >&2
+    exit 1
+  fi
+}
+quiet "composer install" composer install --prefer-dist --no-progress --no-interaction --no-scripts
+if [ -f frontend/package-lock.json ]; then
+  quiet "npm ci (frontend)" bash -c 'cd frontend && npm ci --offline --no-audit --no-fund --ignore-scripts'
+fi
