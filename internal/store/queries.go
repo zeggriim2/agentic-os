@@ -1061,6 +1061,76 @@ func ListPipelineFeatures(ctx context.Context, q Q) ([]Feature, error) {
 	return many[Feature](ctx, q, `SELECT `+featureCols+` FROM features WHERE state NOT IN ('DONE','CANCELLED') OR updated_at > now() - interval '7 days' ORDER BY updated_at DESC LIMIT 500`)
 }
 
+// TicketBrief résume un ticket pour l'avancement d'une feature.
+type TicketBrief struct {
+	Key   string `json:"key"`
+	State string `json:"state"`
+}
+
+// FeatureProgress résume l'avancement des tickets d'une feature (tickets annulés exclus).
+type FeatureProgress struct {
+	Total   int          `json:"total"`
+	Done    int          `json:"done"`
+	Current *TicketBrief `json:"current"` // premier ticket ni terminé ni planifié, dans l'ordre
+}
+
+// FeatureTicketProgress calcule l'avancement de chaque feature demandée.
+func FeatureTicketProgress(ctx context.Context, q Q, featureIDs []int64) (map[int64]*FeatureProgress, error) {
+	out := map[int64]*FeatureProgress{}
+	if len(featureIDs) == 0 {
+		return out, nil
+	}
+	rows, err := q.Query(ctx, `SELECT feature_id, key, state FROM tickets
+		WHERE feature_id = ANY($1) AND state <> 'CANCELLED' ORDER BY feature_id, seq, id`, featureIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var fid int64
+		var b TicketBrief
+		if err := rows.Scan(&fid, &b.Key, &b.State); err != nil {
+			return nil, err
+		}
+		p := out[fid]
+		if p == nil {
+			p = &FeatureProgress{}
+			out[fid] = p
+		}
+		p.Total++
+		switch {
+		case b.State == "DONE":
+			p.Done++
+		case p.Current == nil && b.State != "PLANNED":
+			bb := b
+			p.Current = &bb
+		}
+	}
+	return out, rows.Err()
+}
+
+// FeatureTitles renvoie le titre des features demandées.
+func FeatureTitles(ctx context.Context, q Q, ids []int64) (map[int64]string, error) {
+	out := map[int64]string{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := q.Query(ctx, `SELECT id, title FROM features WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var t string
+		if err := rows.Scan(&id, &t); err != nil {
+			return nil, err
+		}
+		out[id] = t
+	}
+	return out, rows.Err()
+}
+
 // ListPipelineTickets liste les tickets non terminaux récents.
 func ListPipelineTickets(ctx context.Context, q Q) ([]Ticket, error) {
 	return many[Ticket](ctx, q, `SELECT `+ticketCols+` FROM tickets WHERE state NOT IN ('DONE','CANCELLED') OR updated_at > now() - interval '7 days' ORDER BY updated_at DESC LIMIT 500`)

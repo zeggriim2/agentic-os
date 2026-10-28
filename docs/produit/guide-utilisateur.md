@@ -15,7 +15,7 @@ quelque chose passe par votre approbation, et le merge reste toujours le vôtre.
 | **Revue design** | vous | relire le découpage en tickets, risques et alternatives ; l'approbation affiche l'effet exact (« créer N issues sur owner/repo ») |
 | **Issues ouvertes** | Agentic OS | les issues GitHub sont créées (sans doublon) |
 | **Feu vert humain** | vous | donner le feu vert au développement |
-| **En développement** | agents Développeur → Reviewer → QA, ticket par ticket | intervenir seulement sur demande (voir ci-dessous) |
+| **Tickets en cours** | agents Développeur → Reviewer → QA, ticket par ticket | intervenir seulement sur demande (voir ci-dessous) |
 | **Terminé** | — | tous les tickets sont terminés ou annulés |
 
 ### Le parcours d'un ticket
@@ -36,7 +36,12 @@ quelque chose passe par votre approbation, et le merge reste toujours le vôtre.
 - **Vue d'ensemble** : alertes, approbations en attente, éléments bloqués, runs actifs, tokens
   consommés, et le bouton **Mettre en pause** / **Reprendre** du dispatch.
 - **Approbations** : tout ce qui attend votre décision. Le rejet demande un commentaire.
-- **Features** et **Pipeline** : où en est chaque feature et chaque ticket.
+- **Features** et **Pipeline** : où en est chaque feature et chaque ticket. Le pipeline a deux onglets :
+  - **Features** : le cycle de vie d'une demande, de l'idée au feu vert, puis « Tickets en cours » avec
+    l'avancement (« 1/3 mergé · T2 : revue de code ») et un lien « Voir les tickets » ;
+  - **Tickets** : le travail des agents (développement, revue de code, QA, PR, merge humain), chaque
+    carte rappelant sa feature.
+  Un filtre par projet (mémorisé) s'applique aux deux ; « N ! » signale les éléments qui attendent une action humaine.
 - **Runs** : chaque exécution d'agent, avec ses événements en direct, sa sortie et les tokens consommés.
   Les tokens sont séparés en **entrée nouvelle**, **relue du cache** et **sortie** : à chaque étape,
   l'agent renvoie tout son contexte au modèle, qui en relit l'essentiel depuis son cache, bien moins

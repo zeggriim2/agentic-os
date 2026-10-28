@@ -242,7 +242,7 @@ Dates : ISO-8601 UTC ; l'UI formate en Europe/Paris.
 | POST | `/api/features/{id}/actions` | `{"action":"start_spec|cancel|retry"}` |
 | GET | `/api/tickets/{id}` | détail ticket + runs + approvals + timeline |
 | POST | `/api/tickets/{id}/actions` | `{"action":"cancel|retry"}` |
-| GET | `/api/pipeline` | `{columns:[{state,label,items:[{type:"feature"|"ticket",id,title,project,state,updated_at,attention:bool}]}]}` |
+| GET | `/api/pipeline` | `{features:{columns:[…]}, tickets:{columns:[…]}, projects:[{id,slug}]}` ; colonne `{state,label,items:[{type,id,title,project,project_id,state,updated_at,attention}]}` ; feature + `progress:{total,done,current:{key,state}\|null}` (tickets annulés exclus) ; ticket + `key,feature_id,feature_title` (tickets PLANNED masqués). Depuis 1.6.0 (avant : une seule liste `columns`). |
 | GET | `/api/hermes/models` | `{items:[{provider,name,is_current,models:[...]}]}` : fournisseurs **authentifiés** du catalogue Hermes (profil du PO, cache 60 s), aucun champ secret ; `503 hermes_unreachable` si Hermes ne répond pas |
 | GET | `/api/runs` | liste filtrable `?status=&role=&project_id=` ; chaque run porte `requested_model`, `requested_provider`, `model_fallback` |
 | GET | `/api/runs/{id}` | détail + événements persistés + sortie + livrable |

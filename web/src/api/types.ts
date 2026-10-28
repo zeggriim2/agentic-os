@@ -399,22 +399,40 @@ export interface Overview {
 }
 
 // ---------- Pipeline ----------
+/** Avancement des tickets d'une feature (annulés exclus) ; current = premier ticket actif. */
+export interface PipelineProgress {
+  total: number;
+  done: number;
+  current: { key: string; state: TicketState } | null;
+}
 export interface PipelineItem {
   type: "feature" | "ticket";
   id: ID;
   title: string;
   project: string;
+  project_id?: ID;
   state: FeatureState | TicketState;
   updated_at: ISODate;
   attention: boolean;
+  /** Feature : avancement de ses tickets. */
+  progress?: PipelineProgress;
+  /** Ticket : clé et feature parente. */
+  key?: string;
+  feature_id?: ID;
+  feature_title?: string;
 }
 export interface PipelineColumn {
   state: FeatureState | TicketState;
   label: string;
   items: PipelineItem[];
 }
-export interface Pipeline {
+export interface PipelineBoard {
   columns: PipelineColumn[];
+}
+export interface Pipeline {
+  features: PipelineBoard;
+  tickets: PipelineBoard;
+  projects: { id: ID; slug: string }[];
 }
 
 // ---------- Santé ----------
