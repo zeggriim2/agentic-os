@@ -144,6 +144,8 @@ type run struct {
 	Usage       map[string]int64
 	Interrupted bool
 	Error       string
+	Model       string            // modèle servi (vide = fake-model)
+	Requested   map[string]string // surcharge demandée, renvoyée dans le statut
 	Events      []map[string]any
 	release     chan struct{}
 	changed     chan struct{} // fermé puis remplacé à chaque nouvel événement
@@ -193,6 +195,15 @@ func (f *fakes) routes() http.Handler {
 	}))
 	mux.HandleFunc("GET /p/{profile}/v1/models", f.hermesAuth(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, 200, map[string]any{"object": "list", "data": []map[string]any{{"id": "fake-model", "object": "model"}}})
+	}))
+	// Catalogue des modèles (api/model/options) : un fournisseur authentifié (fake-e2e), un non authentifié.
+	mux.HandleFunc("GET /p/{profile}/api/model/options", f.hermesAuth(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, 200, map[string]any{"model": "fake-model", "provider": "fake-e2e", "providers": []map[string]any{
+			{"slug": "fake-e2e", "name": "Fake E2E", "is_current": true, "authenticated": true, "total_models": 2,
+				"models": []string{"fake-model", "fake-model-xl"}, "featured_models": []string{"fake-model"}, "warning": ""},
+			{"slug": "absent", "name": "Absent", "is_current": false, "authenticated": false, "total_models": 0,
+				"models": []string{}, "featured_models": []string{}, "warning": "non authentifié"},
+		}})
 	}))
 	// GitHub
 	mux.HandleFunc("GET /rate_limit", f.ghAuth(func(w http.ResponseWriter, _ *http.Request) {
@@ -318,12 +329,31 @@ func (f *fakes) createRun(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Input        string `json:"input"`
 		Instructions string `json:"instructions"`
+		Model        string `json:"model"`
+		Provider     string `json:"provider"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil || req.Input == "" {
 		writeJSON(w, 400, map[string]any{"error": map[string]any{"code": "invalid_body"}})
 		return
 	}
-	sum := sha256.Sum256([]byte(req.Instructions + "\x00" + req.Input))
+	// Surcharge de modèle : un fournisseur hors catalogue authentifié échoue comme Hermes (résolution du
+	// fournisseur), ce qui exerce le repli du moteur ; sinon le modèle demandé est servi.
+	if req.Provider != "" && req.Provider != "fake-e2e" {
+		f.mu.Lock()
+		f.nextRun++
+		id := fmt.Sprintf("run_e2e_%04d_%s", f.nextRun, randomHex(4))
+		rn := &run{ID: id, Profile: profile, Role: roleOf(req.Instructions), Key: key, Input: req.Input, Status: "failed",
+			Error: "⚠️ Échec d'authentification du fournisseur: " + req.Provider, Usage: map[string]int64{},
+			Requested: map[string]string{"provider": req.Provider, "model": req.Model},
+			release:   make(chan struct{}), changed: make(chan struct{}), CreatedAt: time.Now()}
+		close(rn.release)
+		f.runs[id] = rn
+		f.idem[profile+"\x00"+key] = id
+		f.mu.Unlock()
+		writeJSON(w, 202, map[string]any{"run_id": id, "status": "started", "replayed": false})
+		return
+	}
+	sum := sha256.Sum256([]byte(req.Instructions + "\x00" + req.Input + "\x00" + req.Provider + "/" + req.Model))
 	digest := hex.EncodeToString(sum[:])
 	f.mu.Lock()
 	if id, ok := f.idem[profile+"\x00"+key]; ok {
@@ -340,6 +370,10 @@ func (f *fakes) createRun(w http.ResponseWriter, r *http.Request) {
 	id := fmt.Sprintf("run_e2e_%04d_%s", f.nextRun, randomHex(4))
 	rn := &run{ID: id, Profile: profile, Role: roleOf(req.Instructions), Key: key, Digest: digest, Input: req.Input,
 		Status: "running", release: make(chan struct{}), changed: make(chan struct{}), CreatedAt: time.Now()}
+	if req.Model != "" {
+		rn.Model = req.Model
+		rn.Requested = map[string]string{"provider": req.Provider, "model": req.Model}
+	}
 	if !f.held[rn.Role] {
 		close(rn.release)
 	}
@@ -368,11 +402,19 @@ func (f *fakes) getRun(w http.ResponseWriter, r *http.Request) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	model, source := "fake-model", "global"
+	if rn.Model != "" {
+		model, source = rn.Model, "raw_request"
+	}
 	out := map[string]any{
 		"run_id": rn.ID, "status": rn.Status, "output": rn.Output,
-		"usage":     rn.Usage,
-		"runtime":   map[string]any{"provider": "fake-e2e", "model": "fake-model"},
-		"completed": rn.Status == "completed", "partial": false, "interrupted": rn.Interrupted,
+		"usage":        rn.Usage,
+		"runtime":      map[string]any{"provider": "fake-e2e", "model": model, "route_source": source},
+		"route_source": source,
+		"completed":    rn.Status == "completed", "partial": false, "interrupted": rn.Interrupted,
+	}
+	if rn.Requested != nil {
+		out["requested"] = rn.Requested
 	}
 	if rn.Error != "" {
 		out["error"] = rn.Error

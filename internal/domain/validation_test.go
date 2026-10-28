@@ -60,6 +60,7 @@ func TestValidationContractSharedWithUI(t *testing.T) {
 		"feature_description": ValidFeatureDescription,
 		"model":               ValidDesiredModel,
 		"profile":             ValidProfile,
+		"provider":            ValidProviderName,
 		"telegram_chat":       ValidTelegramChat,
 	}
 	for name, rule := range strRules {

@@ -84,7 +84,8 @@ Table `schema_migrations(version int primary key, applied_at)`.
   (`timeout|budget|policy|provider|invalid_output|external|internal`), `payload jsonb`.
 - `runs` : `job_id`, `agent_role`, `hermes_profile`, `hermes_run_id` unique nullable, `status`
   (`submitted|running|completed|failed|stopped|lost`), `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`, `cache_write_tokens` (0004),
-  `model`, `provider`, `output text` (borné 256 KiB), `artifact jsonb`, `error`, `started_at`, `finished_at`.
+  `model`, `provider`, `output text` (borné 256 KiB), `artifact jsonb`, `error`, `started_at`, `finished_at`,
+  `requested_model`, `requested_provider`, `model_fallback bool` (0007 : surcharge demandée et repli).
 - `run_events` : `run_id`, `seq int`, `event text`, `data jsonb` (borné), unique(`run_id`,`seq`).
 - `approvals` : `kind` (`spec_review|design_review|dev_gate|rework|publish_pr`), `subject_type`,
   `subject_id`, `title`, `effect text` (ce que l'approbation autorise, en clair), `details jsonb`,
@@ -169,9 +170,17 @@ Règles fail-closed :
 ## 7. Contrat Hermes (vérifié en live sur v0.21.5)
 
 - `POST {AOS_HERMES_URL}/p/<profil>/v1/runs`, header `Authorization: Bearer <clé du profil>`,
-  `Idempotency-Key`, body `{"input": "...", "instructions": "..."}` → `202 {"run_id","status":"started","replayed":bool}`.
+  `Idempotency-Key`, body `{"input": "...", "instructions": "...", "model"?: "...", "provider"?: "..."}` → `202 {"run_id","status":"started","replayed":bool}`.
+  `model`/`provider` (facultatifs, omis quand vides) imposent le modèle servi ; un fournisseur non
+  authentifié sur l'hôte fait échouer le run (`failed`, message de résolution du fournisseur), Hermes ne
+  replie pas lui-même.
   Même clé + payload différent → `409 idempotency_key_conflict` (traité comme erreur `internal`, jamais retenté avec une autre clé automatiquement).
-- `GET /p/<profil>/v1/runs/<id>` → `{"status": "started|running|completed|failed|...", "output", "usage":{"input_tokens","output_tokens","total_tokens","cache_read_tokens","cache_write_tokens"}, "runtime":{"provider","model"}, "completed","partial","interrupted"}`. `404 run_not_found` → run `lost`.
+- `GET /p/<profil>/v1/runs/<id>` → `{"status": "started|running|completed|failed|...", "output", "usage":{"input_tokens","output_tokens","total_tokens","cache_read_tokens","cache_write_tokens"}, "runtime":{"provider","model"}, "requested"?:{"provider","model"}, "route_source": "global|raw_request|model_routes", "completed","partial","interrupted"}`. `404 run_not_found` → run `lost`.
+  `runtime` est le modèle **réellement servi** ; `requested` n'apparaît qu'après une surcharge.
+- `GET /p/<profil>/api/model/options` (même clé Bearer) → `{model, provider, providers:[{slug, name,
+  is_current, authenticated, models:[...], …}]}` : catalogue des fournisseurs de l'**hôte** Hermes
+  (partagé par tous les profils) ; seuls les fournisseurs `authenticated: true` peuvent servir un run.
+  `GET /v1/models` ne renvoie que l'alias du profil : inutilisable pour lister les LLM.
 - `GET /p/<profil>/v1/runs/<id>/events` → SSE, lignes `data: {"event": "...", "seq": n, ...}` ; événements
   observés : `message.delta`, `reasoning.available`, `tool.*`, `run.completed`, `run.failed`. Les deltas
   ne sont pas persistés un par un : on persiste les événements non-delta et on agrège la sortie.
@@ -234,7 +243,8 @@ Dates : ISO-8601 UTC ; l'UI formate en Europe/Paris.
 | GET | `/api/tickets/{id}` | détail ticket + runs + approvals + timeline |
 | POST | `/api/tickets/{id}/actions` | `{"action":"cancel|retry"}` |
 | GET | `/api/pipeline` | `{columns:[{state,label,items:[{type:"feature"|"ticket",id,title,project,state,updated_at,attention:bool}]}]}` |
-| GET | `/api/runs` | liste filtrable `?status=&role=&project_id=` |
+| GET | `/api/hermes/models` | `{items:[{provider,name,is_current,models:[...]}]}` : fournisseurs **authentifiés** du catalogue Hermes (profil du PO, cache 60 s), aucun champ secret ; `503 hermes_unreachable` si Hermes ne répond pas |
+| GET | `/api/runs` | liste filtrable `?status=&role=&project_id=` ; chaque run porte `requested_model`, `requested_provider`, `model_fallback` |
 | GET | `/api/runs/{id}` | détail + événements persistés + sortie + livrable |
 | POST | `/api/runs/{id}/stop` | arrêt |
 | GET | `/api/approvals` | `?status=pending` |
@@ -424,6 +434,30 @@ lease owner) et le ticket expose `worktree` relatif (`<slug>/<key>`).
   clé n'est lue), avec le rôle déduit du suffixe (`-developer`, `-tech-lead`…). Le formulaire projet
   s'en sert pour ses listes déroulantes ; création et `PATCH` refusent un profil absent de cette liste
   (`422 unknown_agent_profile`).
+
+### Modèle LLM par agent et par projet (migration 0007)
+
+- `projects.agent_models` (JSONB, rôle → `{"provider", "model"}`, CHECK objet). Résolution à chaque run
+  (`Project.ModelFor`) : modèle du projet pour le rôle → sinon `agents.desired_model` (global, sans
+  fournisseur) → sinon rien (défaut du profil Hermes). `model`/`provider` ne sont envoyés dans
+  `POST /v1/runs` que lorsqu'une valeur est résolue ; la surcharge est figée à la création du run
+  (`runs.requested_model`/`requested_provider`) pour que la clé d'idempotence couvre un corps stable.
+- API : `agent_models` dans la création et le `PATCH` d'un projet (remplace l'ensemble ; `{}` ou entrée
+  vide = défaut). Validation : rôle connu, `ValidProviderName` + `ValidModelName`, **et** présence dans le
+  catalogue (`422 invalid_agent_models` sinon) ; Hermes injoignable au moment de l'écriture →
+  `503 hermes_unreachable` (jamais d'acceptation aveugle).
+- Repli (moteur, `runAgent`) : si le run se termine `failed` immédiatement pour résolution du
+  fournisseur (`hermes.IsProviderResolutionFailure` : erreur citant provider/fournisseur/auth, ou échec
+  sans aucun token ni sortie), le run est re-soumis **une seule fois** sans surcharge, sous la clé
+  dérivée `<clé>-fallback`, rattaché au même `runs` (`model_fallback=true`, nouveau `hermes_run_id`),
+  avec une entrée d'audit `run.model_fallback` (acteur `system`, sujet `run`, `after = {requested,
+  served, reason}`). Un second échec termine le run en `failed` (pas de boucle). Le run affiche toujours
+  le modèle servi (`runtime`) ; l'UI signale « modèle demandé ≠ servi » et le repli (liste et détail).
+- UI projet : bloc « Modèles par agent » (un sélecteur par rôle, groupé par fournisseur, « Défaut du
+  profil » en tête, valeur enregistrée absente du catalogue affichée « … (absent) ») ; catalogue
+  indisponible → message, formulaire toujours utilisable.
+- Le faux Hermes des e2e (`e2e/fakes`) sert `api/model/options` (fournisseur `fake-e2e`) et fait échouer
+  tout run demandant un autre fournisseur, ce qui exerce le repli.
 
 ### Canal Telegram par projet (migration 0006)
 

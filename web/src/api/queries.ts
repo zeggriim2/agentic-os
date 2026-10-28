@@ -27,6 +27,7 @@ import type {
   TicketDetail,
   GitGraph,
   HermesProfile,
+  ModelProvider,
 } from "./types";
 
 // Clés de requête — préfixes utilisés pour l'invalidation SSE.
@@ -40,6 +41,7 @@ export const qk = {
     ["git-graph", id, days, kinds, merged] as const,
   agents: ["agents"] as const,
   hermesProfiles: ["hermes-profiles"] as const,
+  hermesModels: ["hermes-models"] as const,
   features: (p: Record<string, QueryValue> = {}) => ["features", p] as const,
   feature: (id: number) => ["feature", id] as const,
   ticket: (id: number) => ["ticket", id] as const,
@@ -162,6 +164,16 @@ export const useHermesProfiles = (enabled = true) =>
         .items,
     enabled,
     staleTime: 30_000,
+  });
+/** Catalogue des modèles Hermes (fournisseurs authentifiés). Échec = Hermes injoignable : le formulaire le signale. */
+export const useHermesModels = (enabled = true) =>
+  useQuery({
+    queryKey: qk.hermesModels,
+    queryFn: async ({ signal }) =>
+      asPage<ModelProvider>(await api.get("/api/hermes/models", signal)).items,
+    enabled,
+    staleTime: 30_000,
+    retry: false,
   });
 
 function useInfiniteList<T>(

@@ -23,9 +23,10 @@ export function StateBadge({ state, className, label }: { state: string | null |
   );
 }
 
-export function ToneBadge({ tone, children, className }: { tone: Tone; children: ReactNode; className?: string }) {
+export function ToneBadge({ tone, children, className, title }: { tone: Tone; children: ReactNode; className?: string; title?: string }) {
   return (
     <span
+      title={title}
       className={cn(
         "inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-2xs font-medium leading-4",
         TONE_CLASSES[tone].badge,

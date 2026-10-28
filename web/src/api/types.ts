@@ -128,6 +128,8 @@ export interface Project extends Timestamps {
   test_command: string | null;
   /** Rôle → profil Hermes propre au projet (absent = profil par défaut de l'agent). */
   agent_profiles?: Partial<Record<AgentRole, string>>;
+  /** Rôle → fournisseur/modèle imposés aux runs du projet (absent = modèle souhaité de l'agent, sinon défaut du profil). */
+  agent_models?: Partial<Record<AgentRole, ModelChoice>>;
   /** Canal Telegram du projet : groupe et sujet de forum (vide/0 = chat par défaut). */
   telegram_chat_id?: string;
   telegram_thread_id?: number;
@@ -136,6 +138,18 @@ export interface Project extends Timestamps {
 export interface HermesProfile {
   profile: string;
   role: AgentRole | "";
+}
+/** Modèle imposé pour un rôle (noms tels que Hermes les expose). */
+export interface ModelChoice {
+  provider: string;
+  model: string;
+}
+/** Fournisseur authentifié du catalogue Hermes (GET /api/hermes/models) et ses modèles. */
+export interface ModelProvider {
+  provider: string;
+  name: string;
+  is_current: boolean;
+  models: string[];
 }
 export interface ProjectCreate {
   slug: string;
@@ -146,6 +160,7 @@ export interface ProjectCreate {
   mode: ProjectMode;
   test_command: string;
   agent_profiles?: Partial<Record<AgentRole, string>>;
+  agent_models?: Partial<Record<AgentRole, ModelChoice>>;
   telegram_chat_id?: string;
   telegram_thread_id?: number;
 }
@@ -275,6 +290,10 @@ export interface Run extends Timestamps {
   cache_write_tokens?: number | null;
   model: string | null;
   provider: string | null;
+  /** Surcharge demandée à Hermes (null = défaut du profil) ; model_fallback : re-soumis sans surcharge. */
+  requested_model?: string | null;
+  requested_provider?: string | null;
+  model_fallback?: boolean;
   error: string | null;
   started_at: ISODate | null;
   finished_at: ISODate | null;

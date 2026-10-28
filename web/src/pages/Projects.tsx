@@ -5,16 +5,20 @@ import { errorMessage } from "@/api/client";
 import {
   useAgents,
   useCreateProject,
+  useHermesModels,
   useHermesProfiles,
   usePatchProject,
   useProjects,
   useTestProjectTelegram,
 } from "@/api/queries";
-import type {
-  AgentRole,
-  HermesProfile,
-  Project,
-  ProjectMode,
+import {
+  AGENT_ROLES,
+  type AgentRole,
+  type HermesProfile,
+  type ModelChoice,
+  type ModelProvider,
+  type Project,
+  type ProjectMode,
 } from "@/api/types";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
@@ -25,6 +29,7 @@ import { Switch } from "@/components/ui/Switch";
 import { EmptyState, QueryView } from "@/components/ui/States";
 import { Time } from "@/components/ui/Time";
 import { useToast } from "@/components/ui/Toast";
+import { roleLabel } from "@/lib/states";
 import {
   LIMITS,
   validBranch,
@@ -48,8 +53,20 @@ interface FormState {
   profile_developer: string;
   profile_reviewer: string;
   profile_qa: string;
+  /** Rôle → "provider/model" imposé ("" = défaut du profil). */
+  models: Partial<Record<AgentRole, string>>;
   telegram_chat: string;
   telegram_thread: string;
+}
+
+/** Valeur d'option du sélecteur de modèle : "<provider>/<model>" (le modèle peut contenir des « / »). */
+export function modelKey(m: ModelChoice | undefined): string {
+  return m && m.model ? `${m.provider}/${m.model}` : "";
+}
+export function parseModelKey(key: string): ModelChoice | undefined {
+  const i = key.indexOf("/");
+  if (i <= 0 || i === key.length - 1) return undefined;
+  return { provider: key.slice(0, i), model: key.slice(i + 1) };
 }
 
 // Rôles qui exécutent du code : ils peuvent avoir un profil Hermes propre au projet (image Docker
@@ -71,6 +88,7 @@ const EMPTY: FormState = {
   profile_developer: "",
   profile_reviewer: "",
   profile_qa: "",
+  models: {},
   telegram_chat: "",
   telegram_thread: "",
 };
@@ -89,6 +107,24 @@ function agentProfiles(f: FormState): Partial<Record<AgentRole, string>> {
   const out: Partial<Record<AgentRole, string>> = {};
   for (const { role, key } of PROFILE_ROLES)
     if (f[key].trim()) out[role] = f[key].trim();
+  return out;
+}
+
+function agentModels(f: FormState): Partial<Record<AgentRole, ModelChoice>> {
+  const out: Partial<Record<AgentRole, ModelChoice>> = {};
+  for (const role of AGENT_ROLES) {
+    const m = parseModelKey(f.models[role] ?? "");
+    if (m) out[role] = m;
+  }
+  return out;
+}
+
+function modelsOf(p: Project | null): Partial<Record<AgentRole, string>> {
+  const out: Partial<Record<AgentRole, string>> = {};
+  for (const role of AGENT_ROLES) {
+    const k = modelKey(p?.agent_models?.[role]);
+    if (k) out[role] = k;
+  }
   return out;
 }
 
@@ -194,6 +230,101 @@ export function ProfileSelect({
   );
 }
 
+// Liste des modèles d'un rôle, groupés par fournisseur authentifié. Première option : défaut du
+// profil. Une valeur enregistrée absente du catalogue reste visible (signalée) plutôt que d'être effacée.
+export function ModelSelect({
+  value,
+  onChange,
+  providers,
+  ...rest
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  providers: ModelProvider[];
+  id?: string;
+  "aria-invalid"?: boolean;
+  "aria-describedby"?: string;
+}) {
+  const known =
+    value === "" ||
+    providers.some((p) => p.models.some((m) => `${p.provider}/${m}` === value));
+  return (
+    <Select
+      {...rest}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="font-mono"
+    >
+      <option value="">Défaut du profil</option>
+      {!known && <option value={value}>{value} (absent)</option>}
+      {providers.map((p) => (
+        <optgroup
+          key={p.provider}
+          label={p.is_current ? `${p.name} (courant)` : p.name}
+        >
+          {p.models.map((m) => (
+            <option key={m} value={`${p.provider}/${m}`}>
+              {m}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </Select>
+  );
+}
+
+// Bloc « Modèles par agent » : un sélecteur par rôle, catalogue chargé depuis Hermes. Si le
+// catalogue est indisponible, le formulaire reste utilisable (sélections existantes visibles).
+export function AgentModelsFields({
+  values,
+  onChange,
+  providers,
+  error,
+  loading,
+}: {
+  values: Partial<Record<AgentRole, string>>;
+  onChange: (role: AgentRole, v: string) => void;
+  providers: ModelProvider[];
+  error?: string;
+  loading?: boolean;
+}) {
+  return (
+    <fieldset className="grid gap-4 sm:col-span-2 sm:grid-cols-2">
+      <legend className="mb-1 text-sm font-medium text-fg sm:col-span-2">
+        Modèles par agent
+      </legend>
+      <p className="-mt-2 text-xs text-fg-subtle sm:col-span-2">
+        Fournisseur et modèle imposés aux runs de ce projet. Sans choix : modèle
+        souhaité de l&apos;agent, sinon défaut du profil Hermes. Si le
+        fournisseur est refusé par Hermes, le run est re-soumis une fois sur le
+        défaut du profil (signalé sur le run).
+      </p>
+      {error && (
+        <p role="alert" className="text-sm text-warning sm:col-span-2">
+          Catalogue des modèles indisponible : {error}. Les choix enregistrés
+          restent visibles ; aucun nouveau modèle ne peut être sélectionné.
+        </p>
+      )}
+      {AGENT_ROLES.map((role) => (
+        <Field
+          key={role}
+          label={`Modèle ${roleLabel(role)}`}
+          hint={loading ? "Chargement du catalogue…" : undefined}
+        >
+          {(p) => (
+            <ModelSelect
+              {...p}
+              value={values[role] ?? ""}
+              onChange={(v) => onChange(role, v)}
+              providers={providers}
+            />
+          )}
+        </Field>
+      ))}
+    </fieldset>
+  );
+}
+
 // Lien vers le canal et envoi d'un message de test (configuration enregistrée uniquement).
 function TelegramTest({
   project,
@@ -283,6 +414,7 @@ function ProjectDialog({
             profile_developer: project.agent_profiles?.developer ?? "",
             profile_reviewer: project.agent_profiles?.reviewer ?? "",
             profile_qa: project.agent_profiles?.qa ?? "",
+            models: modelsOf(project),
             telegram_chat: project.telegram_chat_id ?? "",
             telegram_thread: project.telegram_thread_id
               ? String(project.telegram_thread_id)
@@ -293,6 +425,7 @@ function ProjectDialog({
   }, [open, project]);
 
   const profiles = useHermesProfiles(open);
+  const models = useHermesModels(open);
   const agents = useAgents();
   const defaults = Object.fromEntries(
     (agents.data ?? []).map((a) => [a.role, a.hermes_profile]),
@@ -314,6 +447,7 @@ function ProjectDialog({
       mode: f.mode,
       test_command: f.test_command.trim(),
       agent_profiles: agentProfiles(f),
+      agent_models: agentModels(f),
       telegram_chat_id: f.telegram_chat.trim(),
       telegram_thread_id: f.telegram_thread.trim()
         ? Number(f.telegram_thread.trim())
@@ -469,6 +603,15 @@ function ProjectDialog({
             )}
           </Field>
         ))}
+        <AgentModelsFields
+          values={f.models}
+          onChange={(role, v) =>
+            setF((s) => ({ ...s, models: { ...s.models, [role]: v } }))
+          }
+          providers={models.data ?? []}
+          error={models.isError ? errorMessage(models.error) : undefined}
+          loading={models.isLoading}
+        />
         <Field
           label="Groupe Telegram"
           error={err("telegram_chat")}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/zeggriim2/agentic-os/internal/domain"
 	"github.com/zeggriim2/agentic-os/internal/store"
 )
 
@@ -28,20 +29,21 @@ func rawOrNull(b json.RawMessage) json.RawMessage {
 }
 
 type projectView struct {
-	ID             int64             `json:"id"`
-	Slug           string            `json:"slug"`
-	Name           string            `json:"name"`
-	Repository     string            `json:"repository"`
-	BaseBranch     string            `json:"base_branch"`
-	RequiredChecks []string          `json:"required_checks"`
-	Mode           string            `json:"mode"`
-	Enabled        bool              `json:"enabled"`
-	TestCommand    string            `json:"test_command"`
-	AgentProfiles  map[string]string `json:"agent_profiles"`
-	TelegramChat   string            `json:"telegram_chat_id"`
-	TelegramThread int64             `json:"telegram_thread_id"`
-	CreatedAt      string            `json:"created_at"`
-	UpdatedAt      string            `json:"updated_at"`
+	ID             int64                         `json:"id"`
+	Slug           string                        `json:"slug"`
+	Name           string                        `json:"name"`
+	Repository     string                        `json:"repository"`
+	BaseBranch     string                        `json:"base_branch"`
+	RequiredChecks []string                      `json:"required_checks"`
+	Mode           string                        `json:"mode"`
+	Enabled        bool                          `json:"enabled"`
+	TestCommand    string                        `json:"test_command"`
+	AgentProfiles  map[string]string             `json:"agent_profiles"`
+	AgentModels    map[string]domain.ModelChoice `json:"agent_models"`
+	TelegramChat   string                        `json:"telegram_chat_id"`
+	TelegramThread int64                         `json:"telegram_thread_id"`
+	CreatedAt      string                        `json:"created_at"`
+	UpdatedAt      string                        `json:"updated_at"`
 }
 
 func viewProject(p *store.Project) projectView {
@@ -53,7 +55,11 @@ func viewProject(p *store.Project) projectView {
 	if ap == nil {
 		ap = map[string]string{}
 	}
-	return projectView{p.ID, p.Slug, p.Name, p.Repository, p.BaseBranch, rc, p.Mode, p.Enabled, p.TestCommand, ap, p.TelegramChatID, p.TelegramThreadID,
+	am := p.AgentModels
+	if am == nil {
+		am = map[string]domain.ModelChoice{}
+	}
+	return projectView{p.ID, p.Slug, p.Name, p.Repository, p.BaseBranch, rc, p.Mode, p.Enabled, p.TestCommand, ap, am, p.TelegramChatID, p.TelegramThreadID,
 		ts(p.CreatedAt), ts(p.UpdatedAt)}
 }
 
@@ -160,23 +166,28 @@ type runView struct {
 	OutputTokens  int64   `json:"output_tokens"`
 	TotalTokens   int64   `json:"total_tokens"`
 	// Répartition : input_tokens = fresh_input_tokens + cache_read_tokens.
-	FreshInputTokens int64           `json:"fresh_input_tokens"`
-	CacheReadTokens  int64           `json:"cache_read_tokens"`
-	CacheWriteTokens int64           `json:"cache_write_tokens"`
-	Model            *string         `json:"model"`
-	Provider         *string         `json:"provider"`
-	Error            *string         `json:"error"`
-	HasArtifact      bool            `json:"has_artifact"`
-	StartedAt        string          `json:"started_at"`
-	FinishedAt       *string         `json:"finished_at"`
-	StopAttempts     int             `json:"stop_attempts"`
-	StopError        *string         `json:"stop_error"`
-	Artifact         json.RawMessage `json:"artifact,omitempty"`
+	FreshInputTokens int64   `json:"fresh_input_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	CacheWriteTokens int64   `json:"cache_write_tokens"`
+	Model            *string `json:"model"`
+	Provider         *string `json:"provider"`
+	Error            *string `json:"error"`
+	HasArtifact      bool    `json:"has_artifact"`
+	StartedAt        string  `json:"started_at"`
+	FinishedAt       *string `json:"finished_at"`
+	StopAttempts     int     `json:"stop_attempts"`
+	StopError        *string `json:"stop_error"`
+	// Surcharge demandée à Hermes (null = défaut du profil) ; model_fallback = re-soumis sans surcharge.
+	RequestedModel    *string         `json:"requested_model"`
+	RequestedProvider *string         `json:"requested_provider"`
+	ModelFallback     bool            `json:"model_fallback"`
+	Artifact          json.RawMessage `json:"artifact,omitempty"`
 }
 
 func viewRun(r *store.Run, withArtifact bool) runView {
 	v := runView{r.ID, r.JobID, r.AgentRole, r.HermesProfile, r.HermesRunID, r.Status, r.InputTokens, r.OutputTokens, r.TotalTokens,
-		max(r.InputTokens-r.CacheReadTokens, 0), r.CacheReadTokens, r.CacheWriteTokens, r.Model, r.Provider, r.Error, len(r.Artifact) > 0, ts(r.StartedAt), tsp(r.FinishedAt), r.StopAttempts, r.StopError, nil}
+		max(r.InputTokens-r.CacheReadTokens, 0), r.CacheReadTokens, r.CacheWriteTokens, r.Model, r.Provider, r.Error, len(r.Artifact) > 0, ts(r.StartedAt), tsp(r.FinishedAt), r.StopAttempts, r.StopError,
+		r.RequestedModel, r.RequestedProvider, r.ModelFallback, nil}
 	if withArtifact {
 		v.Artifact = rawOrNull(r.Artifact)
 	}

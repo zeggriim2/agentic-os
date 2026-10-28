@@ -9,6 +9,7 @@ import {
   validFeatureTitle,
   validMaxTokens,
   validProfile,
+  validProvider,
   validTelegramChat,
   validProjectName,
   validRepository,
@@ -31,6 +32,7 @@ const rules: Record<string, (s: string) => boolean> = {
   feature_description: validFeatureDescription,
   model: validDesiredModel,
   profile: validProfile,
+  provider: validProvider,
   telegram_chat: validTelegramChat,
 };
 

@@ -130,6 +130,7 @@ var (
 	ticketKeyRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}-F[0-9]+-T[0-9]+$`)
 	checkNameRe = regexp.MustCompile(`^[^\x00-\x1f]{1,200}$`)
 	modelNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,199}$`)
+	providerRe  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 )
 
 // ValidSlug valide un slug de projet.
@@ -163,6 +164,18 @@ func ValidCheckName(s string) bool {
 
 // ValidModelName valide un nom de modèle.
 func ValidModelName(s string) bool { return modelNameRe.MatchString(s) }
+
+// ValidProviderName valide un identifiant de fournisseur LLM (slug Hermes : anthropic, openai-codex…).
+func ValidProviderName(s string) bool { return providerRe.MatchString(s) }
+
+// ModelChoice est un modèle imposé pour un rôle : fournisseur et modèle (tels que Hermes les nomme).
+type ModelChoice struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+}
+
+// Empty indique l'absence de choix (défaut).
+func (m ModelChoice) Empty() bool { return m.Provider == "" && m.Model == "" }
 
 func containsDotDot(s string) bool {
 	for i := 0; i+1 < len(s); i++ {

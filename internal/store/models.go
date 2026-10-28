@@ -3,6 +3,8 @@ package store
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/zeggriim2/agentic-os/internal/domain"
 )
 
 // Project est une ligne de projects.
@@ -18,6 +20,8 @@ type Project struct {
 	TestCommand    string   `db:"test_command"`
 	// AgentProfiles : rôle → profil Hermes propre au projet (absent = profil par défaut de l'agent).
 	AgentProfiles map[string]string `db:"agent_profiles"`
+	// AgentModels : rôle → fournisseur/modèle imposés au run (absent = desired_model de l'agent, sinon défaut du profil).
+	AgentModels map[string]domain.ModelChoice `db:"agent_models"`
 	// Canal Telegram du projet (groupe, sujet de forum ; vide/0 = chat par défaut).
 	TelegramChatID   string    `db:"telegram_chat_id"`
 	TelegramThreadID int64     `db:"telegram_thread_id"`
@@ -25,7 +29,7 @@ type Project struct {
 	UpdatedAt        time.Time `db:"updated_at"`
 }
 
-const projectCols = `id, slug, name, repository, base_branch, required_checks, mode, enabled, test_command, agent_profiles, telegram_chat_id, telegram_thread_id, created_at, updated_at`
+const projectCols = `id, slug, name, repository, base_branch, required_checks, mode, enabled, test_command, agent_profiles, agent_models, telegram_chat_id, telegram_thread_id, created_at, updated_at`
 
 // ProfileFor renvoie le profil Hermes à utiliser pour role : celui du projet s'il en définit un,
 // sinon le profil par défaut de l'agent.
@@ -36,6 +40,17 @@ func (p *Project) ProfileFor(role, defaultProfile string) string {
 		}
 	}
 	return defaultProfile
+}
+
+// ModelFor résout le modèle imposé au run de role : celui du projet s'il en définit un, sinon le
+// modèle souhaité de l'agent (sans fournisseur), sinon aucun (défaut du profil Hermes).
+func (p *Project) ModelFor(role, agentDesiredModel string) domain.ModelChoice {
+	if p != nil {
+		if m := p.AgentModels[role]; m.Model != "" {
+			return m
+		}
+	}
+	return domain.ModelChoice{Model: agentDesiredModel}
 }
 
 // Agent est une ligne d'agents.
@@ -149,11 +164,15 @@ type Run struct {
 	StopRequestedAt  *time.Time      `db:"stop_requested_at"`
 	StopAttempts     int             `db:"stop_attempts"`
 	StopError        *string         `db:"stop_error"`
-	CreatedAt        time.Time       `db:"created_at"`
-	UpdatedAt        time.Time       `db:"updated_at"`
+	// Surcharge de modèle demandée à Hermes (nil = défaut du profil) et repli sur ce défaut après refus du fournisseur.
+	RequestedModel    *string   `db:"requested_model"`
+	RequestedProvider *string   `db:"requested_provider"`
+	ModelFallback     bool      `db:"model_fallback"`
+	CreatedAt         time.Time `db:"created_at"`
+	UpdatedAt         time.Time `db:"updated_at"`
 }
 
-const runCols = `id, job_id, agent_role, hermes_profile, hermes_run_id, status, input_tokens, output_tokens, total_tokens, cache_read_tokens, cache_write_tokens, model, provider, output, artifact, error, started_at, finished_at, stop_requested_at, stop_attempts, stop_error, created_at, updated_at`
+const runCols = `id, job_id, agent_role, hermes_profile, hermes_run_id, status, input_tokens, output_tokens, total_tokens, cache_read_tokens, cache_write_tokens, model, provider, output, artifact, error, started_at, finished_at, stop_requested_at, stop_attempts, stop_error, requested_model, requested_provider, model_fallback, created_at, updated_at`
 
 // Delivery est une livraison de webhook GitHub.
 type Delivery struct {
