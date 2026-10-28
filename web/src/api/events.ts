@@ -51,7 +51,6 @@ export function EventStreamProvider({ children, enabled }: { children: ReactNode
     let es: EventSource | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let closed = false;
-    let wasConnected = false;
 
     const connect = () => {
       if (closed) return;
@@ -60,9 +59,9 @@ export function EventStreamProvider({ children, enabled }: { children: ReactNode
       es.onopen = () => {
         attempt.current = 0;
         setStatus("connected");
-        // Après une coupure, des événements ont pu être manqués : on rafraîchit tout.
-        if (wasConnected) void qc.invalidateQueries();
-        wasConnected = true;
+        // Des événements ont pu être émis avant l'ouverture du flux : après une coupure, mais aussi
+        // au chargement, entre la première lecture des données et la connexion. On rafraîchit tout.
+        void qc.invalidateQueries();
       };
       es.onerror = () => {
         es?.close();

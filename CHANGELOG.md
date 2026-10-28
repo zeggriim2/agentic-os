@@ -11,6 +11,11 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
   « Développement » pour le ticket). Filtre par projet mémorisé, compteurs d'éléments en attente par onglet.
 - `GET /api/pipeline` renvoie `features`, `tickets` et `projects` au lieu d'une liste unique `columns`.
 
+### Corrigé
+- Interface : un changement d'état survenu pendant le chargement d'une page (avant l'ouverture du flux
+  temps réel) n'était pas affiché sans recharger. Les données sont maintenant relues à chaque
+  ouverture du flux, pas seulement après une coupure. Révélé par un e2e intermittent (CI de #48).
+
 ## [1.5.1] — 2026-10-28
 
 ### Corrigé

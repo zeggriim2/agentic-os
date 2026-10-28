@@ -129,6 +129,7 @@ test("parcours complet par l'UI : projet → feature → spec → design → dev
   await expect(page.getByTestId("feature-filter")).toBeVisible();
   await expect(page.getByRole("region", { name: /^PR ouverte/ }).getByRole("link", { name: new RegExp(TICKET) })).toBeVisible();
   await page.goto(ticketURL);
+  await expectHeaderState(page, "PR_OPENED", "PR ouverte");
 
   // --- CI verte (webhook check_run signé) → merge humain attendu
   const ci = await fakes.post("/__e2e/webhook/check-run", { repo: "o/demo", number: pr.number });
