@@ -59,6 +59,7 @@ func TestValidationContractSharedWithUI(t *testing.T) {
 		"feature_title":       ValidFeatureTitle,
 		"feature_description": ValidFeatureDescription,
 		"model":               ValidDesiredModel,
+		"profile":             ValidProfile,
 	}
 	for name, rule := range strRules {
 		raw, ok := all[name]

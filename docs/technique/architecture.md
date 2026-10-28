@@ -408,3 +408,16 @@ lease owner) et le ticket expose `worktree` relatif (`<slug>/<key>`).
   partagée, peut être périmée. Le Reviewer reçoit sa première commande (`--stat` + diff borné à 400 lignes).
 - Les instructions ne contiennent aucune donnée propre au run (SHA, worktree) : elles restent identiques
   d'un run à l'autre, ce qui favorise la réutilisation du cache du fournisseur.
+
+### Profils Hermes par projet (migration 0005)
+
+- `projects.agent_profiles` (JSONB, rôle → profil) : le rôle d'un run est confié au profil du projet
+  s'il existe, sinon au profil par défaut de la table `agents` (`Project.ProfileFor`). Le run garde le
+  profil utilisé (`runs.hermes_profile`) : changer le réglage n'affecte que les runs suivants.
+- L'activation, le budget (`max_tokens_per_run`) et le modèle souhaité restent ceux de l'agent du rôle.
+- API : `agent_profiles` dans la création et le `PATCH` d'un projet (remplace l'ensemble ; `{}` = défaut).
+  Rôles connus et nom de profil validés (`ValidProfile`) ; la clé `secrets/hermes/<profil>.key` doit
+  exister, ce que signalent `/api/health` et `doctor`.
+- Usage prévu : `aos-<projet>-developer|reviewer|qa`, avec l'image Docker du projet et seulement
+  `workspaces/<projet>` monté (voir `docs/technique/agents-projets.md`).
+

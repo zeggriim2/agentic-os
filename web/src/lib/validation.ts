@@ -19,6 +19,7 @@ const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
 const BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,199}$/;
+const PROFILE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\x00-\x1f]/;
 
@@ -43,4 +44,5 @@ export const validFeatureDescription = (s: string) => {
   return t !== "" && chars(t) <= LIMITS.featureDescription;
 };
 export const validDesiredModel = (s: string) => s === "" || MODEL.test(s);
+export const validProfile = (s: string) => PROFILE.test(s);
 export const validMaxTokens = (n: number) => Number.isInteger(n) && n >= LIMITS.minTokens && n <= LIMITS.maxTokens;
