@@ -29,16 +29,17 @@ import (
 // ------------------------------------------------------------------ fakes
 
 type fakeHermes struct {
-	mu       sync.Mutex
-	runs     map[string]hermes.RunStatus
-	keys     map[string]string // idempotency key → run id
-	creates  int
-	stops    int
-	respond  func(profile string, req hermes.RunRequest) (string, int64)
-	hold     bool  // les runs restent "running" (jamais terminés)
-	stopErr  error // erreur renvoyée par StopRun
-	stopEnds bool  // un StopRun réussi termine le run (statut "cancelled")
-	sequence int
+	cacheHeavy bool // usage dominé par le cache (budget sur les tokens nouveaux)
+	mu         sync.Mutex
+	runs       map[string]hermes.RunStatus
+	keys       map[string]string // idempotency key → run id
+	creates    int
+	stops      int
+	respond    func(profile string, req hermes.RunRequest) (string, int64)
+	hold       bool  // les runs restent "running" (jamais terminés)
+	stopErr    error // erreur renvoyée par StopRun
+	stopEnds   bool  // un StopRun réussi termine le run (statut "cancelled")
+	sequence   int
 	// reqs garde le corps envoyé par clé d'idempotence (vérification de model/provider).
 	reqs map[string]hermes.RunRequest
 	// rejectProvider simule le refus de résolution du fournisseur par Hermes (run failed, 0 token).
@@ -74,8 +75,11 @@ func (f *fakeHermes) CreateRun(_ context.Context, profile, key string, req herme
 		f.mu.Unlock()
 		return hermes.CreateResult{RunID: id, Status: "started"}, nil
 	}
-	f.runs[id] = hermes.RunStatus{Status: "completed", Output: out, Completed: true,
-		Usage: hermes.Usage{InputTokens: total / 2, OutputTokens: total - total/2, TotalTokens: total, CacheReadTokens: total / 4}, Runtime: hermes.Runtime{Provider: "p", Model: "m1"}}
+	usage := hermes.Usage{InputTokens: total / 2, OutputTokens: total - total/2, TotalTokens: total, CacheReadTokens: total / 4}
+	if f.cacheHeavy { // run outillé typique : 90 % du total relu du cache, 2 % de sortie
+		usage = hermes.Usage{InputTokens: total - total/50, OutputTokens: total / 50, TotalTokens: total, CacheReadTokens: total * 9 / 10}
+	}
+	f.runs[id] = hermes.RunStatus{Status: "completed", Output: out, Completed: true, Usage: usage, Runtime: hermes.Runtime{Provider: "p", Model: "m1"}}
 	f.mu.Unlock()
 	return hermes.CreateResult{RunID: id, Status: "started"}, nil
 }
@@ -769,6 +773,33 @@ func TestBudgetExceededBlocksButStoresArtifact(t *testing.T) {
 	}
 	ev.drain()
 	expect(t, "après retry", ev.feature(f.ID).State, "SPEC_REVIEW")
+}
+
+func TestBudgetCountsFreshTokensNotCacheReads(t *testing.T) {
+	ev := newEnv(t)
+	ev.h.cacheHeavy = true
+	// 2 000 000 tokens bruts dont 1 800 000 relus du cache : 200 000 nouveaux < budget 400 000.
+	ev.po = func() (string, int64) { return poOK, 2_000_000 }
+	ctx := context.Background()
+	p := ev.project()
+	f, _ := store.CreateFeature(ctx, ev.s.Pool, p.ID, "Cache", "")
+	if _, err := ev.e.FeatureAction(ctx, f.ID, "start_spec", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	ev.drain()
+	expect(t, "feature", ev.feature(f.ID).State, "SPEC_REVIEW")
+	// 5 000 000 bruts → 500 000 nouveaux > 400 000 : rejeté, message explicite.
+	ev.po = func() (string, int64) { return poOK, 5_000_000 }
+	f2, _ := store.CreateFeature(ctx, ev.s.Pool, p.ID, "Gros", "")
+	if _, err := ev.e.FeatureAction(ctx, f2.ID, "start_spec", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	ev.drain()
+	expect(t, "feature trop chère", ev.feature(f2.ID).State, "BLOCKED")
+	runs, _ := store.ListRunsForSubject(ctx, ev.s.Pool, "feature", f2.ID)
+	if len(runs) != 1 || !strings.Contains(str(runs[0].Error), "500000 tokens nouveaux (entrée nouvelle + sortie) > 400000") {
+		t.Fatalf("message : %v", str(runs[0].Error))
+	}
 }
 
 func TestRecoveryAttachesToExistingRun(t *testing.T) {

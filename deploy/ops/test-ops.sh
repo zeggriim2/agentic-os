@@ -81,6 +81,11 @@ echo "current_tag=1.0.0" >"$AOS_STATE_FILE"
 grep -q '^previous_tag=1.0.0$' "$AOS_STATE_FILE" && grep -q '^current_tag=1.0.1$' "$AOS_STATE_FILE" && ok "état de déploiement enregistré" || fail "état de déploiement enregistré"
 expect_eq "construction puis arrêt → démarrage en 1.0.1" "$(tr '\n' ' ' <"$APPLOG")" "build:1.0.1 stop start:1.0.1 "
 if "$OPS/upgrade.sh" 1.0.1 2>/dev/null; then fail "double mise à jour"; else ok "mise à jour vers la version courante refusée"; fi
+sql "INSERT INTO schema_migrations(version) VALUES ($((LATEST + 1)))"
+: >"$APPLOG"
+if "$OPS/upgrade.sh" 1.0.2 2>/dev/null; then fail "rétrogradation de schéma acceptée"; else ok "rétrogradation de schéma refusée"; fi
+expect_eq "application non arrêtée lors d'une rétrogradation refusée" "$(cat "$APPLOG")" ""
+sql "DELETE FROM schema_migrations WHERE version = $((LATEST + 1))"
 sql "INSERT INTO features(project_id,title,description) VALUES (1,'F-v101','d')"
 : >"$APPLOG"
 "$OPS/rollback.sh" --yes 2>/dev/null
