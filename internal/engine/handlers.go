@@ -118,7 +118,7 @@ func (e *Engine) handlePOSpec(ctx context.Context, j *store.Job, owner string) e
 		return err
 	})
 	if err == nil && notice != "" {
-		e.Notifier.Notify(ctx, notice)
+		e.notifyProject(ctx, f.ProjectID, notice)
 	}
 	return err
 }
@@ -174,7 +174,7 @@ func (e *Engine) handleTechDesign(ctx context.Context, j *store.Job, owner strin
 		return err
 	})
 	if err == nil && notice != "" {
-		e.Notifier.Notify(ctx, notice)
+		e.notifyProject(ctx, f.ProjectID, notice)
 	}
 	return err
 }
@@ -273,7 +273,7 @@ func (e *Engine) handleOpenIssues(ctx context.Context, j *store.Job, owner strin
 		return err
 	})
 	if err == nil && notice != "" {
-		e.Notifier.Notify(ctx, notice)
+		e.notifyProject(ctx, f.ProjectID, notice)
 	}
 	return err
 }
@@ -552,7 +552,7 @@ func (e *Engine) handleReview(ctx context.Context, j *store.Job, owner string) e
 		return e.reworkApproval(ctx, tx, lt, "review", rv.Summary, findingsText(rv.Findings), sha)
 	})
 	if err == nil && notice != "" {
-		e.Notifier.Notify(ctx, notice)
+		e.notifyProject(ctx, t.ProjectID, notice)
 	}
 	return err
 }
@@ -651,7 +651,7 @@ func (e *Engine) handleQA(ctx context.Context, j *store.Job, owner string) error
 		return e.reworkApproval(ctx, tx, lt, "qa", qa.Summary, qaFindings(qa), sha)
 	})
 	if err == nil && notice != "" {
-		e.Notifier.Notify(ctx, notice)
+		e.notifyProject(ctx, t.ProjectID, notice)
 	}
 	return err
 }
@@ -793,7 +793,7 @@ func (e *Engine) handlePublishPR(ctx context.Context, j *store.Job, owner string
 		return store.Notify(ctx, tx, "ticket.updated", t.ID)
 	})
 	if err == nil {
-		e.Notifier.Notify(ctx, fmt.Sprintf("🔀 PR draft #%d ouverte pour %s : %s", pr.Number, t.Key, pr.HTMLURL))
+		e.notifyProject(ctx, t.ProjectID, fmt.Sprintf("🔀 PR draft #%d ouverte pour %s : %s", pr.Number, t.Key, pr.HTMLURL))
 	}
 	return err
 }

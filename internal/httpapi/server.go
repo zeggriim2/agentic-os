@@ -19,6 +19,7 @@ import (
 
 	"github.com/zeggriim2/agentic-os/internal/domain"
 	"github.com/zeggriim2/agentic-os/internal/engine"
+	"github.com/zeggriim2/agentic-os/internal/notify"
 	"github.com/zeggriim2/agentic-os/internal/store"
 )
 
@@ -56,6 +57,8 @@ type Server struct {
 	GitHubWebURL  string         // base des liens commits/PR/tags (défaut https://github.com)
 	// HermesProfiles liste les profils Hermes dont la clé est configurée (nil : pas de contrôle).
 	HermesProfiles func() ([]string, error)
+	// TelegramSend envoie un message (test du canal d'un projet ; nil : indisponible).
+	TelegramSend func(ctx context.Context, to notify.Destination, text string) error
 
 	gitCache    gitGraphCache
 	limiter     *rateLimiter
@@ -99,6 +102,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/projects/{id}", s.getProject)
 			r.Get("/projects/{id}/git-graph", s.projectGitGraph)
 			r.Patch("/projects/{id}", s.patchProject)
+			r.Post("/projects/{id}/telegram-test", s.testProjectTelegram)
 			r.Get("/agents", s.listAgents)
 			r.Get("/hermes-profiles", s.listHermesProfiles)
 			r.Post("/agents/sync", s.syncAgents)

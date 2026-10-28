@@ -35,20 +35,39 @@ func New(baseURL string, token, chat func() (string, error), log *slog.Logger) *
 // ErrNotConfigured indique l'absence de token ou de chat.
 var ErrNotConfigured = errors.New("telegram non configuré")
 
+// Destination désigne où envoyer : le canal d'un projet (groupe + sujet de forum éventuel) ou,
+// ChatID vide, le chat par défaut. Label (nom du projet) préfixe le message envoyé au chat par
+// défaut, pour distinguer les projets.
+type Destination struct {
+	ChatID   string
+	ThreadID int64
+	Label    string
+}
+
 // Send envoie un message (synchrone). L'erreur ne contient jamais le token.
-func (t *Telegram) Send(ctx context.Context, text string) error {
+func (t *Telegram) Send(ctx context.Context, to Destination, text string) error {
 	token, err := t.Token()
 	if err != nil || token == "" {
 		return ErrNotConfigured
 	}
-	chat, err := t.ChatID()
-	if err != nil || chat == "" {
-		return ErrNotConfigured
+	chat, thread := to.ChatID, to.ThreadID
+	if chat == "" {
+		if chat, err = t.ChatID(); err != nil || chat == "" {
+			return ErrNotConfigured
+		}
+		thread = 0
+		if to.Label != "" {
+			text = "[" + to.Label + "] " + text
+		}
 	}
 	if len(text) > 4000 {
 		text = text[:4000]
 	}
-	body, _ := json.Marshal(map[string]any{"chat_id": chat, "text": text, "disable_web_page_preview": true})
+	msg := map[string]any{"chat_id": chat, "text": text, "disable_web_page_preview": true}
+	if thread > 0 {
+		msg["message_thread_id"] = thread
+	}
+	body, _ := json.Marshal(msg)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.BaseURL+"/bot"+token+"/sendMessage", bytes.NewReader(body))
 	if err != nil {
 		return errors.New("requête Telegram invalide")
@@ -74,11 +93,11 @@ func redact(s, token string) string {
 }
 
 // Notify envoie sans bloquer le workflow ; un échec est seulement journalisé.
-func (t *Telegram) Notify(ctx context.Context, text string) {
+func (t *Telegram) Notify(ctx context.Context, to Destination, text string) {
 	send := func() {
 		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := t.Send(c, text); err != nil {
+		if err := t.Send(c, to, text); err != nil {
 			if errors.Is(err, ErrNotConfigured) {
 				t.Log.Debug("notification Telegram ignorée (non configuré)")
 				return
@@ -93,13 +112,11 @@ func (t *Telegram) Notify(ctx context.Context, text string) {
 	send()
 }
 
-// Check vérifie le token via getMe (doctor/health).
+// Check vérifie le token via getMe (doctor/health). Le chat par défaut est facultatif : les
+// projets peuvent avoir leur propre canal.
 func (t *Telegram) Check(ctx context.Context) error {
 	token, err := t.Token()
 	if err != nil || token == "" {
-		return ErrNotConfigured
-	}
-	if _, err := t.ChatID(); err != nil {
 		return ErrNotConfigured
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, t.BaseURL+"/bot"+token+"/getMe", nil)

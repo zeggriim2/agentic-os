@@ -128,6 +128,9 @@ export interface Project extends Timestamps {
   test_command: string | null;
   /** Rôle → profil Hermes propre au projet (absent = profil par défaut de l'agent). */
   agent_profiles?: Partial<Record<AgentRole, string>>;
+  /** Canal Telegram du projet : groupe et sujet de forum (vide/0 = chat par défaut). */
+  telegram_chat_id?: string;
+  telegram_thread_id?: number;
 }
 /** Profil Hermes utilisable (clé configurée) ; rôle deviné d'après le suffixe du nom. */
 export interface HermesProfile {
@@ -143,6 +146,8 @@ export interface ProjectCreate {
   mode: ProjectMode;
   test_command: string;
   agent_profiles?: Partial<Record<AgentRole, string>>;
+  telegram_chat_id?: string;
+  telegram_thread_id?: number;
 }
 export type ProjectPatch = Partial<Omit<ProjectCreate, "slug">> & {
   enabled?: boolean;

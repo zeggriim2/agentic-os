@@ -19,6 +19,7 @@ import (
 	gh "github.com/zeggriim2/agentic-os/internal/github"
 	"github.com/zeggriim2/agentic-os/internal/gitops"
 	"github.com/zeggriim2/agentic-os/internal/hermes"
+	"github.com/zeggriim2/agentic-os/internal/notify"
 	"github.com/zeggriim2/agentic-os/internal/store"
 )
 
@@ -56,12 +57,48 @@ type Git interface {
 
 // Notifier envoie des notifications (non bloquantes, échec loggé).
 type Notifier interface {
-	Notify(ctx context.Context, text string)
+	Notify(ctx context.Context, to notify.Destination, text string)
 }
 
 type nopNotifier struct{}
 
-func (nopNotifier) Notify(context.Context, string) {}
+func (nopNotifier) Notify(context.Context, notify.Destination, string) {}
+
+// notifyProject envoie text dans le canal du projet (son groupe/sujet Telegram), ou dans le chat
+// par défaut préfixé du nom du projet. Un projet introuvable n'empêche pas l'envoi.
+func (e *Engine) notifyProject(ctx context.Context, projectID int64, text string) {
+	if text == "" {
+		return
+	}
+	to := notify.Destination{}
+	if p, err := store.GetProject(ctx, e.Store.Pool, projectID); err == nil {
+		to = notify.Destination{ChatID: p.TelegramChatID, ThreadID: p.TelegramThreadID, Label: p.Name}
+	}
+	e.Notifier.Notify(ctx, to, text)
+}
+
+// notifySubject retrouve le projet d'un sujet (feature, ticket, approbation) puis notifie.
+func (e *Engine) notifySubject(ctx context.Context, subjectType string, subjectID int64, text string) {
+	e.notifyProject(ctx, e.projectOf(ctx, subjectType, subjectID, 0), text)
+}
+
+func (e *Engine) projectOf(ctx context.Context, subjectType string, id int64, depth int) int64 {
+	switch subjectType {
+	case "feature":
+		if f, err := store.GetFeature(ctx, e.Store.Pool, id); err == nil {
+			return f.ProjectID
+		}
+	case "ticket":
+		if t, err := store.GetTicket(ctx, e.Store.Pool, id); err == nil {
+			return t.ProjectID
+		}
+	case "approval":
+		if ap, err := store.GetApproval(ctx, e.Store.Pool, id); err == nil && depth < 2 {
+			return e.projectOf(ctx, ap.SubjectType, ap.SubjectID, depth+1)
+		}
+	}
+	return 0
+}
 
 // Engine orchestre les jobs.
 type Engine struct {
@@ -347,7 +384,7 @@ func (e *Engine) failJob(ctx context.Context, j *store.Job, owner string, je *Jo
 		return err
 	})
 	if err == nil && notify != "" {
-		e.Notifier.Notify(ctx, notify)
+		e.notifySubject(ctx, j.SubjectType, j.SubjectID, notify)
 	}
 	return err
 }
@@ -462,7 +499,7 @@ func (e *Engine) Recover(ctx context.Context) error {
 			return nil
 		}
 		if msg != "" {
-			e.Notifier.Notify(ctx, msg)
+			e.notifySubject(ctx, j.SubjectType, j.SubjectID, msg)
 		}
 	}
 	return nil

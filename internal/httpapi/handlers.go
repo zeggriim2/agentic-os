@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/zeggriim2/agentic-os/internal/audit"
 	"github.com/zeggriim2/agentic-os/internal/domain"
+	"github.com/zeggriim2/agentic-os/internal/notify"
 	"github.com/zeggriim2/agentic-os/internal/store"
 )
 
@@ -100,6 +102,9 @@ type projectCreate struct {
 	TestCommand    string   `json:"test_command"`
 	// AgentProfiles : rôle → profil Hermes propre au projet (vide ou absent = profil par défaut).
 	AgentProfiles map[string]string `json:"agent_profiles"`
+	// Canal Telegram du projet : groupe (ex. -1001234567890) et sujet de forum (0 = aucun).
+	TelegramChatID   string `json:"telegram_chat_id"`
+	TelegramThreadID int64  `json:"telegram_thread_id"`
 }
 
 func validateProject(in *store.ProjectInput) (string, string) {
@@ -153,6 +158,15 @@ func validateProject(in *store.ProjectInput) (string, string) {
 		profiles[role] = prof
 	}
 	in.AgentProfiles = profiles
+	in.TelegramChatID = trim(in.TelegramChatID)
+	switch {
+	case !domain.ValidTelegramChat(in.TelegramChatID):
+		return "invalid_telegram_chat", "identifiant de groupe Telegram invalide (ex. -1001234567890)"
+	case !domain.ValidTelegramThread(in.TelegramThreadID):
+		return "invalid_telegram_thread", "identifiant de sujet invalide"
+	case in.TelegramChatID == "" && in.TelegramThreadID != 0:
+		return "invalid_telegram_thread", "un sujet exige un groupe"
+	}
 	return "", ""
 }
 
@@ -175,7 +189,8 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in := store.ProjectInput{Slug: trim(req.Slug), Name: req.Name, Repository: trim(req.Repository), BaseBranch: req.BaseBranch,
-		RequiredChecks: req.RequiredChecks, Mode: req.Mode, TestCommand: req.TestCommand, Enabled: false, AgentProfiles: req.AgentProfiles}
+		RequiredChecks: req.RequiredChecks, Mode: req.Mode, TestCommand: req.TestCommand, Enabled: false, AgentProfiles: req.AgentProfiles,
+		TelegramChatID: req.TelegramChatID, TelegramThreadID: req.TelegramThreadID}
 	if code, msg := validateProject(&in); code != "" {
 		writeError(w, 422, code, msg)
 		return
@@ -222,8 +237,10 @@ type projectPatch struct {
 	Enabled        *bool     `json:"enabled"`
 	TestCommand    *string   `json:"test_command"`
 	// AgentProfiles remplace l'ensemble des profils propres au projet ({} = tous par défaut).
-	AgentProfiles *map[string]string `json:"agent_profiles"`
-	Confirm       *string            `json:"confirm"`
+	AgentProfiles    *map[string]string `json:"agent_profiles"`
+	TelegramChatID   *string            `json:"telegram_chat_id"`
+	TelegramThreadID *int64             `json:"telegram_thread_id"`
+	Confirm          *string            `json:"confirm"`
 }
 
 func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
@@ -243,7 +260,7 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		}
 		in := store.ProjectInput{Slug: cur.Slug, Name: cur.Name, Repository: cur.Repository, BaseBranch: cur.BaseBranch,
 			RequiredChecks: cur.RequiredChecks, Mode: cur.Mode, Enabled: cur.Enabled, TestCommand: cur.TestCommand,
-			AgentProfiles: cur.AgentProfiles}
+			AgentProfiles: cur.AgentProfiles, TelegramChatID: cur.TelegramChatID, TelegramThreadID: cur.TelegramThreadID}
 		if req.Name != nil {
 			in.Name = *req.Name
 		}
@@ -267,6 +284,12 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AgentProfiles != nil {
 			in.AgentProfiles = *req.AgentProfiles
+		}
+		if req.TelegramChatID != nil {
+			in.TelegramChatID = *req.TelegramChatID
+		}
+		if req.TelegramThreadID != nil {
+			in.TelegramThreadID = *req.TelegramThreadID
 		}
 		if code, msg := validateProject(&in); code != "" {
 			return &userError{422, code, msg}
@@ -360,6 +383,35 @@ func (s *Server) checkProfilesConfigured(profiles map[string]string) *userError 
 		}
 	}
 	return nil
+}
+
+// testProjectTelegram envoie un message de test dans le canal du projet (ou le chat par défaut).
+func (s *Server) testProjectTelegram(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	p, err := store.GetProject(r.Context(), s.Store.Pool, id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if s.TelegramSend == nil {
+		writeError(w, 503, "telegram_unavailable", "notifications Telegram indisponibles")
+		return
+	}
+	to := notify.Destination{ChatID: p.TelegramChatID, ThreadID: p.TelegramThreadID, Label: p.Name}
+	if err := s.TelegramSend(r.Context(), to, "🔔 Test Agentic OS : les notifications du projet "+p.Name+" arriveront ici."); err != nil {
+		if errors.Is(err, notify.ErrNotConfigured) {
+			writeError(w, 422, "telegram_not_configured", "Telegram non configuré : secret telegram_bot_token (et telegram_chat_id si le projet n'a pas de canal)")
+			return
+		}
+		writeError(w, 502, "telegram_failed", err.Error())
+		return
+	}
+	_ = audit.Write(r.Context(), s.Store.Pool, audit.Entry{Actor: audit.User(actorLogin(r)), Action: "project.telegram_tested",
+		SubjectType: "project", SubjectID: p.ID})
+	writeJSON(w, 200, map[string]any{"sent": true})
 }
 
 // ================================================================== agents

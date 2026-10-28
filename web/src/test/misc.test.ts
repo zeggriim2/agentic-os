@@ -8,7 +8,7 @@ import {
 import { SSE_EVENT_TYPES } from "@/api/types";
 import { diffKeys } from "@/components/domain";
 import { normalizeHealth } from "@/pages/Health";
-import { validateProject } from "@/pages/Projects";
+import { telegramLink, validateProject } from "@/pages/Projects";
 
 describe("SSE", () => {
   it("chaque type d'événement du contrat a une règle d'invalidation", () => {
@@ -76,6 +76,8 @@ describe("utilitaires d'écran", () => {
       profile_developer: "",
       profile_reviewer: "",
       profile_qa: "",
+      telegram_chat: "",
+      telegram_thread: "",
     };
     expect(validateProject(ok, true)).toEqual({});
     expect(
@@ -93,5 +95,35 @@ describe("utilitaires d'écran", () => {
       slug: expect.any(String),
       repository: expect.any(String),
     });
+    expect(
+      validateProject(
+        { ...ok, telegram_chat: "-1004205411589", telegram_thread: "13" },
+        true,
+      ),
+    ).toEqual({});
+    expect(
+      validateProject({ ...ok, telegram_chat: "@groupe" }, true),
+    ).toMatchObject({ telegram_chat: expect.any(String) });
+    expect(
+      validateProject({ ...ok, telegram_thread: "13" }, true),
+    ).toMatchObject({ telegram_thread: expect.any(String) });
+    expect(
+      validateProject(
+        { ...ok, telegram_chat: "-100", telegram_thread: "0" },
+        true,
+      ),
+    ).toMatchObject({
+      telegram_thread: expect.any(String),
+    });
+  });
+
+  it("construit le lien Telegram d'un groupe ou d'un sujet", () => {
+    expect(telegramLink("-1004205411589", "13")).toBe(
+      "https://t.me/c/4205411589/13",
+    );
+    expect(telegramLink("-1004205411589", "")).toBe(
+      "https://t.me/c/4205411589",
+    );
+    expect(telegramLink("6923564552", "")).toBeNull();
   });
 });
