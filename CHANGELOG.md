@@ -4,6 +4,8 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 
 ## [Non publié]
 
+## [1.6.0] — 2026-10-29
+
 ### Modifié
 - Pipeline en **deux onglets** : « Features » (cycle de vie de la demande, avec l'avancement de ses
   tickets et un lien « Voir les tickets ») et « Tickets » (travail des agents, avec la feature
