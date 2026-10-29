@@ -508,8 +508,8 @@ func TestAgentModelsMigrationUpgradesLegacyRows(t *testing.T) {
 	if _, err := s.Pool.Exec(ctx, string(sql)); err != nil {
 		t.Fatal(err)
 	}
-	if v, err := s.SchemaVersion(ctx); err != nil || v != 7 || store.ExpectedSchemaVersion() != 7 {
-		t.Fatalf("version %d (attendue 7) %v", v, err)
+	if v, err := s.SchemaVersion(ctx); err != nil || v < 7 || v != store.ExpectedSchemaVersion() {
+		t.Fatalf("version %d (attendue ≥ 7, = %d) %v", v, store.ExpectedSchemaVersion(), err)
 	}
 	got, err := store.GetProject(ctx, s.Pool, p.ID)
 	if err != nil || got.AgentModels == nil || len(got.AgentModels) != 0 {
@@ -552,5 +552,98 @@ func TestAgentModelsMigrationUpgradesLegacyRows(t *testing.T) {
 	run, _ = store.GetRun(ctx, s.Pool, r2.ID)
 	if !run.ModelFallback || *run.HermesRunID != "run_b" || *run.RequestedProvider != "anthropic" || *run.RequestedModel != "claude-sonnet-5" || run.Status != "running" {
 		t.Fatalf("run après repli : %+v", run)
+	}
+}
+
+func TestFeatureIntegrationModeMigrationAndDefaults(t *testing.T) {
+	s := pgtest.New(t)
+	ctx := context.Background()
+	p := mkProject(t, s, "integ")
+	legacy, err := store.CreateFeature(ctx, s.Pool, p.ID, "Legacy", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simule une base 0007 puis rejoue 0008 sur les lignes existantes.
+	if _, err := s.Pool.Exec(ctx, `ALTER TABLE projects DROP COLUMN integration_mode;
+		ALTER TABLE features DROP COLUMN integration_mode, DROP COLUMN feature_branch, DROP COLUMN feature_pr_number, DROP COLUMN feature_pr_url;
+		ALTER TABLE jobs DROP CONSTRAINT jobs_kind_check;
+		ALTER TABLE jobs ADD CONSTRAINT jobs_kind_check CHECK (kind IN ('po_spec','tech_design','open_issues','develop','review','qa','publish_pr','execute_approval','sync_agents'));
+		ALTER TABLE approvals DROP CONSTRAINT approvals_kind_check;
+		ALTER TABLE approvals ADD CONSTRAINT approvals_kind_check CHECK (kind IN ('spec_review','design_review','dev_gate','rework','publish_pr'))`); err != nil {
+		t.Fatal(err)
+	}
+	sql, err := migrations.FS.ReadFile("0008_feature_integration_mode.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Pool.Exec(ctx, string(sql)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetFeature(ctx, s.Pool, legacy.ID)
+	if err != nil || got.IntegrationMode != domain.IntegrationDirect || got.FeatureBranch != nil || got.FeaturePRNumber != nil {
+		t.Fatalf("feature legacy : %+v %v", got, err)
+	}
+	if got.TargetBranch("develop") != "develop" {
+		t.Fatal("feature directe : cible = base")
+	}
+	// Le projet fixe le défaut des nouvelles features ; la feature peut le surcharger.
+	up, err := store.UpdateProject(ctx, s.Pool, p.ID, store.ProjectInput{Slug: p.Slug, Name: p.Name, Repository: p.Repository,
+		BaseBranch: p.BaseBranch, Mode: p.Mode, IntegrationMode: domain.IntegrationFeatureBranch})
+	if err != nil || up.IntegrationMode != domain.IntegrationFeatureBranch {
+		t.Fatalf("projet : %+v %v", up, err)
+	}
+	f1, err := store.CreateFeature(ctx, s.Pool, p.ID, "Par défaut", "")
+	if err != nil || f1.IntegrationMode != domain.IntegrationFeatureBranch {
+		t.Fatalf("défaut du projet : %+v %v", f1, err)
+	}
+	if f1.TargetBranch("develop") != "develop" {
+		t.Fatal("branche de feature pas encore fixée : cible = base")
+	}
+	br := domain.FeatureBranchName(f1.ID, f1.Title)
+	if err := store.SetFeatureIntegration(ctx, s.Pool, f1.ID, domain.IntegrationFeatureBranch, &br); err != nil {
+		t.Fatal(err)
+	}
+	f1, _ = store.GetFeature(ctx, s.Pool, f1.ID)
+	if f1.TargetBranch("develop") != br {
+		t.Fatalf("cible : %s", f1.TargetBranch("develop"))
+	}
+	f2, err := store.CreateFeatureWithMode(ctx, s.Pool, p.ID, "Directe", "", domain.IntegrationDirect)
+	if err != nil || f2.IntegrationMode != domain.IntegrationDirect {
+		t.Fatalf("surcharge : %+v %v", f2, err)
+	}
+	if _, err := store.CreateFeatureWithMode(ctx, s.Pool, p.ID, "X", "", "branch"); err == nil {
+		t.Fatal("mode inconnu accepté par la base")
+	}
+	n, u := 42, "https://github.com/o/r/pull/42"
+	if err := store.SetFeaturePR(ctx, s.Pool, f1.ID, &n, &u); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Pool.Exec(ctx, `UPDATE features SET state='ACCEPTANCE' WHERE id=$1`, f1.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		num    int
+		branch string
+		want   int
+	}{{42, "", 1}, {7, br, 1}, {7, "autre", 0}} {
+		fs, err := store.FeaturesByPR(ctx, s.Pool, p.Repository, c.num, c.branch)
+		if err != nil || len(fs) != c.want {
+			t.Fatalf("FeaturesByPR(%d,%q) = %d %v", c.num, c.branch, len(fs), err)
+		}
+	}
+	if fs, _ := store.ListFeaturesAwaitingPR(ctx, s.Pool); len(fs) != 1 || fs[0].ID != f1.ID {
+		t.Fatalf("en recette : %v", fs)
+	}
+	// Nouveaux kinds acceptés.
+	if _, _, err := store.EnqueueJob(ctx, s.Pool, store.NewJob{Kind: domain.JobPublishFeaturePR, SubjectType: "feature", SubjectID: f1.ID, IdempotencyKey: "k1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CreateApproval(ctx, s.Pool, store.NewApproval{Kind: domain.ApprovalPublishFeaturePR, SubjectType: "feature", SubjectID: f1.ID, Title: "t", Effect: "e"}); err != nil {
+		t.Fatal(err)
+	}
+	ok, err := store.UpdatePendingApproval(ctx, s.Pool, domain.ApprovalPublishFeaturePR, "feature", f1.ID, "e2", map[string]any{"x": 1})
+	ap, _ := store.PendingApproval(ctx, s.Pool, domain.ApprovalPublishFeaturePR, "feature", f1.ID)
+	if err != nil || !ok || ap.Effect != "e2" {
+		t.Fatalf("mise à jour pending : %v %v %+v", ok, err, ap)
 	}
 }

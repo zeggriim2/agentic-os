@@ -74,7 +74,8 @@ Table `schema_migrations(version int primary key, applied_at)`.
   `observed_model`, `observed_provider`, `sync_state` (`SYNCED|DRIFT_DETECTED|UNKNOWN|UNREACHABLE`),
   `observed_at`, `max_tokens_per_run int`, `enabled bool`, `instructions_revision int`.
 - `features` : `project_id`, `title`, `description`, `state`, `state_reason`, `spec jsonb`, `design jsonb`,
-  `version int` (verrou optimiste).
+  `version int` (verrou optimiste), `integration_mode` (`direct|feature_branch`, défaut = celui du projet),
+  `feature_branch`, `feature_pr_number`, `feature_pr_url` (migration 0008).
 - `tickets` : `feature_id`, `project_id`, `key` unique (`<slug>-F<feature>-T<n>`), `title`, `body`,
   `acceptance jsonb`, `state`, `state_reason`, `issue_number`, `issue_url`, `branch`, `head_sha`,
   `attempt int`, `pr_number`, `pr_url`, `ci_state` (`unverified|pending|success|failure`), `version`.
@@ -117,7 +118,10 @@ listée est refusée. Chaque transition persistée écrit une entrée d'audit da
 | ISSUES_OPENED | `issues_opened` | HUMAN_GATE | approval `dev_gate` |
 | HUMAN_GATE | approved | READY_FOR_DEV | tickets → READY_FOR_DEV, job `develop` pour chaque ticket (séquentiel par projet) |
 | READY_FOR_DEV | 1er ticket démarré | IN_DEV | |
-| IN_DEV | tous tickets DONE/CANCELLED | DONE | |
+| IN_DEV | tous tickets DONE/CANCELLED | DONE | mode `direct`, ou aucun ticket DONE |
+| READY_FOR_DEV / IN_DEV | `tickets_integrated` : tous terminaux, ≥ 1 DONE, mode `feature_branch` | ACCEPTANCE | approval `publish_feature_pr` |
+| ACCEPTANCE | PR finale mergée (`feature_pr_merged`) | DONE | |
+| ACCEPTANCE | `fail` : PR finale refusée, fermée sans merge, ou job en échec | BLOCKED | `retry` → ACCEPTANCE, nouvelle approbation si aucune PR ouverte |
 | * (non terminal) | `cancel` (user) | CANCELLED | jobs annulés, runs stoppés |
 | BLOCKED | `retry` (user) | état précédent | rejoue le job |
 
@@ -241,6 +245,7 @@ Dates : ISO-8601 UTC ; l'UI formate en Europe/Paris.
 | GET/POST | `/api/features` | liste (`?state=&project_id=`) / création `{project_id,title,description}` |
 | GET | `/api/features/{id}` | détail : feature + spec + design + tickets + approvals + runs + timeline (audit) |
 | POST | `/api/features/{id}/actions` | `{"action":"start_spec|cancel|retry"}` |
+| POST | `/api/features/{id}/integration` | `{"mode":"direct|feature_branch"}` ; 409 `integration_locked` si un ticket est mergé, feature en recette ou terminée (depuis 1.7.0) |
 | GET | `/api/tickets/{id}` | détail ticket + runs + approvals + timeline |
 | POST | `/api/tickets/{id}/actions` | `{"action":"cancel|retry"}` |
 | GET | `/api/pipeline` | `{features:{columns:[…]}, tickets:{columns:[…]}, projects:[{id,slug}]}` ; colonne `{state,label,items:[{type,id,title,project,project_id,state,updated_at,attention}]}` ; feature + `progress:{total,done,current:{key,state}\|null}` (tickets annulés exclus) ; ticket + `key,feature_id,feature_title` (tickets PLANNED masqués). Depuis 1.6.0 (avant : une seule liste `columns`). |
@@ -471,3 +476,30 @@ lease owner) et le ticket expose `worktree` relatif (`<slug>/<key>`).
 - `POST /api/projects/{id}/telegram-test` envoie un message de test sur la configuration enregistrée
   (audit `project.telegram_tested`) ; 422 `telegram_not_configured` si le token manque.
 
+
+### Mode d'intégration par feature (migration 0008, 1.7.0)
+
+- `projects.integration_mode` : défaut proposé aux nouvelles features ; `features.integration_mode` : mode
+  effectif (`POST /api/features` accepte `integration_mode`, sinon défaut du projet).
+- Cible des tickets : `Feature.TargetBranch(base)` = `feature_branch` en mode `feature_branch` (une fois fixée),
+  sinon la base. Le moteur construit pour chaque ticket un projet « effectif » (`ticketProject`) dont
+  `BaseBranch` est cette cible : worktree de développement, consignes des agents, approbation et création
+  de la PR du ticket, vérification de l'instantané d'approbation. Ce projet n'est jamais persisté.
+- Nom de branche : `feature/F<id>-<titre ASCII, 40 car.>` (`domain.FeatureBranchName`), fixé au feu vert
+  (ou à la bascule après le feu vert) ; la branche est créée à distance par `gitops.EnsureRemoteBranch`
+  (pointe actuelle de `origin/<base>`, jamais de force, branche existante conservée) avant le premier
+  `develop` (fence avant l'effet), audit `feature.branch_created` et notification.
+- PR de ticket en mode branche de feature : `Refs #N` au lieu de `Closes #N` (GitHub ne ferme pas une
+  issue mergée hors de la branche par défaut).
+- Fin des tickets (`maybeCompleteFeature` → `completeFeature`) : ACCEPTANCE + approval
+  `publish_feature_pr` (instantané projet, `head` = branche de feature, issues) ; approuvée → job
+  `publish_feature_pr` : `EnsureDraftPR(branche → base)`, relecture head/base/draft/SHA, stockage
+  `feature_pr_number/url`, audit `feature.pr_published`. Refusée → BLOCKED.
+- Observation : webhook `pull_request` (`FeaturesByPR` par numéro ou branche) et poller `PollPRs`
+  (`ListFeaturesAwaitingPR`) → `ReconcileFeaturePR` : mergée → DONE ; fermée → PR oubliée + BLOCKED.
+- Bascule (`Engine.SetFeatureIntegration`) : refusée si feature terminale, en recette (ou bloquée depuis
+  la recette) ou si un ticket est DONE. Avant le feu vert : réglage seul + mise à jour de l'effet du
+  `dev_gate` en attente. Après : branche fixée (mode `feature_branch`), instantanés des approbations
+  `publish_pr` en attente réécrits sur la nouvelle cible, job `switch_integration` : création de la branche
+  puis `RetargetPR` (PATCH `base`, relecture) des PR de tickets ouvertes, audit `ticket.pr_retargeted`.
+- Pas de rebase automatique de la branche de feature si la base avance : conflits éventuels sur la PR finale.

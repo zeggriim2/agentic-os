@@ -17,6 +17,7 @@ import {
   type HermesProfile,
   type ModelChoice,
   type ModelProvider,
+  type IntegrationMode,
   type Project,
   type ProjectMode,
 } from "@/api/types";
@@ -29,7 +30,7 @@ import { Switch } from "@/components/ui/Switch";
 import { EmptyState, QueryView } from "@/components/ui/States";
 import { Time } from "@/components/ui/Time";
 import { useToast } from "@/components/ui/Toast";
-import { roleLabel } from "@/lib/states";
+import { INTEGRATION_HINTS, roleLabel } from "@/lib/states";
 import {
   LIMITS,
   validBranch,
@@ -57,6 +58,7 @@ interface FormState {
   models: Partial<Record<AgentRole, string>>;
   telegram_chat: string;
   telegram_thread: string;
+  integration_mode: IntegrationMode;
 }
 
 /** Valeur d'option du sélecteur de modèle : "<provider>/<model>" (le modèle peut contenir des « / »). */
@@ -91,6 +93,7 @@ const EMPTY: FormState = {
   models: {},
   telegram_chat: "",
   telegram_thread: "",
+  integration_mode: "direct",
 };
 
 /** Lien vers le groupe/sujet Telegram (supergroupes : -100… → t.me/c/…). */
@@ -419,6 +422,7 @@ function ProjectDialog({
             telegram_thread: project.telegram_thread_id
               ? String(project.telegram_thread_id)
               : "",
+            integration_mode: project.integration_mode ?? "direct",
           }
         : EMPTY,
     );
@@ -452,6 +456,7 @@ function ProjectDialog({
       telegram_thread_id: f.telegram_thread.trim()
         ? Number(f.telegram_thread.trim())
         : 0,
+      integration_mode: f.integration_mode,
     };
     const done = {
       onSuccess: () => {
@@ -566,6 +571,21 @@ function ProjectDialog({
             >
               <option value="sandbox">sandbox</option>
               <option value="product">product</option>
+            </Select>
+          )}
+        </Field>
+        <Field
+          label="Intégration par défaut des features"
+          hint={`${INTEGRATION_HINTS[f.integration_mode]} Modifiable sur chaque feature.`}
+        >
+          {(p) => (
+            <Select
+              {...p}
+              value={f.integration_mode}
+              onChange={(e) => set("integration_mode", e.target.value as IntegrationMode)}
+            >
+              <option value="direct">Directe</option>
+              <option value="feature_branch">Branche de feature</option>
             </Select>
           )}
         </Field>

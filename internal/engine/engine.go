@@ -40,6 +40,7 @@ type GitHub interface {
 	BranchSHA(ctx context.Context, repo, branch string) (string, error)
 	EnsureDraftPR(ctx context.Context, repo, head, base, title, body string) (gh.PR, bool, error)
 	GetPR(ctx context.Context, repo string, number int) (gh.PR, error)
+	RetargetPR(ctx context.Context, repo string, number int, base string) (gh.PR, error)
 	CIState(ctx context.Context, repo, sha string, required []string) (string, []gh.CheckEvidence, error)
 }
 
@@ -53,6 +54,7 @@ type Git interface {
 	RevParse(ctx context.Context, dir, ref string) (string, error)
 	DeletedTestFiles(ctx context.Context, path, baseRef string) ([]string, error)
 	Push(ctx context.Context, path, branch string) error
+	EnsureRemoteBranch(ctx context.Context, slug, repo, branch, from string) (string, bool, error)
 	Relative(p string) string
 }
 

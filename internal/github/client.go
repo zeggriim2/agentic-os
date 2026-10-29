@@ -308,6 +308,38 @@ func (c *Client) EnsureDraftPR(ctx context.Context, repo, head, base, title, bod
 	return back, created, nil
 }
 
+// RetargetPR change la branche cible d'une PR ouverte (PATCH base), puis relit la PR : elle doit
+// rester ouverte, sur la même head, avec la nouvelle base. Sans effet si la base est déjà la bonne.
+func (c *Client) RetargetPR(ctx context.Context, repo string, number int, base string) (PR, error) {
+	p, err := repoPath(repo)
+	if err != nil {
+		return PR{}, err
+	}
+	if number <= 0 || !domain.ValidBranch(base) {
+		return PR{}, &Error{Class: domain.ErrClassPolicy, Msg: "PR ou branche invalide"}
+	}
+	cur, err := c.GetPR(ctx, repo, number)
+	if err != nil {
+		return PR{}, err
+	}
+	if cur.State != "open" {
+		return PR{}, &Error{Class: domain.ErrClassPolicy, Msg: fmt.Sprintf("PR #%d non ouverte : cible inchangée", number)}
+	}
+	if cur.Base.Ref != base {
+		if err := c.do(ctx, http.MethodPatch, fmt.Sprintf("%s/pulls/%d", p, number), map[string]any{"base": base}, nil); err != nil {
+			return PR{}, err
+		}
+	}
+	back, err := c.GetPR(ctx, repo, number)
+	if err != nil {
+		return PR{}, err
+	}
+	if back.Number != number || back.Base.Ref != base || back.Head.Ref != cur.Head.Ref || back.State != "open" {
+		return PR{}, &Error{Class: domain.ErrClassExternal, Msg: fmt.Sprintf("PR #%d relue : cible %q au lieu de %q", number, back.Base.Ref, base)}
+	}
+	return back, nil
+}
+
 // CheckEvidence décrit l'observation d'un check requis.
 type CheckEvidence struct {
 	Name   string `json:"name"`

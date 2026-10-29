@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Layers, Plus } from "lucide-react";
 import { errorMessage } from "@/api/client";
 import { useCreateFeature, useFeatures, useProjects } from "@/api/queries";
-import { FEATURE_STATES, type Feature, type Project } from "@/api/types";
+import { FEATURE_STATES, type Feature, type IntegrationMode, type Project } from "@/api/types";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -12,7 +12,7 @@ import { StateBadge, Tag } from "@/components/ui/StateBadge";
 import { DegradedBanner, EmptyState, ErrorState, ListSkeleton } from "@/components/ui/States";
 import { Time } from "@/components/ui/Time";
 import { useToast } from "@/components/ui/Toast";
-import { stateMeta } from "@/lib/states";
+import { INTEGRATION_HINTS, stateMeta } from "@/lib/states";
 import { formatNumber } from "@/lib/format";
 import { LIMITS, validFeatureDescription, validFeatureTitle } from "@/lib/validation";
 
@@ -27,12 +27,16 @@ function CreateFeatureDialog({ open, onClose, projects }: { open: boolean; onClo
   const [projectId, setProjectId] = useState<string>("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  // "" = défaut du projet choisi (pré-remplissage) ; sinon choix explicite pour cette feature.
+  const [mode, setMode] = useState<IntegrationMode | "">("");
   const [touched, setTouched] = useState(false);
   const m = useCreateFeature();
   const toast = useToast();
   const nav = useNavigate();
 
   const pid = projectId || (enabled[0] ? String(enabled[0].id) : "");
+  const project = enabled.find((p) => String(p.id) === pid);
+  const integration: IntegrationMode = mode || project?.integration_mode || "direct";
   const errors = {
     project: !pid ? "Choisissez un projet actif." : undefined,
     title: !title.trim() ? "Le titre est requis." : !validFeatureTitle(title) ? `${LIMITS.featureTitle} caractères maximum.` : undefined,
@@ -47,13 +51,14 @@ function CreateFeatureDialog({ open, onClose, projects }: { open: boolean; onClo
     setTouched(true);
     if (errors.project || errors.title || errors.description) return;
     m.mutate(
-      { project_id: Number(pid), title: title.trim(), description: description.trim() },
+      { project_id: Number(pid), title: title.trim(), description: description.trim(), integration_mode: integration },
       {
         onSuccess: (f) => {
           toast.success("Feature créée", "État initial : Idée. Lancez la spécification quand vous êtes prêt.");
           onClose();
           setTitle("");
           setDescription("");
+          setMode("");
           setTouched(false);
           if (f && typeof f.id === "number") nav(`/features/${f.id}`);
         },
@@ -83,9 +88,22 @@ function CreateFeatureDialog({ open, onClose, projects }: { open: boolean; onClo
             {errorMessage(m.error)}
           </p>
         )}
-        <Field label="Projet" required error={touched ? errors.project : undefined} hint={enabled.length === 0 ? "Aucun projet actif : activez-en un dans Projets." : undefined}>
+        <Field
+          label="Projet"
+          required
+          error={touched ? errors.project : undefined}
+          hint={enabled.length === 0 ? "Aucun projet actif : activez-en un dans Projets." : undefined}
+        >
           {(p) => (
-            <Select {...p} value={pid} onChange={(e) => setProjectId(e.target.value)} disabled={enabled.length === 0}>
+            <Select
+              {...p}
+              value={pid}
+              onChange={(e) => {
+                setProjectId(e.target.value);
+                setMode("");
+              }}
+              disabled={enabled.length === 0}
+            >
               {enabled.map((pr) => (
                 <option key={pr.id} value={pr.id}>
                   {pr.name} ({pr.slug}) — {pr.mode}
@@ -97,8 +115,24 @@ function CreateFeatureDialog({ open, onClose, projects }: { open: boolean; onClo
         <Field label="Titre" required error={touched ? errors.title : undefined}>
           {(p) => <Input {...p} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} data-autofocus />}
         </Field>
-        <Field label="Description" required error={touched ? errors.description : undefined} hint="Contexte, objectif, contraintes. Le PO s'en sert pour rédiger la spec.">
+        <Field
+          label="Description"
+          required
+          error={touched ? errors.description : undefined}
+          hint="Contexte, objectif, contraintes. Le PO s'en sert pour rédiger la spec."
+        >
           {(p) => <Textarea {...p} rows={6} value={description} onChange={(e) => setDescription(e.target.value)} />}
+        </Field>
+        <Field
+          label="Intégration"
+          hint={`${INTEGRATION_HINTS[integration]} Défaut du projet : ${project?.integration_mode === "feature_branch" ? "branche de feature" : "directe"} ; modifiable jusqu'au premier ticket mergé.`}
+        >
+          {(p) => (
+            <Select {...p} value={integration} onChange={(e) => setMode(e.target.value as IntegrationMode)}>
+              <option value="direct">Directe</option>
+              <option value="feature_branch">Branche de feature</option>
+            </Select>
+          )}
         </Field>
       </form>
     </Dialog>

@@ -42,6 +42,7 @@ type projectView struct {
 	AgentModels    map[string]domain.ModelChoice `json:"agent_models"`
 	TelegramChat   string                        `json:"telegram_chat_id"`
 	TelegramThread int64                         `json:"telegram_thread_id"`
+	Integration    string                        `json:"integration_mode"`
 	CreatedAt      string                        `json:"created_at"`
 	UpdatedAt      string                        `json:"updated_at"`
 }
@@ -60,7 +61,7 @@ func viewProject(p *store.Project) projectView {
 		am = map[string]domain.ModelChoice{}
 	}
 	return projectView{p.ID, p.Slug, p.Name, p.Repository, p.BaseBranch, rc, p.Mode, p.Enabled, p.TestCommand, ap, am, p.TelegramChatID, p.TelegramThreadID,
-		ts(p.CreatedAt), ts(p.UpdatedAt)}
+		p.IntegrationMode, ts(p.CreatedAt), ts(p.UpdatedAt)}
 }
 
 type agentView struct {
@@ -92,13 +93,18 @@ type featureView struct {
 	PreviousState *string `json:"previous_state"`
 	StateReason   string  `json:"state_reason"`
 	Version       int     `json:"version"`
-	CreatedAt     string  `json:"created_at"`
-	UpdatedAt     string  `json:"updated_at"`
+	// Mode d'intégration, branche de feature et PR finale (mode feature_branch).
+	IntegrationMode string  `json:"integration_mode"`
+	FeatureBranch   *string `json:"feature_branch"`
+	FeaturePRNumber *int    `json:"feature_pr_number"`
+	FeaturePRURL    *string `json:"feature_pr_url"`
+	CreatedAt       string  `json:"created_at"`
+	UpdatedAt       string  `json:"updated_at"`
 }
 
 func viewFeature(f *store.Feature, projects map[int64]string) featureView {
 	return featureView{f.ID, f.ProjectID, projects[f.ProjectID], f.Title, f.Description, f.State, f.PreviousState, f.StateReason,
-		f.Version, ts(f.CreatedAt), ts(f.UpdatedAt)}
+		f.Version, f.IntegrationMode, f.FeatureBranch, f.FeaturePRNumber, f.FeaturePRURL, ts(f.CreatedAt), ts(f.UpdatedAt)}
 }
 
 type ticketView struct {

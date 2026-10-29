@@ -107,6 +107,8 @@ type projectCreate struct {
 	// Canal Telegram du projet : groupe (ex. -1001234567890) et sujet de forum (0 = aucun).
 	TelegramChatID   string `json:"telegram_chat_id"`
 	TelegramThreadID int64  `json:"telegram_thread_id"`
+	// IntegrationMode : mode d'intégration par défaut des nouvelles features ("" = direct).
+	IntegrationMode string `json:"integration_mode"`
 }
 
 func validateProject(in *store.ProjectInput) (string, string) {
@@ -128,6 +130,8 @@ func validateProject(in *store.ProjectInput) (string, string) {
 		return "invalid_base_branch", "branche de base invalide"
 	case in.Mode != "sandbox" && in.Mode != "product":
 		return "invalid_mode", "mode invalide (sandbox ou product)"
+	case in.IntegrationMode != "" && !domain.ValidIntegrationMode(in.IntegrationMode):
+		return "invalid_integration_mode", "mode d'intégration invalide (direct ou feature_branch)"
 	case !domain.ValidTestCommand(in.TestCommand):
 		return "invalid_test_command", "commande de test trop longue"
 	case len(in.RequiredChecks) > domain.MaxRequiredChecks:
@@ -197,7 +201,8 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	}
 	in := store.ProjectInput{Slug: trim(req.Slug), Name: req.Name, Repository: trim(req.Repository), BaseBranch: req.BaseBranch,
 		RequiredChecks: req.RequiredChecks, Mode: req.Mode, TestCommand: req.TestCommand, Enabled: false, AgentProfiles: req.AgentProfiles,
-		AgentModels: req.AgentModels, TelegramChatID: req.TelegramChatID, TelegramThreadID: req.TelegramThreadID}
+		AgentModels: req.AgentModels, TelegramChatID: req.TelegramChatID, TelegramThreadID: req.TelegramThreadID,
+		IntegrationMode: req.IntegrationMode}
 	if code, msg := validateProject(&in); code != "" {
 		writeError(w, 422, code, msg)
 		return
@@ -253,6 +258,7 @@ type projectPatch struct {
 	AgentModels      *map[string]domain.ModelChoice `json:"agent_models"`
 	TelegramChatID   *string                        `json:"telegram_chat_id"`
 	TelegramThreadID *int64                         `json:"telegram_thread_id"`
+	IntegrationMode  *string                        `json:"integration_mode"`
 	Confirm          *string                        `json:"confirm"`
 }
 
@@ -273,7 +279,8 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		}
 		in := store.ProjectInput{Slug: cur.Slug, Name: cur.Name, Repository: cur.Repository, BaseBranch: cur.BaseBranch,
 			RequiredChecks: cur.RequiredChecks, Mode: cur.Mode, Enabled: cur.Enabled, TestCommand: cur.TestCommand,
-			AgentProfiles: cur.AgentProfiles, AgentModels: cur.AgentModels, TelegramChatID: cur.TelegramChatID, TelegramThreadID: cur.TelegramThreadID}
+			AgentProfiles: cur.AgentProfiles, AgentModels: cur.AgentModels, TelegramChatID: cur.TelegramChatID, TelegramThreadID: cur.TelegramThreadID,
+			IntegrationMode: cur.IntegrationMode}
 		if req.Name != nil {
 			in.Name = *req.Name
 		}
@@ -306,6 +313,9 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.TelegramThreadID != nil {
 			in.TelegramThreadID = *req.TelegramThreadID
+		}
+		if req.IntegrationMode != nil {
+			in.IntegrationMode = *req.IntegrationMode
 		}
 		if code, msg := validateProject(&in); code != "" {
 			return &userError{422, code, msg}
@@ -539,6 +549,8 @@ type featureCreate struct {
 	ProjectID   int64  `json:"project_id"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
+	// IntegrationMode : "" = défaut du projet ; direct ou feature_branch.
+	IntegrationMode string `json:"integration_mode"`
 }
 
 func (s *Server) createFeature(w http.ResponseWriter, r *http.Request) {
@@ -555,6 +567,10 @@ func (s *Server) createFeature(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 422, "invalid_description", "description requise (20 000 caractères max)")
 		return
 	}
+	if req.IntegrationMode != "" && !domain.ValidIntegrationMode(req.IntegrationMode) {
+		writeError(w, 422, "invalid_integration_mode", "mode d'intégration invalide (direct ou feature_branch)")
+		return
+	}
 	ctx := r.Context()
 	var f *store.Feature
 	err := s.Store.InTx(ctx, func(tx pgx.Tx) error {
@@ -565,11 +581,11 @@ func (s *Server) createFeature(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		var err error
-		if f, err = store.CreateFeature(ctx, tx, req.ProjectID, req.Title, req.Description); err != nil {
+		if f, err = store.CreateFeatureWithMode(ctx, tx, req.ProjectID, req.Title, req.Description, req.IntegrationMode); err != nil {
 			return err
 		}
 		if err := audit.Write(ctx, tx, audit.Entry{Actor: audit.User(actorLogin(r)), Action: "feature.created", SubjectType: "feature",
-			SubjectID: f.ID, After: map[string]any{"title": f.Title, "state": f.State}}); err != nil {
+			SubjectID: f.ID, After: map[string]any{"title": f.Title, "state": f.State, "integration_mode": f.IntegrationMode}}); err != nil {
 			return err
 		}
 		return store.Notify(ctx, tx, "feature.updated", f.ID)
@@ -663,6 +679,29 @@ func (s *Server) featureAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, viewFeature(f, names))
 }
 
+type integrationReq struct {
+	Mode string `json:"mode"`
+}
+
+// featureIntegration change le mode d'intégration d'une feature (tant qu'aucun ticket n'est mergé).
+func (s *Server) featureIntegration(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var req integrationReq
+	if !decode(w, r, &req) {
+		return
+	}
+	f, err := s.Engine.SetFeatureIntegration(r.Context(), id, req.Mode, actorLogin(r))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	names, _ := store.ProjectNames(r.Context(), s.Store.Pool)
+	writeJSON(w, 200, viewFeature(f, names))
+}
+
 // ================================================================== tickets
 
 func (s *Server) getTicket(w http.ResponseWriter, r *http.Request) {
@@ -736,7 +775,7 @@ func (s *Server) ticketAction(w http.ResponseWriter, r *http.Request) {
 var featureColumns = []struct{ state, label string }{
 	{"IDEA", "Idées"}, {"SPEC", "Spécification"}, {"SPEC_REVIEW", "Revue de spec"}, {"TECH_DESIGN", "Conception"},
 	{"TECH_DESIGN_REVIEW", "Revue de conception"}, {"ISSUES_OPENED", "Issues"}, {"HUMAN_GATE", "Feu vert"},
-	{"READY_FOR_DEV", "Prête pour le dev"}, {"IN_DEV", "Tickets en cours"}, {"BLOCKED", "Bloquée"}, {"DONE", "Terminée"},
+	{"READY_FOR_DEV", "Prête pour le dev"}, {"IN_DEV", "Tickets en cours"}, {"ACCEPTANCE", "Recette humaine"}, {"BLOCKED", "Bloquée"}, {"DONE", "Terminée"},
 	{"CANCELLED", "Annulée"},
 }
 
@@ -747,7 +786,7 @@ var ticketColumns = []struct{ state, label string }{
 }
 
 var attentionStates = map[string]bool{"SPEC_REVIEW": true, "TECH_DESIGN_REVIEW": true, "HUMAN_GATE": true, "CHANGES_REQUESTED": true,
-	"AWAITING_PR_APPROVAL": true, "HUMAN_MERGE": true, "BLOCKED": true}
+	"AWAITING_PR_APPROVAL": true, "HUMAN_MERGE": true, "BLOCKED": true, "ACCEPTANCE": true}
 
 func (s *Server) pipeline(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

@@ -23,13 +23,15 @@ type Project struct {
 	// AgentModels : rôle → fournisseur/modèle imposés au run (absent = desired_model de l'agent, sinon défaut du profil).
 	AgentModels map[string]domain.ModelChoice `db:"agent_models"`
 	// Canal Telegram du projet (groupe, sujet de forum ; vide/0 = chat par défaut).
-	TelegramChatID   string    `db:"telegram_chat_id"`
-	TelegramThreadID int64     `db:"telegram_thread_id"`
-	CreatedAt        time.Time `db:"created_at"`
-	UpdatedAt        time.Time `db:"updated_at"`
+	TelegramChatID   string `db:"telegram_chat_id"`
+	TelegramThreadID int64  `db:"telegram_thread_id"`
+	// IntegrationMode : mode d'intégration proposé par défaut aux nouvelles features.
+	IntegrationMode string    `db:"integration_mode"`
+	CreatedAt       time.Time `db:"created_at"`
+	UpdatedAt       time.Time `db:"updated_at"`
 }
 
-const projectCols = `id, slug, name, repository, base_branch, required_checks, mode, enabled, test_command, agent_profiles, agent_models, telegram_chat_id, telegram_thread_id, created_at, updated_at`
+const projectCols = `id, slug, name, repository, base_branch, required_checks, mode, enabled, test_command, agent_profiles, agent_models, telegram_chat_id, telegram_thread_id, integration_mode, created_at, updated_at`
 
 // ProfileFor renvoie le profil Hermes à utiliser pour role : celui du projet s'il en définit un,
 // sinon le profil par défaut de l'agent.
@@ -84,11 +86,27 @@ type Feature struct {
 	Spec          json.RawMessage `db:"spec"`
 	Design        json.RawMessage `db:"design"`
 	Version       int             `db:"version"`
-	CreatedAt     time.Time       `db:"created_at"`
-	UpdatedAt     time.Time       `db:"updated_at"`
+	// IntegrationMode : direct ou feature_branch (domain.Integration*).
+	IntegrationMode string `db:"integration_mode"`
+	// FeatureBranch : branche de feature (mode feature_branch), fixée au feu vert ou à la bascule.
+	FeatureBranch *string `db:"feature_branch"`
+	// FeaturePRNumber/URL : PR finale branche de feature → base.
+	FeaturePRNumber *int      `db:"feature_pr_number"`
+	FeaturePRURL    *string   `db:"feature_pr_url"`
+	CreatedAt       time.Time `db:"created_at"`
+	UpdatedAt       time.Time `db:"updated_at"`
 }
 
-const featureCols = `id, project_id, title, description, state, previous_state, state_reason, spec, design, version, created_at, updated_at`
+// TargetBranch renvoie la branche que visent les tickets de la feature : sa branche de feature en
+// mode feature_branch (une fois fixée), sinon la branche de base du projet.
+func (f *Feature) TargetBranch(base string) string {
+	if f != nil && f.IntegrationMode == "feature_branch" && f.FeatureBranch != nil && *f.FeatureBranch != "" {
+		return *f.FeatureBranch
+	}
+	return base
+}
+
+const featureCols = `id, project_id, title, description, state, previous_state, state_reason, spec, design, version, integration_mode, feature_branch, feature_pr_number, feature_pr_url, created_at, updated_at`
 
 // Ticket est une ligne de tickets.
 type Ticket struct {

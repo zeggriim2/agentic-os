@@ -170,7 +170,7 @@ func (e *Engine) maybeCompleteFeature(ctx context.Context, tx pgx.Tx, featureID 
 			return false, nil
 		}
 	}
-	_, err = e.featureEvent(ctx, tx, f, domain.FeatureEvAllTicketsDone, audit.System, "tous les tickets sont terminés")
+	_, err = e.completeFeature(ctx, tx, f, tickets)
 	return err == nil, err
 }
 

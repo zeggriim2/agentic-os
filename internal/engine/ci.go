@@ -23,6 +23,15 @@ func (e *Engine) PollPRs(ctx context.Context) error {
 			e.Log.Warn("réconciliation PR en échec", "ticket_id", t.ID, "error", err.Error())
 		}
 	}
+	features, err := store.ListFeaturesAwaitingPR(ctx, e.Store.Pool)
+	if err != nil {
+		return err
+	}
+	for _, f := range features {
+		if err := e.ReconcileFeaturePR(ctx, f.ID); err != nil {
+			e.Log.Warn("réconciliation PR finale en échec", "feature_id", f.ID, "error", err.Error())
+		}
+	}
 	return nil
 }
 
@@ -88,8 +97,15 @@ func (e *Engine) ReconcilePR(ctx context.Context, ticketID int64) error {
 				return err
 			}
 			notice = fmt.Sprintf("🎉 PR #%d de %s mergée.", pr.Number, lt.Key)
-			_, err = e.maybeCompleteFeature(ctx, tx, lt.FeatureID)
-			return err
+			done, err := e.maybeCompleteFeature(ctx, tx, lt.FeatureID)
+			if err != nil || !done {
+				return err
+			}
+			if lf, err := store.GetFeature(ctx, tx, lt.FeatureID); err == nil && lf.State == string(domain.FeatureAcceptance) {
+				notice += fmt.Sprintf("\n🧪 Tous les tickets de « %s » sont intégrés dans %s : approbation de la PR finale requise, puis recette.",
+					lf.Title, str(lf.FeatureBranch))
+			}
+			return nil
 		case pr.State == "closed":
 			if _, err := e.ticketEvent(ctx, tx, lt, domain.TicketEvPRClosed, audit.System, "PR fermée sans merge"); err != nil {
 				return err
@@ -122,5 +138,14 @@ func (e *Engine) HandleGitHubEvent(ctx context.Context, repository string, prNum
 			return 0, err
 		}
 	}
-	return len(tickets), nil
+	features, err := store.FeaturesByPR(ctx, e.Store.Pool, repository, prNumber, branch)
+	if err != nil {
+		return 0, err
+	}
+	for _, f := range features {
+		if err := e.ReconcileFeaturePR(ctx, f.ID); err != nil {
+			return 0, err
+		}
+	}
+	return len(tickets) + len(features), nil
 }
