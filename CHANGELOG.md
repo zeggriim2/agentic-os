@@ -4,6 +4,22 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 
 ## [Non publié]
 
+## [1.6.1] — 2026-10-29
+
+### Corrigé
+- Reprise sans correction nécessaire : quand le développeur atteste qu'il n'y a rien à changer
+  (`files_changed: []`, aucun commit, par exemple après un échec QA dû à l'environnement), le même
+  commit repasse en revue puis en QA au lieu de bloquer le ticket (« aucun nouveau commit depuis le
+  dernier push »). Annoncer des fichiers sans commit reste refusé.
+- Outillage FraisZen : `aos-ci` vérifie une copie du commit quand le worktree est en lecture seule
+  (Reviewer, QA) ; `aos-setup` ne tente plus d'écrire dans un worktree en lecture seule ; cache Psalm
+  inscriptible (`XDG_CACHE_HOME`) ; copies hors de `/tmp`, monté noexec par Hermes. Constaté sur
+  FraisZen F6-T1 : QA en échec alors que les 14 critères étaient remplis.
+- `project:image:verify` reproduit les contraintes réelles (sans `HOME`, `/tmp` noexec) et vérifie
+  aussi un worktree en lecture seule ; le tag de l'image inclut le hash de l'outillage.
+
+## [1.6.0] — 2026-10-29
+
 ### Modifié
 - Pipeline en **deux onglets** : « Features » (cycle de vie de la demande, avec l'avancement de ses
   tickets et un lien « Voir les tickets ») et « Tickets » (travail des agents, avec la feature

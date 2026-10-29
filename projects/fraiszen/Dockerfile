@@ -33,10 +33,14 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
  && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
  && node --version && npm --version && php --version && composer --version
 
-# Les agents tournent avec l'UID de l'hôte (pas d'entrée passwd, HOME inutilisable) : tout ce
-# dont Composer et npm ont besoin vit sous /opt/aos, inscriptible par tous (conteneur jetable).
+# Les agents tournent avec l'UID de l'hôte (pas d'entrée passwd, HOME=/ non inscriptible) : tout
+# ce dont Composer, npm et Psalm ont besoin vit sous /opt/aos, inscriptible par tous (conteneur
+# jetable). /tmp est monté noexec par Hermes : les copies de vérification vont dans
+# /opt/aos/scratch (voir aos-ci).
 ENV COMPOSER_HOME=/opt/aos/composer \
     COMPOSER_CACHE_DIR=/opt/aos/cache/composer \
+    XDG_CACHE_HOME=/opt/aos/cache/xdg \
+    AOS_SCRATCH_DIR=/opt/aos/scratch \
     npm_config_cache=/opt/aos/cache/npm \
     npm_config_update_notifier=false \
     COMPOSER_ALLOW_SUPERUSER=1
@@ -48,7 +52,7 @@ RUN cd /tmp/warm \
  && composer install --prefer-dist --no-progress --no-interaction --no-scripts --no-autoloader \
  && (cd frontend && npm ci --no-audit --no-fund --ignore-scripts) \
  && rm -rf /tmp/warm \
- && mkdir -p /opt/aos/composer \
+ && mkdir -p /opt/aos/composer /opt/aos/cache/xdg /opt/aos/scratch \
  && chmod -R a+rwX /opt/aos
 
 # Pendant les runs : jamais de réseau, tout vient du cache.
