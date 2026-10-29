@@ -3,9 +3,27 @@
 #   aos-ci [all|tests|quality] [chemin du worktree]
 # Le job « Lint » (super-linter) n'est pas rejoué : il tourne seulement dans la CI GitHub.
 # Prérequis : aos-setup.
+# Worktree en lecture seule (Reviewer, QA) : le commit courant (HEAD) est extrait dans une copie
+# sous $AOS_SCRATCH_DIR (inscriptible et exécutable ; /tmp est noexec), préparé par aos-setup,
+# vérifié, puis supprimé. Les modifications non commitées ne sont donc pas vérifiées dans ce cas.
 set -uo pipefail
 what="${1:-all}"
 cd "${2:-.}" || exit 2
+case "$what" in all | tests | quality) ;; *) echo "aos-ci : argument inconnu « $what » (all, tests ou quality)" >&2; exit 2 ;; esac
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/opt/aos/cache/xdg}"
+if [ ! -w . ]; then
+  sha="$(git rev-parse HEAD 2>/dev/null)" || { echo "aos-ci : $(pwd) n'est pas un dépôt git lisible" >&2; exit 2; }
+  scratch="${AOS_SCRATCH_DIR:-/opt/aos/scratch}"
+  if ! mkdir -p "$scratch" || ! copy="$(mktemp -d "$scratch/aos-ci-XXXXXX")"; then
+    echo "aos-ci : $scratch non inscriptible" >&2
+    exit 2
+  fi
+  trap 'rm -rf "$copy"' EXIT
+  echo "::: worktree en lecture seule : vérification d'une copie de ${sha:0:12} ($copy)"
+  git archive --format=tar "$sha" | tar -x -C "$copy" || { echo "aos-ci : extraction du commit impossible" >&2; exit 2; }
+  aos-setup "$copy" || exit 1
+  cd "$copy" || exit 2
+fi
 fail=0
 step() {
   local name="$1"; shift

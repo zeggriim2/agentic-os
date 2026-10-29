@@ -129,6 +129,7 @@ SPEC_REVIEW quand même ; l'approbation affiche les questions et le rejet avec c
 |---|---|---|---|
 | READY_FOR_DEV | job `develop` démarre | DEV | worktree + run developer |
 | DEV | `dev_pushed` (sha vérifié) | REVIEW | job `review` |
+| DEV (reprise) | aucun commit, `files_changed: []`, branche distante = `head_sha` | REVIEW | job `review` sur le même SHA, sans push (depuis 1.6.1) |
 | REVIEW | verdict `approved` | QA | job `qa` |
 | REVIEW | verdict `changes_requested` | CHANGES_REQUESTED | approval `rework` |
 | QA | verdict `passed` | AWAITING_PR_APPROVAL | approval `publish_pr` |
