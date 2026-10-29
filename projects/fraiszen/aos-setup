@@ -8,6 +8,11 @@
 # reconstruire l'image (`task project:image:build PROJECT=fraiszen`).
 set -euo pipefail
 cd "${1:-.}"
+# Reviewer et QA voient le worktree en lecture seule : aos-ci prépare alors lui-même une copie.
+if [ ! -w . ]; then
+  echo "aos-setup : worktree en lecture seule, rien à préparer ici (aos-ci vérifiera une copie du commit)"
+  exit 0
+fi
 [ -f composer.lock ] || { echo "aos-setup : composer.lock introuvable dans $(pwd)" >&2; exit 2; }
 
 if [ ! -f .env ]; then

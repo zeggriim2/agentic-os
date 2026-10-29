@@ -1,6 +1,6 @@
 #!/bin/bash
 # Image Docker des agents d'exécution d'un projet (projects/<slug>/).
-#   project-image.sh build  <slug>   construit agentic-os-agent-<slug>:<hash des locks> (+ :current)
+#   project-image.sh build  <slug>   construit agentic-os-agent-<slug>:<hash locks + outillage> (+ :current)
 #   project-image.sh check  <slug>   compare l'image :current aux fichiers lock de origin/<base>
 #   project-image.sh verify <slug>   rejoue la vérification du projet dans l'image, sans réseau
 #
@@ -34,11 +34,13 @@ fetch() {
   git --git-dir="$bare" rev-parse "refs/heads/$AOS_PROJECT_BASE"
 }
 
-lock_hash() { # $1 = commit
+lock_hash() { # $1 = commit ; locks du projet + outillage de l'image (Dockerfile, scripts)
   local f out=""
   for f in $AOS_PROJECT_LOCKS; do
     out+="$f $(git --git-dir="$bare" rev-parse "$1:$f")"$'\n'
   done
+  out+="tools $(cd "$dir" && find . -type f ! -name '*.md' -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -c1-64)"$'\n'
+
   printf '%s' "$out" | sha256sum | cut -c1-12
 }
 
@@ -71,13 +73,20 @@ check)
 verify)
   sha="$(git --git-dir="$bare" rev-parse "refs/heads/$AOS_PROJECT_BASE" 2>/dev/null || fetch)"
   [ -n "$(current_hash)" ] || { echo "aucune image $image:current : lancer build d'abord" >&2; exit 1; }
-  tmp="$(mktemp -d)"; trap 'docker run --rm -v "$tmp:/w" alpine rm -rf /w/src >/dev/null 2>&1 || true; rm -rf "$tmp"' EXIT
-  export_tree "$sha" "$tmp/src"
-  log "vérification de $image:current sur $AOS_PROJECT_BASE ${sha:0:7}, sans réseau, UID $(id -u)"
-  # Mêmes contraintes que les runs Hermes : --network none, UID de l'hôte, pas de secret.
-  docker run --rm --network none --user "$(id -u):$(id -g)" -e HOME=/tmp \
-    -v "$tmp/src:/w" -w /w "$image:current" bash -c \
-    'set -e; if curl -sm5 https://repo.packagist.org >/dev/null 2>&1 || php -r "exit(@fsockopen(\"1.1.1.1\",443)?0:1);"; then echo "réseau ACCESSIBLE : refus" >&2; exit 3; fi; echo "réseau : coupé (attendu)"; '"$AOS_PROJECT_VERIFY"
+  tmp="$(mktemp -d)"; trap 'docker run --rm -v "$tmp:/w" alpine rm -rf /w/rw /w/ro >/dev/null 2>&1 || true; rm -rf "$tmp"' EXIT
+  # Deux worktrees : inscriptible (Développeur) et en lecture seule avec historique git (Reviewer, QA).
+  export_tree "$sha" "$tmp/rw"
+  git clone -q --no-checkout "$bare" "$tmp/ro" && git -C "$tmp/ro" -c advice.detachedHead=false checkout -q "$sha"
+  # Mêmes contraintes que les runs Hermes : --network none, UID de l'hôte sans HOME, /tmp noexec,
+  # aucun secret.
+  net_check='if curl -sm5 https://repo.packagist.org >/dev/null 2>&1 || php -r "exit(@fsockopen(\"1.1.1.1\",443)?0:1);"; then echo "réseau ACCESSIBLE : refus" >&2; exit 3; fi; echo "réseau : coupé (attendu)"; '
+  run_in() { # $1 = libellé, $2 = montage
+    log "vérification de $image:current ($1) sur $AOS_PROJECT_BASE ${sha:0:7}, sans réseau, UID $(id -u)"
+    docker run --rm --network none --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,nosuid,size=512m \
+      -v "$2" -w /w "$image:current" bash -c "set -e; $net_check$AOS_PROJECT_VERIFY"
+  }
+  run_in "worktree inscriptible" "$tmp/rw:/w"
+  run_in "worktree en lecture seule" "$tmp/ro:/w:ro"
   log "vérification OK"
   ;;
 *) echo "commande inconnue : $cmd" >&2; exit 2 ;;
