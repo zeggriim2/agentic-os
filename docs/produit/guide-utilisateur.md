@@ -16,7 +16,27 @@ quelque chose passe par votre approbation, et le merge reste toujours le vôtre.
 | **Issues ouvertes** | Agentic OS | les issues GitHub sont créées (sans doublon) |
 | **Feu vert humain** | vous | donner le feu vert au développement |
 | **Tickets en cours** | agents Développeur → Reviewer → QA, ticket par ticket | intervenir seulement sur demande (voir ci-dessous) |
-| **Terminé** | — | tous les tickets sont terminés ou annulés |
+| **Recette humaine** | vous (mode « Branche de feature ») | approuver la PR finale branche de feature → base, tester la branche, puis merger la PR finale sur GitHub |
+| **Terminé** | — | tous les tickets sont terminés ou annulés (mode direct), ou PR finale mergée (mode branche de feature) |
+
+### Intégration des tickets : directe ou branche de feature
+
+Chaque feature a un **mode d'intégration**, choisi à sa création (pré-rempli avec le défaut du projet,
+réglable dans « Modifier » du projet) et modifiable dans la carte **Intégration** de la feature :
+
+- **Directe** : chaque ticket ouvre sa PR vers la branche de base du projet (ex. `develop`) et y est mergé.
+- **Branche de feature** : au feu vert, Agentic OS fixe une branche `feature/F<n>-<titre-court>`, la crée
+  depuis la base au premier développement ; chaque ticket part de cette branche, sa PR la vise et vous la
+  mergez dedans. Quand tous les tickets y sont mergés, la feature passe en **Recette humaine** : Agentic OS
+  demande l'autorisation d'ouvrir la **PR finale** (branche de feature → base, avec les « Closes #… » des
+  issues : GitHub ne ferme une issue qu'au merge dans la branche par défaut). Vous testez la branche, puis
+  mergez la PR finale : la feature passe en **Terminé**. Une PR finale refusée ou fermée sans merge bloque
+  la feature ; **Relancer** redemande une PR finale.
+
+Le mode reste modifiable **tant qu'aucun ticket n'est mergé**. Après le feu vert, passer en branche de
+feature crée la branche et **redirige les PR déjà ouvertes** vers elle (et inversement en repassant en
+direct). Si la base avance pendant la feature, Agentic OS ne rebase rien : la PR finale peut alors
+présenter des conflits à résoudre sur GitHub.
 
 ### Le parcours d'un ticket
 

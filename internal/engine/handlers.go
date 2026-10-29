@@ -55,6 +55,10 @@ func (e *Engine) handle(ctx context.Context, j *store.Job, owner string) error {
 		return e.handleExecuteApproval(ctx, j, owner)
 	case domain.JobSyncAgents:
 		return e.handleSyncAgents(ctx, j, owner)
+	case domain.JobPublishFeaturePR:
+		return e.handlePublishFeaturePR(ctx, j, owner)
+	case domain.JobSwitchIntegration:
+		return e.handleSwitchIntegration(ctx, j, owner)
 	}
 	return permanent(domain.ErrClassInternal, "type de job inconnu %q", j.Kind)
 }
@@ -265,9 +269,8 @@ func (e *Engine) handleOpenIssues(ctx context.Context, j *store.Job, owner strin
 			return err
 		}
 		_, err = e.createApproval(ctx, tx, store.NewApproval{Kind: domain.ApprovalDevGate, SubjectType: "feature", SubjectID: f.ID,
-			Title: "Feu vert développement : " + f.Title,
-			Effect: fmt.Sprintf("Autoriser le développement autonome de %d ticket(s) sur %s : branches aos/<ticket>, commits et push par Agentic OS, sans PR ni merge.",
-				len(tickets), p.Repository),
+			Title:   "Feu vert développement : " + f.Title,
+			Effect:  devGateEffect(f, p, len(tickets)),
 			Details: withProjectSnapshot(p, map[string]any{"tickets": issues})})
 		notice = fmt.Sprintf("🚦 Issues créées pour « %s » : feu vert développement requis.", f.Title)
 		return err
@@ -318,7 +321,8 @@ func (e *Engine) handleDevelop(ctx context.Context, j *store.Job, owner string) 
 	if t.State != string(domain.TicketDev) {
 		return e.skip(ctx, j, owner, "ticket hors DEV")
 	}
-	p, err := store.GetProject(ctx, e.Store.Pool, t.ProjectID)
+	// Base des tickets : branche de feature (créée au besoin) en mode branche de feature.
+	p, _, err := e.ticketProject(ctx, e.Store.Pool, t, true)
 	if err != nil {
 		return err
 	}
@@ -514,7 +518,7 @@ func (e *Engine) loadTicketCtx(ctx context.Context, j *store.Job, state domain.T
 	if t.State != string(state) {
 		return t, nil, false, nil
 	}
-	p, err := store.GetProject(ctx, e.Store.Pool, t.ProjectID)
+	p, _, err := e.ticketProject(ctx, e.Store.Pool, t, true)
 	return t, p, true, err
 }
 
@@ -653,9 +657,8 @@ func (e *Engine) handleQA(ctx context.Context, j *store.Job, owner string) error
 			}
 			notice = fmt.Sprintf("✅ %s validé par la revue et la QA : approbation de la PR draft requise.", t.Key)
 			_, err = e.createApproval(ctx, tx, store.NewApproval{Kind: domain.ApprovalPublishPR, SubjectType: "ticket", SubjectID: t.ID,
-				Title: "Publier la PR : " + t.Title,
-				Effect: fmt.Sprintf("Créer une PR draft sur %s de %s vers %s au SHA %s (aucun merge, aucun déploiement).",
-					p.Repository, str(lt.Branch), p.BaseBranch, short(sha)),
+				Title:   "Publier la PR : " + t.Title,
+				Effect:  publishPREffect(p, str(lt.Branch), sha),
 				Details: withProjectSnapshot(p, map[string]any{"head": str(lt.Branch), "sha": sha, "qa": qa})})
 			return err
 		}
@@ -741,7 +744,13 @@ func (e *Engine) prBody(ctx context.Context, f *store.Feature, t *store.Ticket) 
 	fmt.Fprintf(&b, "\nFeature « %s » — ticket `%s` ; design, risques et preuves complètes dans l'issue et dans Agentic OS.\n",
 		shorten(f.Title, 120), t.Key)
 	if t.IssueNumber != nil {
-		fmt.Fprintf(&b, "\nCloses #%d\n", *t.IssueNumber)
+		// En mode branche de feature, GitHub ne ferme pas une issue mergée hors de la branche par
+		// défaut : c'est la PR finale qui porte les « Closes ».
+		if f.IntegrationMode == domain.IntegrationFeatureBranch {
+			fmt.Fprintf(&b, "\nRefs #%d (fermée par la PR finale de la feature)\n", *t.IssueNumber)
+		} else {
+			fmt.Fprintf(&b, "\nCloses #%d\n", *t.IssueNumber)
+		}
 	}
 	b.WriteString("\n" + gh.Marker(t.Key) + "\n")
 	return b.String()

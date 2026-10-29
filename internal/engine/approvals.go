@@ -193,6 +193,14 @@ func (e *Engine) executeApproval(ctx context.Context, tx pgx.Tx, ap *store.Appro
 			if err != nil {
 				return nil, false, nil, err
 			}
+			// Mode branche de feature : le nom de la branche est fixé au feu vert ; elle est créée à
+			// distance par le premier job de développement.
+			if f.IntegrationMode == domain.IntegrationFeatureBranch && str(f.FeatureBranch) == "" {
+				b := domain.FeatureBranchName(f.ID, f.Title)
+				if err := store.SetFeatureIntegration(ctx, tx, f.ID, domain.IntegrationFeatureBranch, &b); err != nil {
+					return nil, false, nil, err
+				}
+			}
 			ready := 0
 			for i := range tickets {
 				t := &tickets[i]
@@ -210,6 +218,29 @@ func (e *Engine) executeApproval(ctx context.Context, tx pgx.Tx, ap *store.Appro
 				return nil, false, nil, err
 			}
 			return map[string]any{"state": nf.State, "tickets_ready": ready}, true, nil, nil
+		case domain.ApprovalPublishFeaturePR:
+			if err := verifyApprovedProject(ap, p); err != nil {
+				return nil, false, nil, err
+			}
+			if f.State != string(domain.FeatureAcceptance) {
+				return nil, false, nil, fmt.Errorf("feature %s hors recette", f.State)
+			}
+			if want := detailString(ap, "head"); want == "" || want != str(f.FeatureBranch) {
+				return nil, false, nil, errors.New("la branche approuvée ne correspond plus à la branche de feature")
+			}
+			if !approved {
+				nf, err := e.featureEvent(ctx, tx, f, domain.FeatureEvFail, actor, strings.TrimSpace("PR finale refusée. "+comment))
+				if err != nil {
+					return nil, false, nil, err
+				}
+				return map[string]any{"state": nf.State}, true, nil, nil
+			}
+			j, err := e.enqueue(ctx, tx, store.NewJob{Kind: domain.JobPublishFeaturePR, SubjectType: "feature", SubjectID: f.ID, ProjectID: &f.ProjectID,
+				IdempotencyKey: jobKey(domain.JobPublishFeaturePR, "feature", f.ID, disc)})
+			if err != nil {
+				return nil, false, nil, err
+			}
+			return map[string]any{"state": f.State, "job_id": j.ID}, true, nil, nil
 		}
 	case "ticket":
 		t, err := store.LockTicket(ctx, tx, ap.SubjectID)
@@ -270,7 +301,8 @@ func (e *Engine) executeApproval(ctx context.Context, tx pgx.Tx, ap *store.Appro
 			if want := detailString(ap, "sha"); want == "" || want != str(t.HeadSHA) {
 				return nil, false, nil, errors.New("le SHA approuvé ne correspond plus au head_sha du ticket")
 			}
-			p, err := store.GetProject(ctx, tx, t.ProjectID)
+			// Cible effective : branche de feature en mode branche de feature.
+			p, _, err := e.ticketProject(ctx, tx, t, false)
 			if err != nil {
 				return nil, false, nil, err
 			}

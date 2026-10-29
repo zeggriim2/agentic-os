@@ -64,10 +64,11 @@ type ProjectInput struct {
 	AgentModels                                           map[string]domain.ModelChoice
 	TelegramChatID                                        string
 	TelegramThreadID                                      int64
+	// IntegrationMode : mode par défaut des nouvelles features ("" = direct).
+	IntegrationMode string
 }
 
-// CreateProject insère un projet.
-func CreateProject(ctx context.Context, q Q, in ProjectInput) (*Project, error) {
+func (in *ProjectInput) defaults() {
 	if in.RequiredChecks == nil {
 		in.RequiredChecks = []string{}
 	}
@@ -77,10 +78,18 @@ func CreateProject(ctx context.Context, q Q, in ProjectInput) (*Project, error) 
 	if in.AgentModels == nil {
 		in.AgentModels = map[string]domain.ModelChoice{}
 	}
+	if in.IntegrationMode == "" {
+		in.IntegrationMode = domain.IntegrationDirect
+	}
+}
+
+// CreateProject insère un projet.
+func CreateProject(ctx context.Context, q Q, in ProjectInput) (*Project, error) {
+	in.defaults()
 	p, err := one[Project](ctx, q, `INSERT INTO projects (slug, name, repository, base_branch, required_checks, mode, enabled, test_command, agent_profiles,
-		telegram_chat_id, telegram_thread_id, agent_models) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING `+projectCols,
+		telegram_chat_id, telegram_thread_id, agent_models, integration_mode) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING `+projectCols,
 		in.Slug, in.Name, in.Repository, in.BaseBranch, in.RequiredChecks, in.Mode, in.Enabled, in.TestCommand, in.AgentProfiles,
-		in.TelegramChatID, in.TelegramThreadID, in.AgentModels)
+		in.TelegramChatID, in.TelegramThreadID, in.AgentModels, in.IntegrationMode)
 	if IsUniqueViolation(err) {
 		return nil, ErrDuplicate
 	}
@@ -105,20 +114,13 @@ func ListProjects(ctx context.Context, q Q, p Page) ([]Project, error) {
 
 // UpdateProject réécrit les champs modifiables.
 func UpdateProject(ctx context.Context, q Q, id int64, in ProjectInput) (*Project, error) {
-	if in.RequiredChecks == nil {
-		in.RequiredChecks = []string{}
-	}
-	if in.AgentProfiles == nil {
-		in.AgentProfiles = map[string]string{}
-	}
-	if in.AgentModels == nil {
-		in.AgentModels = map[string]domain.ModelChoice{}
-	}
+	in.defaults()
 	return one[Project](ctx, q, `UPDATE projects SET name=$2, repository=$3, base_branch=$4, required_checks=$5, mode=$6,
-		enabled=$7, test_command=$8, agent_profiles=$9, telegram_chat_id=$10, telegram_thread_id=$11, agent_models=$12, updated_at=now()
+		enabled=$7, test_command=$8, agent_profiles=$9, telegram_chat_id=$10, telegram_thread_id=$11, agent_models=$12,
+		integration_mode=$13, updated_at=now()
 		WHERE id=$1 RETURNING `+projectCols,
 		id, in.Name, in.Repository, in.BaseBranch, in.RequiredChecks, in.Mode, in.Enabled, in.TestCommand, in.AgentProfiles,
-		in.TelegramChatID, in.TelegramThreadID, in.AgentModels)
+		in.TelegramChatID, in.TelegramThreadID, in.AgentModels, in.IntegrationMode)
 }
 
 // ProjectAgentProfiles liste les profils Hermes propres aux projets actifs (sans doublon, triés).
@@ -175,8 +177,14 @@ func LastObservedRuntime(ctx context.Context, q Q, role string) (model, provider
 
 // CreateFeature insère une feature en IDEA.
 func CreateFeature(ctx context.Context, q Q, projectID int64, title, description string) (*Feature, error) {
-	return one[Feature](ctx, q, `INSERT INTO features (project_id, title, description) VALUES ($1,$2,$3) RETURNING `+featureCols,
-		projectID, title, description)
+	return CreateFeatureWithMode(ctx, q, projectID, title, description, "")
+}
+
+// CreateFeatureWithMode insère une feature avec son mode d'intégration ("" = défaut du projet).
+func CreateFeatureWithMode(ctx context.Context, q Q, projectID int64, title, description, mode string) (*Feature, error) {
+	return one[Feature](ctx, q, `INSERT INTO features (project_id, title, description, integration_mode)
+		VALUES ($1,$2,$3, COALESCE(NULLIF($4,''), (SELECT integration_mode FROM projects WHERE id=$1), 'direct')) RETURNING `+featureCols,
+		projectID, title, description, mode)
 }
 
 // GetFeature lit une feature.
@@ -225,6 +233,44 @@ func SetFeatureState(ctx context.Context, q Q, id int64, version int, state, pre
 }
 
 // SetFeatureSpec enregistre la spec.
+// SetFeatureIntegration fixe le mode d'intégration et la branche de feature (nil = aucune).
+func SetFeatureIntegration(ctx context.Context, q Q, id int64, mode string, branch *string) error {
+	_, err := q.Exec(ctx, `UPDATE features SET integration_mode=$2, feature_branch=$3, updated_at=now() WHERE id=$1`, id, mode, branch)
+	return err
+}
+
+// SetFeaturePR enregistre la PR finale (nil = aucune, après une PR fermée sans merge).
+func SetFeaturePR(ctx context.Context, q Q, id int64, number *int, url *string) error {
+	_, err := q.Exec(ctx, `UPDATE features SET feature_pr_number=$2, feature_pr_url=$3, updated_at=now() WHERE id=$1`, id, number, url)
+	return err
+}
+
+// ListFeaturesAwaitingPR liste les features en recette dont la PR finale est ouverte.
+func ListFeaturesAwaitingPR(ctx context.Context, q Q) ([]Feature, error) {
+	return many[Feature](ctx, q, `SELECT `+featureCols+` FROM features WHERE state='ACCEPTANCE' AND feature_pr_number IS NOT NULL ORDER BY id`)
+}
+
+// FeaturesByPR liste les features en recette d'un dépôt dont la PR finale porte ce numéro ou cette branche.
+func FeaturesByPR(ctx context.Context, q Q, repository string, number int, branch string) ([]Feature, error) {
+	return many[Feature](ctx, q, `SELECT f.`+strings.ReplaceAll(featureCols, ", ", ", f.")+` FROM features f JOIN projects p ON p.id=f.project_id
+		WHERE p.repository=$1 AND f.state='ACCEPTANCE' AND f.feature_pr_number IS NOT NULL
+		AND (f.feature_pr_number=$2 OR ($3<>'' AND f.feature_branch=$3)) ORDER BY f.id`, repository, number, branch)
+}
+
+// UpdatePendingApproval réécrit l'effet et les détails d'une approbation encore pending (le mode
+// d'intégration d'une feature a changé avant la décision).
+func UpdatePendingApproval(ctx context.Context, q Q, kind, subjectType string, subjectID int64, effect string, details any) (bool, error) {
+	tag, err := q.Exec(ctx, `UPDATE approvals SET effect=$4, details=$5, updated_at=now()
+		WHERE kind=$1 AND subject_type=$2 AND subject_id=$3 AND status='pending'`, kind, subjectType, subjectID, effect, JSON(details))
+	return tag.RowsAffected() > 0, err
+}
+
+// PendingApproval renvoie l'approbation pending d'un kind/sujet (ErrNotFound sinon).
+func PendingApproval(ctx context.Context, q Q, kind, subjectType string, subjectID int64) (*Approval, error) {
+	return one[Approval](ctx, q, `SELECT `+approvalCols+` FROM approvals WHERE kind=$1 AND subject_type=$2 AND subject_id=$3 AND status='pending'`,
+		kind, subjectType, subjectID)
+}
+
 func SetFeatureSpec(ctx context.Context, q Q, id int64, spec any) error {
 	_, err := q.Exec(ctx, `UPDATE features SET spec=$2, updated_at=now() WHERE id=$1`, id, JSON(spec))
 	return err

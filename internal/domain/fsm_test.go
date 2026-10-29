@@ -28,6 +28,10 @@ func TestFeatureAllowedTransitions(t *testing.T) {
 		{FeatureReadyForDev, FeatureEvTicketStarted, FeatureInDev},
 		{FeatureReadyForDev, FeatureEvAllTicketsDone, FeatureDone},
 		{FeatureInDev, FeatureEvAllTicketsDone, FeatureDone},
+		{FeatureReadyForDev, FeatureEvTicketsIntegrated, FeatureAcceptance},
+		{FeatureInDev, FeatureEvTicketsIntegrated, FeatureAcceptance},
+		{FeatureAcceptance, FeatureEvFeaturePRMerged, FeatureDone},
+		{FeatureAcceptance, FeatureEvFail, FeatureBlocked},
 	}
 	for _, s := range AllFeatureStates {
 		if !s.Terminal() {
@@ -53,7 +57,7 @@ func TestFeatureRefusesUnlistedTransitions(t *testing.T) {
 		FeatureEvStartSpec, FeatureEvSpecReady, FeatureEvSpecFailed, FeatureEvSpecApproved, FeatureEvSpecRejected,
 		FeatureEvDesignReady, FeatureEvDesignApproved, FeatureEvDesignRejected, FeatureEvIssuesOpened,
 		FeatureEvDevGateApproved, FeatureEvDevGateRejected, FeatureEvTicketStarted, FeatureEvAllTicketsDone,
-		FeatureEvFail, FeatureEvCancel, FeatureEvRetry, FeatureEvent("inconnu"),
+		FeatureEvTicketsIntegrated, FeatureEvFeaturePRMerged, FeatureEvFail, FeatureEvCancel, FeatureEvRetry, FeatureEvent("inconnu"),
 	}
 	allowed := 0
 	for _, s := range AllFeatureStates {
@@ -78,7 +82,7 @@ func TestFeatureRefusesUnlistedTransitions(t *testing.T) {
 			}
 		}
 	}
-	if allowed != len(featureTransitions)+10 {
+	if allowed != len(featureTransitions)+11 { // annulation depuis chaque état non terminal (11)
 		t.Fatalf("nombre de transitions autorisées inattendu: %d", allowed)
 	}
 	if _, err := ApplyFeature(FeatureState("NOPE"), FeatureEvCancel); err == nil {
@@ -237,5 +241,31 @@ func TestValidators(t *testing.T) {
 		if f(v) {
 			t.Errorf("%q devrait être invalide", v)
 		}
+	}
+}
+
+func TestFeatureBranchName(t *testing.T) {
+	cases := map[string]string{
+		"Alerte Frais réels potentiellement avantageux": "feature/F6-alerte-frais-reels-potentiellement-avant",
+		"  Export CSV (v2) !  ":                         "feature/F6-export-csv-v2",
+		"Œuvre à part":                                  "feature/F6-oeuvre-a-part",
+		"!!!":                                           "feature/F6",
+	}
+	for title, want := range cases {
+		got := FeatureBranchName(6, title)
+		if got != want {
+			t.Errorf("%q → %q, attendu %q", title, got, want)
+		}
+		if !ValidBranch(got) {
+			t.Errorf("%q : branche invalide", got)
+		}
+	}
+	for _, m := range []string{IntegrationDirect, IntegrationFeatureBranch} {
+		if !ValidIntegrationMode(m) {
+			t.Fatal(m)
+		}
+	}
+	if ValidIntegrationMode("") || ValidIntegrationMode("branch") {
+		t.Fatal("mode inconnu accepté")
 	}
 }

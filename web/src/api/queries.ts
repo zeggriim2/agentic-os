@@ -14,6 +14,7 @@ import type {
   AuditEntry,
   Feature,
   FeatureCreate,
+  IntegrationMode,
   FeatureDetail,
   Health,
   Overview,
@@ -289,6 +290,14 @@ export function useFeatureAction(id: number) {
         "overview",
         "runs",
       ]),
+  });
+}
+
+export function useFeatureIntegration(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (mode: IntegrationMode) => api.post<Feature>(`/api/features/${id}/integration`, { mode }),
+    onSettled: () => invalidateMany(qc, ["feature", "features", "pipeline", "approvals", "approval"]),
   });
 }
 

@@ -4,6 +4,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 
 ## [Non publié]
 
+### Ajouté
+- **Mode d'intégration par feature** : « Directe » (PR de chaque ticket vers la base, comme avant) ou
+  « Branche de feature » : les tickets partent d'une branche `feature/F<n>-<titre>` créée depuis la base,
+  y sont mergés, puis la feature passe en **Recette humaine** et une **PR finale** branche de feature →
+  base (avec les « Closes » des issues) est ouverte après approbation ; son merge termine la feature.
+- Défaut par projet (formulaire projet), choix à la création de la feature, carte « Intégration » sur la
+  feature : bascule possible tant qu'aucun ticket n'est mergé, avec création de la branche et
+  redirection des PR déjà ouvertes (`POST /api/features/{id}/integration`).
+- Pipeline : colonne « Recette humaine » (signalée comme attendant une action).
+- Migration 0008 (`projects.integration_mode`, `features.integration_mode/feature_branch/feature_pr_*`,
+  jobs `publish_feature_pr`/`switch_integration`, approbation `publish_feature_pr`).
+
 ## [1.6.1] — 2026-10-29
 
 ### Corrigé

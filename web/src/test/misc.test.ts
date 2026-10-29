@@ -79,6 +79,7 @@ describe("utilitaires d'écran", () => {
       models: {},
       telegram_chat: "",
       telegram_thread: "",
+      integration_mode: "direct" as const,
     };
     expect(validateProject(ok, true)).toEqual({});
     expect(

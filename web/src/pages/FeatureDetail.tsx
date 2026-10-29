@@ -2,8 +2,8 @@ import { useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ExternalLink as ExtIcon, GitBranch, GitPullRequest, HelpCircle, Play, RotateCcw, XCircle } from "lucide-react";
 import { errorMessage } from "@/api/client";
-import { useFeature, useFeatureAction, useProjects } from "@/api/queries";
-import type { FeatureDetail, Ticket } from "@/api/types";
+import { useFeature, useFeatureAction, useFeatureIntegration, useProjects } from "@/api/queries";
+import type { FeatureDetail, IntegrationMode, Ticket } from "@/api/types";
 import { ApprovalList, RunsTable, Timeline } from "@/components/domain";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/Dialog";
@@ -15,7 +15,7 @@ import { Tabs } from "@/components/ui/Tabs";
 import { Time } from "@/components/ui/Time";
 import { useToast } from "@/components/ui/Toast";
 import { shortSha } from "@/lib/format";
-import { FEATURE_TERMINAL } from "@/lib/states";
+import { FEATURE_TERMINAL, INTEGRATION_HINTS, integrationLabel } from "@/lib/states";
 import { projectLabel } from "./Features";
 
 type Action = "start_spec" | "retry" | "cancel";
@@ -91,7 +91,8 @@ function SpecTab({ f }: { f: FeatureDetail }) {
 }
 
 function DesignTab({ f }: { f: FeatureDetail }) {
-  if (!f.design) return <EmptyState title="Pas encore de design technique" description="Le design apparaît après validation de la spec et livraison du Tech Lead." />;
+  if (!f.design)
+    return <EmptyState title="Pas encore de design technique" description="Le design apparaît après validation de la spec et livraison du Tech Lead." />;
   const d = f.design;
   return (
     <div className="space-y-6">
@@ -183,6 +184,88 @@ function TicketsTab({ f }: { f: FeatureDetail }) {
   );
 }
 
+/** Le mode d'intégration reste modifiable tant qu'aucun ticket n'est mergé et que la feature n'est ni en recette ni terminée. */
+export function integrationLocked(f: FeatureDetail): string | null {
+  if (FEATURE_TERMINAL.has(f.state)) return "Feature terminée.";
+  if (f.state === "ACCEPTANCE" || (f.state === "BLOCKED" && f.previous_state === "ACCEPTANCE")) return "Feature en recette.";
+  const merged = f.tickets.find((t) => t.state === "DONE");
+  return merged ? `Le ticket ${merged.key} est déjà mergé.` : null;
+}
+
+function IntegrationCard({ f, base }: { f: FeatureDetail; base: string | undefined }) {
+  const m = useFeatureIntegration(f.id);
+  const toast = useToast();
+  const [confirm, setConfirm] = useState(false);
+  const mode: IntegrationMode = f.integration_mode ?? "direct";
+  const next: IntegrationMode = mode === "direct" ? "feature_branch" : "direct";
+  const locked = integrationLocked(f);
+  const started = f.state === "READY_FOR_DEV" || f.state === "IN_DEV";
+  const openPRs = f.tickets.filter((t) => t.pr_number && (t.state === "PR_OPENED" || t.state === "HUMAN_MERGE")).length;
+  const desc =
+    (next === "feature_branch"
+      ? `Les tickets seront mergés dans une branche de feature, puis une PR finale vers ${base ?? "la base"} sera ouverte après la recette.`
+      : `Chaque ticket ouvrira sa PR directement vers ${base ?? "la base"}.`) +
+    (started
+      ? next === "feature_branch"
+        ? ` Agentic OS crée la branche de feature depuis ${base ?? "la base"}${openPRs ? ` et redirige ${openPRs} PR déjà ouverte(s) vers elle` : ""}.`
+        : openPRs
+          ? ` ${openPRs} PR déjà ouverte(s) seront redirigées vers ${base ?? "la base"}.`
+          : ""
+      : " Aucun effet sur GitHub avant le feu vert.");
+  return (
+    <Card>
+      <CardHeader title="Intégration" />
+      <div className="space-y-2 p-4 text-sm">
+        <p className="font-medium text-fg" data-testid="integration-mode">
+          {integrationLabel(mode)}
+        </p>
+        <p className="text-xs text-fg-muted">{INTEGRATION_HINTS[mode]}</p>
+        {mode === "feature_branch" && (
+          <p className="flex items-center gap-1.5 text-fg-muted" data-testid="integration-branch">
+            <GitBranch className="h-3.5 w-3.5" aria-hidden />
+            {f.feature_branch ? <Mono>{f.feature_branch}</Mono> : <span className="text-xs">Branche créée au feu vert.</span>}
+          </p>
+        )}
+        {f.feature_pr_url && (
+          <p className="flex items-center gap-1.5 text-fg-muted">
+            <GitPullRequest className="h-3.5 w-3.5" aria-hidden />
+            <ExternalLink href={f.feature_pr_url}>
+              PR finale #{f.feature_pr_number} <ExtIcon className="inline h-3 w-3" aria-hidden />
+            </ExternalLink>
+          </p>
+        )}
+        {locked ? (
+          <p className="text-xs text-fg-subtle">Mode verrouillé : {locked}</p>
+        ) : (
+          <Button size="sm" variant="secondary" onClick={() => setConfirm(true)}>
+            Passer en {integrationLabel(next).toLowerCase()}
+          </Button>
+        )}
+      </div>
+      {confirm && (
+        <ConfirmDialog
+          open
+          onClose={() => setConfirm(false)}
+          onConfirm={() =>
+            m.mutate(next, {
+              onSuccess: () => {
+                setConfirm(false);
+                toast.success("Mode d'intégration modifié", integrationLabel(next));
+              },
+              onError: (e) => toast.error("Changement refusé", errorMessage(e)),
+            })
+          }
+          loading={m.isPending}
+          title={`Passer en intégration « ${integrationLabel(next)} » ?`}
+          description={desc}
+          confirmLabel="Changer"
+          tone="primary"
+        />
+      )}
+    </Card>
+  );
+}
+
 export default function FeatureDetailPage() {
   const id = Number(useParams().id);
   const q = useFeature(id);
@@ -259,7 +342,13 @@ export default function FeatureDetailPage() {
             size="sm"
             onClick={() => setPending(a)}
             icon={
-              a === "start_spec" ? <Play className="h-3.5 w-3.5" aria-hidden /> : a === "retry" ? <RotateCcw className="h-3.5 w-3.5" aria-hidden /> : <XCircle className="h-3.5 w-3.5" aria-hidden />
+              a === "start_spec" ? (
+                <Play className="h-3.5 w-3.5" aria-hidden />
+              ) : a === "retry" ? (
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+              ) : (
+                <XCircle className="h-3.5 w-3.5" aria-hidden />
+              )
             }
           >
             {a === "start_spec" ? "Démarrer la spec" : a === "retry" ? "Relancer" : "Annuler"}
@@ -302,10 +391,13 @@ export default function FeatureDetailPage() {
             {tab === "design" && <DesignTab f={f} />}
             {tab === "tickets" && <TicketsTab f={f} />}
             {tab === "runs" && <RunsTable runs={f.runs} />}
-            {tab === "timeline" && <Timeline entries={f.timeline} truncatedLink={f.timeline_truncated ? `/audit?subject_type=feature&subject_id=${f.id}` : undefined} />}
+            {tab === "timeline" && (
+              <Timeline entries={f.timeline} truncatedLink={f.timeline_truncated ? `/audit?subject_type=feature&subject_id=${f.id}` : undefined} />
+            )}
           </Tabs>
         </Card>
         <div className="min-w-0 space-y-4">
+          <IntegrationCard f={f} base={projects.data?.find((p) => p.id === f.project_id)?.base_branch} />
           <Card>
             <CardHeader title="Description" />
             <p className="whitespace-pre-wrap p-4 text-sm text-fg-muted">{f.description || "—"}</p>
