@@ -38,15 +38,18 @@ const (
 	FeatureHumanGate        FeatureState = "HUMAN_GATE"
 	FeatureReadyForDev      FeatureState = "READY_FOR_DEV"
 	FeatureInDev            FeatureState = "IN_DEV"
-	FeatureDone             FeatureState = "DONE"
-	FeatureCancelled        FeatureState = "CANCELLED"
-	FeatureBlocked          FeatureState = "BLOCKED"
+	// FeatureAcceptance : mode branche de feature, tous les tickets sont intégrés dans la branche ;
+	// recette humaine puis merge de la PR finale vers la base.
+	FeatureAcceptance FeatureState = "ACCEPTANCE"
+	FeatureDone       FeatureState = "DONE"
+	FeatureCancelled  FeatureState = "CANCELLED"
+	FeatureBlocked    FeatureState = "BLOCKED"
 )
 
 // AllFeatureStates liste les états dans l'ordre du pipeline.
 var AllFeatureStates = []FeatureState{
 	FeatureIdea, FeatureSpec, FeatureSpecReview, FeatureTechDesign, FeatureTechDesignReview,
-	FeatureIssuesOpened, FeatureHumanGate, FeatureReadyForDev, FeatureInDev, FeatureDone,
+	FeatureIssuesOpened, FeatureHumanGate, FeatureReadyForDev, FeatureInDev, FeatureAcceptance, FeatureDone,
 	FeatureCancelled, FeatureBlocked,
 }
 
@@ -80,6 +83,11 @@ const (
 	FeatureEvDevGateRejected FeatureEvent = "dev_gate_rejected"
 	FeatureEvTicketStarted   FeatureEvent = "ticket_started"
 	FeatureEvAllTicketsDone  FeatureEvent = "all_tickets_done"
+	// FeatureEvTicketsIntegrated : mode branche de feature, tous les tickets sont terminaux et au
+	// moins un a été mergé dans la branche de feature.
+	FeatureEvTicketsIntegrated FeatureEvent = "tickets_integrated"
+	// FeatureEvFeaturePRMerged : PR finale (branche de feature → base) mergée par un humain.
+	FeatureEvFeaturePRMerged FeatureEvent = "feature_pr_merged"
 	FeatureEvFail            FeatureEvent = "fail"
 	FeatureEvCancel          FeatureEvent = "cancel"
 	FeatureEvRetry           FeatureEvent = "retry"
@@ -109,10 +117,14 @@ var featureTransitions = map[featureKey]FeatureState{
 	{FeatureReadyForDev, FeatureEvTicketStarted}:       FeatureInDev,
 	{FeatureReadyForDev, FeatureEvAllTicketsDone}:      FeatureDone,
 	{FeatureInDev, FeatureEvAllTicketsDone}:            FeatureDone,
+	{FeatureReadyForDev, FeatureEvTicketsIntegrated}:   FeatureAcceptance,
+	{FeatureInDev, FeatureEvTicketsIntegrated}:         FeatureAcceptance,
+	{FeatureAcceptance, FeatureEvFeaturePRMerged}:      FeatureDone,
+	{FeatureAcceptance, FeatureEvFail}:                 FeatureBlocked,
 }
 
 // FeatureRetryTargets : états depuis lesquels une feature peut être bloquée puis reprise.
-var FeatureRetryTargets = []FeatureState{FeatureSpec, FeatureTechDesign, FeatureIssuesOpened}
+var FeatureRetryTargets = []FeatureState{FeatureSpec, FeatureTechDesign, FeatureIssuesOpened, FeatureAcceptance}
 
 // ApplyFeature applique un événement ; toute transition non listée est refusée.
 // L'événement retry doit passer par ResumeFeature (il dépend de l'état précédent).

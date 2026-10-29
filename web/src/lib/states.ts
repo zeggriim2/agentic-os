@@ -22,6 +22,7 @@ export const STATE_META: Record<string, StateMeta> = {
   HUMAN_GATE: { label: "Feu vert humain", tone: "review" },
   READY_FOR_DEV: { label: "Prêt pour dev", tone: "info" },
   IN_DEV: { label: "Tickets en cours", tone: "progress" },
+  ACCEPTANCE: { label: "Recette humaine", tone: "review" },
   DONE: { label: "Terminé", tone: "success" },
   BLOCKED: { label: "Bloqué", tone: "danger" },
   CANCELLED: { label: "Annulé", tone: "neutral" },
@@ -109,7 +110,18 @@ export const APPROVAL_KIND_LABELS: Record<string, string> = {
   dev_gate: "Mise en développement",
   rework: "Reprise (rework)",
   publish_pr: "Publication de PR",
+  publish_feature_pr: "PR finale de la feature",
 };
+
+export const INTEGRATION_LABELS: Record<string, string> = {
+  direct: "Directe",
+  feature_branch: "Branche de feature",
+};
+export const INTEGRATION_HINTS: Record<string, string> = {
+  direct: "Chaque ticket ouvre sa PR vers la branche de base du projet.",
+  feature_branch: "Les tickets sont mergés dans une branche de feature ; une PR finale vers la base est ouverte après la recette humaine.",
+};
+export const integrationLabel = (m: string | null | undefined) => (m ? INTEGRATION_LABELS[m] ?? m : "Directe");
 export const approvalKindLabel = (k: string) => APPROVAL_KIND_LABELS[k] ?? k;
 
 export const FEATURE_TERMINAL = new Set(["DONE", "CANCELLED"]);

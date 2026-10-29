@@ -427,6 +427,50 @@ func (m *Manager) DeletedTestFiles(ctx context.Context, path, baseRef string) ([
 	return deleted, nil
 }
 
+// EnsureRemoteBranch crée à distance la branche à partir de la pointe actuelle de origin/<from>,
+// si elle n'existe pas encore (jamais de force : une branche existante est conservée telle quelle).
+// Renvoie le SHA distant de la branche et created=true si elle vient d'être poussée.
+func (m *Manager) EnsureRemoteBranch(ctx context.Context, slug, repo, branch, from string) (string, bool, error) {
+	if !domain.ValidBranch(branch) || !domain.ValidBranch(from) || branch == from {
+		return "", false, fmt.Errorf("%w: branche invalide", ErrGit)
+	}
+	clone, err := m.EnsureClone(ctx, slug, repo)
+	if err != nil {
+		return "", false, err
+	}
+	if sha, err := m.RemoteBranchSHA(ctx, clone, branch); err != nil {
+		return "", false, err
+	} else if sha != "" {
+		if _, err := m.FetchBranch(ctx, clone, branch); err != nil {
+			return "", false, err
+		}
+		return sha, false, nil
+	}
+	if ok, err := m.FetchBranch(ctx, clone, from); err != nil {
+		return "", false, err
+	} else if !ok {
+		return "", false, fmt.Errorf("%w: branche de base %q absente", ErrGit, from)
+	}
+	sha, err := m.RevParse(ctx, clone, "refs/remotes/origin/"+from)
+	if err != nil {
+		return "", false, err
+	}
+	if _, err := m.runAuth(ctx, clone, "push", "origin", sha+":refs/heads/"+branch); err != nil {
+		return "", false, err
+	}
+	got, err := m.RemoteBranchSHA(ctx, clone, branch)
+	if err != nil {
+		return "", false, err
+	}
+	if got != sha {
+		return "", false, fmt.Errorf("%w: branche %s relue à %q au lieu de %s", ErrGit, branch, got, sha)
+	}
+	if _, err := m.FetchBranch(ctx, clone, branch); err != nil {
+		return "", false, err
+	}
+	return sha, true, nil
+}
+
 // Push pousse la branche sans jamais forcer. Non fast-forward → ErrNonFastForward.
 func (m *Manager) Push(ctx context.Context, path, branch string) error {
 	if !domain.ValidBranch(branch) {

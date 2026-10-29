@@ -18,14 +18,16 @@ import (
 const sha = "0123456789abcdef0123456789abcdef01234567"
 
 type fakeGH struct {
-	mu      sync.Mutex
-	issues  map[int]map[string]any
-	pulls   map[int]map[string]any
-	posts   int
-	prPosts int
-	auth    []string
-	checks  string
-	status  string
+	patches     int
+	ignorePatch bool // simule un PATCH accepté mais sans effet
+	mu          sync.Mutex
+	issues      map[int]map[string]any
+	pulls       map[int]map[string]any
+	posts       int
+	prPosts     int
+	auth        []string
+	checks      string
+	status      string
 }
 
 func (f *fakeGH) handler(w http.ResponseWriter, r *http.Request) {
@@ -98,6 +100,20 @@ func (f *fakeGH) handler(w http.ResponseWriter, r *http.Request) {
 		f.pulls[n] = pr
 		w.WriteHeader(201)
 		_ = json.NewEncoder(w).Encode(pr)
+	case r.Method == "PATCH" && strings.HasPrefix(path, "/repos/o/r/pulls/"):
+		var n int
+		fmt.Sscanf(strings.TrimPrefix(path, "/repos/o/r/pulls/"), "%d", &n)
+		var in map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		f.patches++
+		if pr, ok := f.pulls[n]; ok {
+			if !f.ignorePatch {
+				pr["base"] = map[string]any{"ref": in["base"]}
+			}
+			_ = json.NewEncoder(w).Encode(pr)
+			return
+		}
+		w.WriteHeader(404)
 	case r.Method == "GET" && strings.HasPrefix(path, "/repos/o/r/pulls/"):
 		var n int
 		fmt.Sscanf(strings.TrimPrefix(path, "/repos/o/r/pulls/"), "%d", &n)
@@ -247,5 +263,32 @@ func TestTokenUnavailableIsPolicy(t *testing.T) {
 	_, err := c.BranchSHA(context.Background(), "o/r", "main")
 	if ClassOf(err) != domain.ErrClassPolicy {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestRetargetPR(t *testing.T) {
+	f, c := newFake(t)
+	ctx := context.Background()
+	pr, _, err := c.EnsureDraftPR(ctx, "o/r", "aos/k", "develop", "T", "Corps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.RetargetPR(ctx, "o/r", pr.Number, "feature/F6-x")
+	if err != nil || got.Base.Ref != "feature/F6-x" || got.Head.Ref != "aos/k" || f.patches != 1 {
+		t.Fatalf("redirection : %+v %v (patches %d)", got, err, f.patches)
+	}
+	if _, err := c.RetargetPR(ctx, "o/r", pr.Number, "feature/F6-x"); err != nil || f.patches != 1 {
+		t.Fatalf("déjà sur la bonne cible : aucun PATCH (%d) %v", f.patches, err)
+	}
+	f.ignorePatch = true
+	if _, err := c.RetargetPR(ctx, "o/r", pr.Number, "develop"); err == nil {
+		t.Fatal("cible relue différente acceptée")
+	}
+	f.pulls[pr.Number]["state"] = "closed"
+	if _, err := c.RetargetPR(ctx, "o/r", pr.Number, "develop"); err == nil {
+		t.Fatal("PR fermée redirigée")
+	}
+	if _, err := c.RetargetPR(ctx, "o/r", pr.Number, "../x"); err == nil {
+		t.Fatal("branche invalide acceptée")
 	}
 }

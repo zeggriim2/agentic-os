@@ -39,6 +39,7 @@ export const FEATURE_STATES = [
   "HUMAN_GATE",
   "READY_FOR_DEV",
   "IN_DEV",
+  "ACCEPTANCE",
   "DONE",
   "BLOCKED",
   "CANCELLED",
@@ -104,7 +105,10 @@ export const APPROVAL_STATUSES = [
 ] as const;
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 export type ApprovalKind =
-  "spec_review" | "design_review" | "dev_gate" | "rework" | "publish_pr";
+  "spec_review" | "design_review" | "dev_gate" | "rework" | "publish_pr" | "publish_feature_pr";
+
+/** Intégration des tickets : PR directes vers la base, ou branche de feature + PR finale après recette. */
+export type IntegrationMode = "direct" | "feature_branch";
 export type SubjectType =
   "feature" | "ticket" | "approval" | "project" | "agent" | "run" | string;
 
@@ -133,6 +137,8 @@ export interface Project extends Timestamps {
   /** Canal Telegram du projet : groupe et sujet de forum (vide/0 = chat par défaut). */
   telegram_chat_id?: string;
   telegram_thread_id?: number;
+  /** Mode d'intégration proposé par défaut aux nouvelles features. */
+  integration_mode?: IntegrationMode;
 }
 /** Profil Hermes utilisable (clé configurée) ; rôle deviné d'après le suffixe du nom. */
 export interface HermesProfile {
@@ -163,6 +169,7 @@ export interface ProjectCreate {
   agent_models?: Partial<Record<AgentRole, ModelChoice>>;
   telegram_chat_id?: string;
   telegram_thread_id?: number;
+  integration_mode?: IntegrationMode;
 }
 export type ProjectPatch = Partial<Omit<ProjectCreate, "slug">> & {
   enabled?: boolean;
@@ -242,15 +249,24 @@ export interface Feature extends Timestamps {
   title: string;
   description: string;
   state: FeatureState;
+  previous_state?: FeatureState | null;
   state_reason: string | null;
   spec: PoSpec | null;
   design: TechDesign | null;
   version: number;
+  integration_mode?: IntegrationMode;
+  /** Branche de feature (fixée au feu vert ou à la bascule). */
+  feature_branch?: string | null;
+  /** PR finale branche de feature → base. */
+  feature_pr_number?: number | null;
+  feature_pr_url?: string | null;
 }
 export interface FeatureCreate {
   project_id: ID;
   title: string;
   description: string;
+  /** Absent = défaut du projet. */
+  integration_mode?: IntegrationMode;
 }
 
 export interface Ticket extends Timestamps {

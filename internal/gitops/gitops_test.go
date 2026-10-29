@@ -288,3 +288,40 @@ func TestAuthenticatedCloneAndPushWithoutTempFiles(t *testing.T) {
 		t.Fatal("chemin relatif accepté")
 	}
 }
+
+func TestEnsureRemoteBranchCreatesOnceFromBase(t *testing.T) {
+	bare, base := setupRemote(t)
+	m := newManager(t, bare)
+	ctx := context.Background()
+	mainSHA := run(t, base, "--git-dir", bare, "rev-parse", "refs/heads/main")
+	sha, created, err := m.EnsureRemoteBranch(ctx, "demo", "o/r", "feature/F1-demo", "main")
+	if err != nil || !created || sha != mainSHA {
+		t.Fatalf("création : %s %v %v", sha, created, err)
+	}
+	if got := run(t, base, "--git-dir", bare, "rev-parse", "refs/heads/feature/F1-demo"); got != mainSHA {
+		t.Fatalf("branche distante : %s", got)
+	}
+	// Un ticket part de la branche de feature, y pousse ; main avance entre-temps.
+	wt, err := m.EnsureBranchWorktree(ctx, "demo", "o/r", "demo-F1-T1", "aos/demo-F1-T1", "feature/F1-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(wt, "t1.txt"), []byte("t1"), 0o644)
+	commitAll(t, wt, "t1")
+	t1 := run(t, wt, "rev-parse", "HEAD")
+	if err := m.Push(ctx, wt, "aos/demo-F1-T1"); err != nil {
+		t.Fatal(err)
+	}
+	run(t, base, "--git-dir", bare, "update-ref", "refs/heads/feature/F1-demo", t1)
+	// Déjà présente : conservée telle quelle (pas de reset sur main), aucune poussée.
+	sha, created, err = m.EnsureRemoteBranch(ctx, "demo", "o/r", "feature/F1-demo", "main")
+	if err != nil || created || sha != t1 {
+		t.Fatalf("existante : %s %v %v", sha, created, err)
+	}
+	if _, _, err := m.EnsureRemoteBranch(ctx, "demo", "o/r", "feature/F1-demo", "feature/F1-demo"); err == nil {
+		t.Fatal("branche identique à la base acceptée")
+	}
+	if _, _, err := m.EnsureRemoteBranch(ctx, "demo", "o/r", "feature/F2", "absente"); err == nil {
+		t.Fatal("base absente acceptée")
+	}
+}

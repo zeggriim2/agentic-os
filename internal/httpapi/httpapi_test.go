@@ -1046,3 +1046,54 @@ func TestPipelineTwoBoardsWithFeatureProgress(t *testing.T) {
 		t.Fatalf("projets : %s", r.raw)
 	}
 }
+
+func TestIntegrationModeOnProjectFeatureAndSwitch(t *testing.T) {
+	c := setup(t, nil)
+	c.login()
+	expectStatus(t, "mode projet invalide", c.do("POST", "/api/projects", map[string]any{"slug": "fz", "name": "FZ", "repository": "o/fz",
+		"integration_mode": "branch"}, true), 422, "invalid_integration_mode")
+	r := c.do("POST", "/api/projects", map[string]any{"slug": "fz", "name": "FZ", "repository": "o/fz", "base_branch": "develop",
+		"integration_mode": "feature_branch"}, true)
+	expectStatus(t, "création", r, 201, "")
+	if r.body["integration_mode"] != "feature_branch" {
+		t.Fatalf("projet : %s", r.raw)
+	}
+	pid := itoa(r.body["id"])
+	r = c.do("PATCH", "/api/projects/"+pid, map[string]any{"integration_mode": "direct"}, true)
+	if r.status != 200 || r.body["integration_mode"] != "direct" {
+		t.Fatalf("patch : %s", r.raw)
+	}
+	r = c.do("PATCH", "/api/projects/"+pid, map[string]any{"integration_mode": "feature_branch"}, true)
+	expectStatus(t, "retour", r, 200, "")
+
+	// Feature : défaut du projet, surcharge, mode invalide refusé.
+	r = c.do("POST", "/api/features", map[string]any{"project_id": r.body["id"], "title": "Par défaut", "description": "d"}, true)
+	if r.status != 201 || r.body["integration_mode"] != "feature_branch" || r.body["feature_branch"] != nil {
+		t.Fatalf("feature par défaut : %s", r.raw)
+	}
+	fid := itoa(r.body["id"])
+	r = c.do("POST", "/api/features", map[string]any{"project_id": r.body["project_id"], "title": "Directe", "description": "d", "integration_mode": "direct"}, true)
+	if r.status != 201 || r.body["integration_mode"] != "direct" {
+		t.Fatalf("surcharge : %s", r.raw)
+	}
+	expectStatus(t, "mode feature invalide", c.do("POST", "/api/features", map[string]any{"project_id": r.body["project_id"], "title": "X",
+		"description": "d", "integration_mode": "x"}, true), 422, "invalid_integration_mode")
+
+	// Bascule avant le feu vert : simple réglage.
+	r = c.do("POST", "/api/features/"+fid+"/integration", map[string]any{"mode": "direct"}, true)
+	if r.status != 200 || r.body["integration_mode"] != "direct" {
+		t.Fatalf("bascule : %s", r.raw)
+	}
+	expectStatus(t, "bascule invalide", c.do("POST", "/api/features/"+fid+"/integration", map[string]any{"mode": "?"}, true), 422, "invalid_integration_mode")
+	expectStatus(t, "sans CSRF", c.do("POST", "/api/features/"+fid+"/integration", map[string]any{"mode": "direct"}, false), 403, "")
+	// Feature terminée : verrouillée.
+	if _, err := c.s.Pool.Exec(context.Background(), `UPDATE features SET state='DONE' WHERE id=$1`, fid); err != nil {
+		t.Fatal(err)
+	}
+	expectStatus(t, "terminée", c.do("POST", "/api/features/"+fid+"/integration", map[string]any{"mode": "feature_branch"}, true), 409, "integration_locked")
+	// Le pipeline connaît la colonne de recette.
+	r = c.do("GET", "/api/pipeline", nil, false)
+	if !strings.Contains(r.raw, `"label":"Recette humaine","state":"ACCEPTANCE"`) {
+		t.Fatalf("pipeline : colonne de recette absente")
+	}
+}

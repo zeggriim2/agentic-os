@@ -132,6 +132,43 @@ type fakeGitHub struct {
 	merged    bool
 	prErr     error
 	prBody    string // corps de la dernière PR créée
+	// mergedPRs : PR mergées individuellement (mergePR) ; retargets : PATCH base appliqués.
+	mergedPRs map[int]bool
+	retargets []string
+}
+
+// mergePR simule le merge (fast-forward) d'une PR : la base avance au SHA de la head, la PR est mergée.
+func (f *fakeGitHub) mergePR(t *testing.T, n int) {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, pr := range f.prs {
+		if pr.Number == n {
+			gitRun(t, filepath.Dir(f.bare), "--git-dir", f.bare, "update-ref", "refs/heads/"+pr.Base.Ref, pr.Head.SHA)
+			if f.mergedPRs == nil {
+				f.mergedPRs = map[int]bool{}
+			}
+			f.mergedPRs[n] = true
+			return
+		}
+	}
+	t.Fatalf("PR #%d inconnue", n)
+}
+
+func (f *fakeGitHub) RetargetPR(_ context.Context, _ string, n int, base string) (gh.PR, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, pr := range f.prs {
+		if pr.Number == n {
+			if f.merged || f.mergedPRs[n] {
+				return gh.PR{}, &gh.Error{Status: 422, Class: domain.ErrClassPolicy, Msg: "PR non ouverte"}
+			}
+			pr.Base.Ref = base
+			f.retargets = append(f.retargets, fmt.Sprintf("#%d→%s", n, base))
+			return *pr, nil
+		}
+	}
+	return gh.PR{}, &gh.Error{Status: 404, Class: domain.ErrClassExternal}
 }
 
 func (f *fakeGitHub) EnsureIssue(_ context.Context, repo, key, title, body string) (gh.Issue, bool, error) {
@@ -164,11 +201,12 @@ func (f *fakeGitHub) EnsureDraftPR(ctx context.Context, repo, head, base, title,
 	if pr, ok := f.prs[head]; ok {
 		return *pr, false, nil
 	}
-	if !strings.Contains(body, "Closes #") {
-		return gh.PR{}, false, errors.New("corps de PR sans Closes")
+	if !strings.Contains(body, "Closes #") && !strings.Contains(body, "Refs #") {
+		return gh.PR{}, false, errors.New("corps de PR sans Closes ni Refs")
 	}
 	f.prBody = body
-	pr := &gh.PR{Number: 42, HTMLURL: "https://github.com/o/r/pull/42", State: "open", Draft: true}
+	n := 42 + len(f.prs)
+	pr := &gh.PR{Number: n, HTMLURL: fmt.Sprintf("https://github.com/o/r/pull/%d", n), State: "open", Draft: true}
 	pr.Head.Ref, pr.Head.SHA, pr.Base.Ref = head, sha, base
 	f.prs[head] = pr
 	return *pr, true, nil
@@ -183,7 +221,7 @@ func (f *fakeGitHub) GetPR(_ context.Context, _ string, n int) (gh.PR, error) {
 	for _, pr := range f.prs {
 		if pr.Number == n {
 			out := *pr
-			if f.merged {
+			if f.merged || f.mergedPRs[n] {
 				out.Merged, out.State = true, "closed"
 			}
 			return out, nil
@@ -235,18 +273,20 @@ type env struct {
 	telegramChat   string // canal Telegram du projet de test
 	telegramThread int64
 	agentProfiles  map[string]string // profils propres au projet de test (nil = défaut)
-	t              *testing.T
-	s              *store.Store
-	e              *engine.Engine
-	h              *fakeHermes
-	g              *fakeGitHub
-	n              *notes
-	root           string
-	review         func(sha string, call int) string
-	qa             func(sha string, call int) string
-	po             func() (string, int64)
-	calls          map[string]int
-	mu             sync.Mutex
+	// integration : mode d'intégration par défaut du projet de test ("" = direct).
+	integration string
+	t           *testing.T
+	s           *store.Store
+	e           *engine.Engine
+	h           *fakeHermes
+	g           *fakeGitHub
+	n           *notes
+	root        string
+	review      func(sha string, call int) string
+	qa          func(sha string, call int) string
+	po          func() (string, int64)
+	calls       map[string]int
+	mu          sync.Mutex
 	// devHook est appelé après le commit du développeur (simule un événement concurrent).
 	devHook func(worktree string)
 	// devNoChange : le développeur ne commit rien et l'atteste (files_changed vide).
@@ -334,7 +374,8 @@ func newEnv(t *testing.T) *env {
 func (ev *env) project() *store.Project {
 	p, err := store.CreateProject(context.Background(), ev.s.Pool, store.ProjectInput{Slug: "demo", Name: "Demo", Repository: "o/r",
 		BaseBranch: "main", Mode: "sandbox", Enabled: true, RequiredChecks: []string{"tests"}, TestCommand: "go test ./...",
-		AgentProfiles: ev.agentProfiles, AgentModels: ev.agentModels, TelegramChatID: ev.telegramChat, TelegramThreadID: ev.telegramThread})
+		AgentProfiles: ev.agentProfiles, AgentModels: ev.agentModels, TelegramChatID: ev.telegramChat, TelegramThreadID: ev.telegramThread,
+		IntegrationMode: ev.integration})
 	if err != nil {
 		ev.t.Fatal(err)
 	}

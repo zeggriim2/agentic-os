@@ -217,6 +217,7 @@ func (f *fakes) routes() http.Handler {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls", f.ghAuth(f.listPulls))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls", f.ghAuth(f.createPull))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}", f.ghAuth(f.getPull))
+	mux.HandleFunc("PATCH /repos/{owner}/{repo}/pulls/{number}", f.ghAuth(f.patchPull))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/commits/{sha}/check-runs", f.ghAuth(f.checkRuns))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/commits/{sha}/status", f.ghAuth(f.commitStatus))
 	// Contrôle des tests
@@ -1006,6 +1007,38 @@ func (f *fakes) getPull(w http.ResponseWriter, r *http.Request) {
 		ghError(w, 404, "Not Found")
 		return
 	}
+	writeJSON(w, 200, f.pullJSON(bare, p))
+}
+
+// patchPull change la base d'une PR ouverte (seul champ pris en charge, comme utilisé par Agentic OS).
+func (f *fakes) patchPull(w http.ResponseWriter, r *http.Request) {
+	full, bare, ok := f.repoOf(w, r)
+	if !ok {
+		return
+	}
+	n, _ := strconv.Atoi(r.PathValue("number"))
+	var req struct {
+		Base string `json:"base"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p := f.findPull(full, n)
+	if p == nil {
+		ghError(w, 404, "Not Found")
+		return
+	}
+	if p.State != "open" {
+		ghError(w, 422, "Cannot change the base branch of a closed pull request")
+		return
+	}
+	if _, ok := f.branchSHA(bare, req.Base); !ok || req.Base == "" {
+		ghError(w, 422, "Proposed base branch does not exist")
+		return
+	}
+	p.Base = req.Base
 	writeJSON(w, 200, f.pullJSON(bare, p))
 }
 

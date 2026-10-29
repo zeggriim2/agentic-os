@@ -2,6 +2,7 @@ package domain
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -16,10 +17,16 @@ const (
 	JobPublishPR       = "publish_pr"
 	JobExecuteApproval = "execute_approval"
 	JobSyncAgents      = "sync_agents"
+	// JobPublishFeaturePR ouvre la PR finale branche de feature → base (mode branche de feature).
+	JobPublishFeaturePR = "publish_feature_pr"
+	// JobSwitchIntegration crée la branche de feature et redirige les PR ouvertes après un
+	// changement de mode d'intégration en cours de développement.
+	JobSwitchIntegration = "switch_integration"
 )
 
 // JobKinds liste les types de jobs connus.
-var JobKinds = []string{JobPOSpec, JobTechDesign, JobOpenIssues, JobDevelop, JobReview, JobQA, JobPublishPR, JobExecuteApproval, JobSyncAgents}
+var JobKinds = []string{JobPOSpec, JobTechDesign, JobOpenIssues, JobDevelop, JobReview, JobQA, JobPublishPR, JobExecuteApproval, JobSyncAgents,
+	JobPublishFeaturePR, JobSwitchIntegration}
 
 // Statuts de job.
 const (
@@ -64,7 +71,60 @@ const (
 	ApprovalDevGate      = "dev_gate"
 	ApprovalRework       = "rework"
 	ApprovalPublishPR    = "publish_pr"
+	// ApprovalPublishFeaturePR autorise la PR finale d'une feature en mode branche de feature.
+	ApprovalPublishFeaturePR = "publish_feature_pr"
 )
+
+// Modes d'intégration des tickets d'une feature.
+const (
+	// IntegrationDirect : chaque ticket ouvre sa PR vers la branche de base du projet.
+	IntegrationDirect = "direct"
+	// IntegrationFeatureBranch : les tickets visent une branche de feature, mergée dans la base
+	// par une PR finale après recette humaine.
+	IntegrationFeatureBranch = "feature_branch"
+)
+
+// ValidIntegrationMode valide un mode d'intégration.
+func ValidIntegrationMode(s string) bool {
+	return s == IntegrationDirect || s == IntegrationFeatureBranch
+}
+
+// FeatureBranchName renvoie la branche de feature : feature/F<id>-<titre court> (ASCII, minuscules,
+// tirets, 40 caractères au plus pour le titre).
+func FeatureBranchName(id int64, title string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(foldAccents(title)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			dash = false
+		case !dash && b.Len() > 0:
+			b.WriteByte('-')
+			dash = true
+		}
+		if b.Len() >= 40 {
+			break
+		}
+	}
+	slug := strings.Trim(b.String(), "-")
+	if len(slug) > 40 {
+		slug = strings.TrimRight(slug[:40], "-")
+	}
+	if slug == "" {
+		return "feature/F" + strconv.FormatInt(id, 10)
+	}
+	return "feature/F" + strconv.FormatInt(id, 10) + "-" + slug
+}
+
+var accentFold = strings.NewReplacer(
+	"à", "a", "â", "a", "ä", "a", "á", "a", "ã", "a", "å", "a", "ç", "c", "é", "e", "è", "e", "ê", "e", "ë", "e",
+	"î", "i", "ï", "i", "í", "i", "ì", "i", "ô", "o", "ö", "o", "ó", "o", "ò", "o", "õ", "o", "ù", "u", "û", "u",
+	"ü", "u", "ú", "u", "ÿ", "y", "ñ", "n", "œ", "oe", "æ", "ae",
+	"À", "a", "Â", "a", "Ä", "a", "Ç", "c", "É", "e", "È", "e", "Ê", "e", "Ë", "e", "Î", "i", "Ï", "i", "Ô", "o",
+	"Ö", "o", "Ù", "u", "Û", "u", "Ü", "u", "Œ", "oe", "Æ", "ae")
+
+func foldAccents(s string) string { return accentFold.Replace(s) }
 
 // Statuts d'approbation.
 const (

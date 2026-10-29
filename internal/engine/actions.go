@@ -135,6 +135,24 @@ func (e *Engine) FeatureAction(ctx context.Context, id int64, action, login stri
 			if err != nil {
 				return err
 			}
+			if to == domain.FeatureAcceptance {
+				// Recette : la PR finale (refusée, fermée ou en échec) est redemandée ; une PR encore
+				// ouverte est simplement de nouveau observée.
+				if nf.FeaturePRNumber != nil {
+					return nil
+				}
+				tickets, err := store.ListTicketsByFeature(ctx, tx, f.ID)
+				if err != nil {
+					return err
+				}
+				var issues []int
+				for _, t := range tickets {
+					if t.State == string(domain.TicketDone) && t.IssueNumber != nil {
+						issues = append(issues, *t.IssueNumber)
+					}
+				}
+				return e.requestFeaturePR(ctx, tx, nf, p, issues)
+			}
 			kind := map[domain.FeatureState]string{domain.FeatureSpec: domain.JobPOSpec, domain.FeatureTechDesign: domain.JobTechDesign,
 				domain.FeatureIssuesOpened: domain.JobOpenIssues}[to]
 			_, err = e.enqueue(ctx, tx, store.NewJob{Kind: kind, SubjectType: "feature", SubjectID: f.ID, ProjectID: &f.ProjectID,
