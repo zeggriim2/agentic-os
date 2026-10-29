@@ -249,6 +249,8 @@ type env struct {
 	mu             sync.Mutex
 	// devHook est appelé après le commit du développeur (simule un événement concurrent).
 	devHook func(worktree string)
+	// devNoChange : le développeur ne commit rien et l'atteste (files_changed vide).
+	devNoChange bool
 	// design remplace le livrable du Tech Lead (vide = designOK, un ticket).
 	design string
 	// agentModels : modèles imposés par le projet (rôle → fournisseur/modèle).
@@ -299,6 +301,9 @@ func newEnv(t *testing.T) *env {
 			return designOK, 1000
 		case "aos-developer":
 			wt := worktreeRe.FindStringSubmatch(req.Input)[1]
+			if ev.devNoChange {
+				return "```json\n{\"summary\":\"rien à corriger : échec dû à l'environnement\",\"files_changed\":[],\"tests\":[{\"command\":\"go test ./...\",\"exit_code\":0}]}\n```", 2000
+			}
 			_ = os.WriteFile(filepath.Join(wt, "hello.txt"), []byte(fmt.Sprintf("hello %d\n", call)), 0o644)
 			gitRun(t, wt, "add", "hello.txt")
 			gitRun(t, wt, "commit", "-m", fmt.Sprintf("feat: hello %d", call))
@@ -1624,4 +1629,50 @@ func TestModelFallbackHappensOnlyOnce(t *testing.T) {
 		t.Fatalf("run PO : repli=%v statut=%s", fb, status)
 	}
 	expect(t, "feature bloquée", ev.feature(f.ID).State, "BLOCKED")
+}
+
+func TestReworkWithoutChangeReReviewsSameCommit(t *testing.T) {
+	ev := newEnv(t)
+	ev.qa = func(sha string, call int) string {
+		if call == 1 {
+			return qaJSON("failed", sha) // échec dû à l'environnement de vérification
+		}
+		return qaJSON("passed", sha)
+	}
+	f, _ := ev.startToDev()
+	ev.drain()
+	tk := ev.ticket(f.ID)
+	expect(t, "après QA en échec", tk.State, "CHANGES_REQUESTED")
+	sha := *tk.HeadSHA
+	ev.devNoChange = true
+	ev.decide(domain.ApprovalRework, "approved", "")
+	ev.drain()
+	tk = ev.ticket(f.ID)
+	expect(t, "même commit revu puis validé", tk.State, "AWAITING_PR_APPROVAL")
+	expect(t, "SHA inchangé", *tk.HeadSHA, sha)
+	expect(t, "revues", ev.calls["aos-reviewer"], 2)
+	expect(t, "QA", ev.calls["aos-qa"], 2)
+	var reason string
+	_ = ev.s.Pool.QueryRow(context.Background(), `SELECT after->>'reason' FROM audit_log WHERE subject_type='ticket' AND subject_id=$1
+		AND action='ticket.dev_pushed' ORDER BY id DESC LIMIT 1`, tk.ID).Scan(&reason)
+	if !strings.Contains(reason, "nouvelle revue du même commit") {
+		t.Fatalf("raison auditée : %q", reason)
+	}
+}
+
+func TestReworkClaimingChangesWithoutCommitIsRefused(t *testing.T) {
+	ev := newEnv(t)
+	ev.qa = func(sha string, _ int) string { return qaJSON("failed", sha) }
+	f, _ := ev.startToDev()
+	ev.drain()
+	expect(t, "après QA en échec", ev.ticket(f.ID).State, "CHANGES_REQUESTED")
+	// Le développeur annonce hello.txt mais ne commit rien : refus, comme avant.
+	ev.devHook = func(wt string) { gitRun(t, wt, "reset", "--hard", "HEAD~1") }
+	ev.decide(domain.ApprovalRework, "approved", "")
+	ev.drain()
+	tk := ev.ticket(f.ID)
+	expect(t, "bloqué", tk.State, "BLOCKED")
+	if !strings.Contains(tk.StateReason, "aucun nouveau commit depuis le dernier push") {
+		t.Fatalf("raison : %v", tk.StateReason)
+	}
 }

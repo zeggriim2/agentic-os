@@ -351,9 +351,11 @@ func (e *Engine) handleDevelop(ctx context.Context, j *store.Job, owner string) 
 	if err != nil {
 		return err
 	}
-	if _, err := e.evaluate(ctx, o, func(s string) (any, error) { return domain.ParseDevelop(s) }); err != nil {
+	parsed, err := e.evaluate(ctx, o, func(s string) (any, error) { return domain.ParseDevelop(s) })
+	if err != nil {
 		return err
 	}
+	dev, _ := parsed.(*domain.DevelopResult)
 	// Vérifications fail-closed avant push.
 	if err := e.Git.EnsureClean(ctx, wt); err != nil {
 		return permanent(domain.ErrClassPolicy, "%v", err)
@@ -368,8 +370,15 @@ func (e *Engine) handleDevelop(ctx context.Context, j *store.Job, owner string) 
 	if head == baseSHA {
 		return permanent(domain.ErrClassPolicy, "aucun commit par rapport à la base")
 	}
+	unchanged := false
 	if t.HeadSHA != nil && head == *t.HeadSHA {
-		return permanent(domain.ErrClassPolicy, "aucun nouveau commit depuis le dernier push")
+		// Retour en développement sans rien à corriger (ex. échec QA dû à l'environnement) : le
+		// développeur l'atteste par files_changed vide ; le même commit, déjà poussé, repasse en
+		// revue puis en QA. Sinon (fichiers annoncés mais aucun commit), refus.
+		if dev == nil || len(dev.FilesChanged) != 0 {
+			return permanent(domain.ErrClassPolicy, "aucun nouveau commit depuis le dernier push")
+		}
+		unchanged = true
 	}
 	deleted, err := e.Git.DeletedTestFiles(ctx, wt, baseRef)
 	if err != nil {
@@ -387,11 +396,13 @@ func (e *Engine) handleDevelop(ctx context.Context, j *store.Job, owner string) 
 	if err := e.checkRemoteBranch(ctx, p, t, wt, branch); err != nil {
 		return err
 	}
-	if err := e.fence(ctx, "push Git"); err != nil {
-		return err
-	}
-	if err := e.Git.Push(ctx, wt, branch); err != nil {
-		return err
+	if !unchanged {
+		if err := e.fence(ctx, "push Git"); err != nil {
+			return err
+		}
+		if err := e.Git.Push(ctx, wt, branch); err != nil {
+			return err
+		}
 	}
 	remote, err := e.GitHub.BranchSHA(ctx, p.Repository, branch)
 	if err != nil {
@@ -412,7 +423,11 @@ func (e *Engine) handleDevelop(ctx context.Context, j *store.Job, owner string) 
 			return err
 		}
 		lt.HeadSHA = &head
-		if _, err := e.setTicket(ctx, tx, lt, domain.TicketReview, domain.TicketEvDevPushed, audit.Agent(domain.RoleDeveloper), "", head); err != nil {
+		reason := ""
+		if unchanged {
+			reason = "aucune modification nécessaire selon le développeur : nouvelle revue du même commit " + short(head)
+		}
+		if _, err := e.setTicket(ctx, tx, lt, domain.TicketReview, domain.TicketEvDevPushed, audit.Agent(domain.RoleDeveloper), reason, head); err != nil {
 			return err
 		}
 		_, err = e.enqueue(ctx, tx, store.NewJob{Kind: domain.JobReview, SubjectType: "ticket", SubjectID: t.ID, ProjectID: &t.ProjectID,

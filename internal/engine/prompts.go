@@ -103,6 +103,9 @@ func developerPrompt(p *store.Project, t *store.Ticket, worktree, branch, feedba
 Contraintes de dépôt :
 - Travaille UNIQUEMENT dans le répertoire du worktree indiqué, sur la branche indiquée (ne change pas de branche).
 - Crée un ou plusieurs commits ; NE POUSSE PAS (Agentic OS vérifie puis pousse lui-même).
+- En reprise, si aucune correction n'est nécessaire (ex. échec dû à l'environnement de vérification),
+  ne crée aucun commit et rends "files_changed": [] en l'expliquant dans "summary" : le même commit
+  repasse alors en revue puis en QA.
 - Laisse le worktree propre (git status --porcelain vide, aucun fichier non suivi).
 - Ne supprime aucun test existant, n'affaiblis aucun check.` + baseRules(p.BaseBranch) + contextRules + `
 Livrable : {"summary": str, "files_changed": [str], "tests": [{"command": str, "exit_code": int}], "notes": str}`

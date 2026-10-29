@@ -25,14 +25,21 @@ Le PO et le Tech Lead n'exécutent rien : ils restent communs à tous les projet
 | `project.env` | dépôt, branche de base, fichiers lock, commande de vérification, ressources |
 | `Dockerfile` | image des agents ; reçoit le dépôt en contexte nommé `project` (fichiers lock seulement) |
 | `aos-setup` | dans le worktree, sans réseau : `.env` et clés de test (ignorés par git), `composer install`, `npm ci` depuis les caches |
-| `aos-ci` | rejoue les jobs de la CI du projet (FraisZen : « Tests Backend » et « Code Quality » ; « Lint » reste dans GitHub) |
+| `aos-ci` | rejoue les jobs de la CI du projet (FraisZen : « Tests Backend » et « Code Quality » ; « Lint » reste dans GitHub). Worktree en lecture seule (Reviewer, QA) : vérifie une copie du commit courant extraite dans `$AOS_SCRATCH_DIR` (`/opt/aos/scratch`), préparée par `aos-setup` puis supprimée |
+
+Contraintes des conteneurs Hermes à respecter dans l'outillage : UID de l'hôte sans entrée passwd
+(`HOME=/`, non inscriptible : caches sous `/opt/aos`, dont `XDG_CACHE_HOME` pour Psalm), `/tmp`
+monté **noexec** (rien d'exécutable n'y va), pas de réseau. `project:image:verify` les reproduit et
+vérifie les deux cas : worktree inscriptible (Développeur) et en lecture seule (Reviewer, QA).
+Le tag de l'image est le hash des fichiers lock **et** de `projects/<slug>/` : toute modification de
+l'outillage impose `project:image:build` (`project:image:check` le signale).
 
 ## Commandes (`task --list`)
 
 ```bash
 task project:setup PROJECT=fraiszen          # build + vérification hors ligne + profils
-task project:image:build PROJECT=fraiszen    # image taguée par le hash des fichiers lock (+ :current)
-task project:image:verify PROJECT=fraiszen   # CI du projet dans l'image, --network none, UID de l'hôte
+task project:image:build PROJECT=fraiszen    # image taguée par le hash des locks et de l'outillage (+ :current)
+task project:image:verify PROJECT=fraiszen   # CI du projet dans l'image, --network none, UID de l'hôte, rw puis ro
 task project:image:check PROJECT=fraiszen    # à jour / à reconstruire (exit 1)
 task project:image:refresh PROJECT=fraiszen  # reconstruit et revérifie seulement si un lock a changé
 task project:profiles PROJECT=fraiszen       # crée ou met à jour les profils aos-<slug>-*
