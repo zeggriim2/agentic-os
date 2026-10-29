@@ -128,6 +128,23 @@ describe("Détail d'un run : flux en direct", () => {
     expect(eventRows()).toHaveLength(2);
   });
 
+  it("à la première connexion du flux, relit les données (événements émis avant l'ouverture)", async () => {
+    let gets = 0;
+    mockFetch({
+      "GET /api/runs/5": () => {
+        gets++;
+        return gets === 1
+          ? { body: runBody() }
+          : { body: runBody({ events: [...runBody().events, { run_id: 5, seq: 3, event: "run.completed", data: {}, created_at: "2026-10-21T10:01:00Z" }] }) };
+      },
+    });
+    renderRun();
+    await screen.findByText("tool.started"); // lu avant l'ouverture du flux ; seq 3 émis entre-temps
+    act(() => { FakeEventSource.last().onopen?.(); });
+    await screen.findByText("run.completed");
+    expect(FakeEventSource.instances).toHaveLength(1);
+  });
+
   it("signale explicitement un historique d'événements tronqué", async () => {
     mockFetch({ "GET /api/runs/5": { body: runBody({ events_truncated: true }) } });
     renderRun();

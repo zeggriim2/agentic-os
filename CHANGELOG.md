@@ -2,7 +2,7 @@
 
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [SemVer](https://semver.org/lang/fr/).
 
-## [Unreleased]
+## [Non publié]
 
 ### Modifié
 - Pipeline en **deux onglets** : « Features » (cycle de vie de la demande, avec l'avancement de ses
@@ -11,7 +11,25 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
   « Développement » pour le ticket). Filtre par projet mémorisé, compteurs d'éléments en attente par onglet.
 - `GET /api/pipeline` renvoie `features`, `tickets` et `projects` au lieu d'une liste unique `columns`.
 
-## [Non publié]
+### Corrigé
+- Interface : un changement d'état survenu pendant le chargement d'une page (avant l'ouverture du flux
+  temps réel) n'était pas affiché sans recharger. Les données sont maintenant relues à chaque
+  ouverture du flux, pas seulement après une coupure. Révélé par un e2e intermittent (CI de #48).
+
+## [1.5.1] — 2026-10-28
+
+### Corrigé
+- Budget de tokens par run calculé sur les **tokens nouveaux** (entrée nouvelle + sortie) et non plus
+  sur le total brut : les tokens relus du cache (plus de 90 % d'un run outillé) bloquaient des runs
+  à environ 90 000 tokens nouveaux (« budget dépassé : 1 993 972 > 400 000 » sur FraisZen F6-T1).
+- Livrable du développeur : `notes` devient facultatif. Son absence rejetait un run terminé, avec
+  ses commits et une CI verte (« clé obligatoire "notes" absente »). Les autres clés restent strictes.
+- `upgrade.sh` refuse de déployer un code qui ne connaît pas toutes les migrations déjà appliquées
+  (rétrogradation), avant d'arrêter la version en cours.
+
+## [1.5.0] — 2026-10-28
+
+Choix du modèle LLM par agent et par projet (#43).
 
 ### Ajouté
 - Modèle LLM par agent et par projet (migration 0007) : `projects.agent_models` (rôle → fournisseur +
@@ -23,6 +41,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 - Repli unique : un run refusé pour résolution du fournisseur est re-soumis une fois sans surcharge
   (clé `-fallback`), `runs.model_fallback` + `requested_model`/`requested_provider`, audit
   `run.model_fallback`. Les vues Runs signalent « modèle demandé ≠ servi » et le repli.
+
+## [1.4.1] — 2026-10-28
+
+### Corrigé
+- Création des issues bloquée (`open_issues` en échec, HTTP 422) : GitHub exige désormais
+  `is:issue` dans la recherche d'issue par marqueur. Constaté sur la première feature FraisZen.
 
 ## [1.4.0] — 2026-10-28
 

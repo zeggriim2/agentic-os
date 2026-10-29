@@ -204,3 +204,20 @@ func TestRunOutcomeAcceptable(t *testing.T) {
 		}
 	}
 }
+
+func TestDevelopNotesIsOptionalButStillTyped(t *testing.T) {
+	v, err := ParseDevelop(`{"summary":"s","files_changed":["a.go"],"tests":[{"command":"go test","exit_code":0}]}`)
+	if err != nil || v.Notes != "" {
+		t.Fatalf("notes absent doit être accepté : %v", err)
+	}
+	for _, bad := range []string{
+		`{"summary":"s","files_changed":[],"tests":[],"notes":null}`,
+		`{"summary":"s","files_changed":[],"tests":[],"notes":3}`,
+		`{"summary":"s","files_changed":[],"tests":[],"remarques":"x"}`,
+		`{"summary":"s","tests":[]}`,
+	} {
+		if _, err := ParseDevelop(bad); err == nil {
+			t.Fatalf("doit être refusé : %s", bad)
+		}
+	}
+}

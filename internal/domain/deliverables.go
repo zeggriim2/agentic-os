@@ -65,7 +65,8 @@ type DevelopResult struct {
 	Summary      string          `json:"summary"`
 	FilesChanged []string        `json:"files_changed"`
 	Tests        []CommandResult `json:"tests"`
-	Notes        string          `json:"notes"`
+	// Notes est facultatif : un simple commentaire manquant ne doit pas faire perdre un run entier.
+	Notes string `json:"notes,omitempty"`
 }
 
 // Finding est une remarque de revue.
@@ -175,13 +176,16 @@ func checkShape(raw json.RawMessage, t reflect.Type, path string) error {
 			return invalid("%s : objet attendu", path)
 		}
 		fields := map[string]reflect.Type{}
+		optional := map[string]bool{} // clés marquées omitempty : peuvent être absentes, jamais nulles
 		for i := 0; i < t.NumField(); i++ {
 			f := t.Field(i)
-			name := strings.Split(f.Tag.Get("json"), ",")[0]
+			parts := strings.Split(f.Tag.Get("json"), ",")
+			name := parts[0]
 			if name == "" || name == "-" {
 				continue
 			}
 			fields[name] = f.Type
+			optional[name] = slices.Contains(parts[1:], "omitempty")
 		}
 		obj, err := decodeObjectNoDup(trimmed, path)
 		if err != nil {
@@ -195,6 +199,9 @@ func checkShape(raw json.RawMessage, t reflect.Type, path string) error {
 		for k, ft := range fields {
 			v, ok := obj[k]
 			if !ok {
+				if optional[k] {
+					continue
+				}
 				return invalid("%s : clé obligatoire %q absente", path, k)
 			}
 			if err := checkShape(v, ft, path+"."+k); err != nil {

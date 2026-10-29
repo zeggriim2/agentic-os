@@ -40,6 +40,12 @@ func (f *fakeGH) handler(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == "GET" && path == "/search/issues":
 		q := r.URL.Query().Get("q")
+		// Comportement réel de GitHub : une recherche sans type est refusée.
+		if !strings.Contains(q, "is:issue") && !strings.Contains(q, "is:pull-request") {
+			w.WriteHeader(422)
+			_, _ = w.Write([]byte(`{"message":"Query must include 'is:issue' or 'is:pull-request'"}`))
+			return
+		}
 		items := []map[string]any{}
 		for _, is := range f.issues {
 			body := is["body"].(string)
