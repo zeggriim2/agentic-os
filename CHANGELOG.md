@@ -4,6 +4,8 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 
 ## [Non publié]
 
+## [1.10.0] — 2026-10-30
+
 ### Ajouté
 - **« Demander une correction » en recette** (mode branche de feature) : un défaut constaté pendant la
   recette devient un ticket de correction (description, critères facultatifs) sur la branche de feature.
