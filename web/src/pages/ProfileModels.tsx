@@ -58,8 +58,8 @@ export function ProfileModelsSection() {
         {(d) => (
           <div className="space-y-3 p-4">
             {d.sync.stale && (
-              <div role="alert" className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <div role="alert" className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-fg">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
                 <span>
                   {d.sync.last_seen_at ? (
                     <>
@@ -73,7 +73,7 @@ export function ProfileModelsSection() {
               </div>
             )}
             {d.mismatches.length > 0 && (
-              <div role="alert" className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger" data-testid="profile-mismatches">
+              <div role="alert" className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-fg" data-testid="profile-mismatches">
                 <p className="font-medium">Fournisseur demandé différent du défaut du profil : ces runs dépendent aussi de ce fournisseur.</p>
                 <ul className="mt-1 space-y-1">
                   {d.mismatches.map((m: ProfileMismatch) => (
