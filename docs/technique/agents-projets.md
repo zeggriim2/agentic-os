@@ -58,6 +58,35 @@ avec un message explicite, l'agent le signale dans son livrable. Reconstruire l'
 branche du ticket n'est pas prévu : merger d'abord l'ajout de dépendance, ou relancer le ticket
 après reconstruction.
 
+## QA navigateur (`aos-qa-browser`, 1.9.0)
+
+L'image FraisZen embarque MariaDB, Chromium headless et Playwright 1.59.1 (`/opt/aos/qa`, navigateurs
+dans `/opt/aos/ms-playwright`, téléchargés au build uniquement ; +1,2 Go). En **une** commande (chaque
+commande d'agent peut tourner dans un conteneur neuf) :
+
+```sh
+cd <worktree> && aos-qa-browser <dossier>/scenario.mjs <dossier>
+aos-qa-browser --self-test <dossier>      # connexion + capture (vérification de l'image)
+```
+
+1. copie du commit `HEAD` (ou de l'arbre sans `.git`) dans `/opt/aos/scratch`, `aos-setup` ;
+2. MariaDB locale (datadir dans la copie, utilisateur courant), migrations Doctrine (repli
+   `doctrine:schema:create` si une migration est propre à MySQL), fixtures (compte `alice@example.com`) ;
+3. API Symfony (`php -S 127.0.0.1:8000`) et front Vite (`127.0.0.1:5173`, proxy `/api`) ;
+4. `aos-qa-runner.mjs` joue le scénario (`export default async ({ page, login, shot, step }) => …`,
+   180 s max) avec vidéo, trace (`screenshots` + `snapshots`) et requêtes externes bloquées ; écrit
+   `video.webm`, `trace.zip`, `shots/NN-<libellé>.png`, `report.json` (étapes, erreurs JS, requêtes ≥ 400,
+   captures ↔ critères) et `logs/*.log` (400 dernières lignes) ;
+5. arrêt de tous les processus et suppression de la copie.
+
+Mesuré sur F6 : environ 30 s + le scénario. `project.env` (`AOS_PROJECT_VERIFY`) inclut le self-test,
+rejoué par `project-image.sh verify` (worktree inscriptible et en lecture seule, sans réseau).
+
+Montages : `project-profiles.sh` ajoute au seul profil QA `recordings/inbox/<slug>` en écriture (même
+chemin dans le conteneur). Agentic OS crée un dossier par passage QA
+(`<clé>-j<job>-a<tentative>`), le donne dans les consignes, puis copie les fichiers **validés** dans
+`recordings/store/<run>` (jamais monté chez un agent) et supprime le dossier de dépôt.
+
 ## Modèle par défaut des profils (timer `aos-profile-sync`, 1.8.0)
 
 Hermes résout le fournisseur par défaut du profil **avant** d'appliquer la surcharge `model`/`provider`

@@ -629,10 +629,14 @@ func (e *Engine) handleQA(ctx context.Context, j *store.Job, owner string) error
 	if err := json.Unmarshal(t.Acceptance, &expectedAcceptance); err != nil || len(expectedAcceptance) == 0 {
 		return permanent(domain.ErrClassInternal, "critères d'acceptation du ticket absents ou illisibles")
 	}
-	instr, input := qaPrompt(p, t, wt, sha)
+	rec := e.qaBrowserSetup(p, t, j)
+	instr, input := qaPrompt(p, t, wt, sha, qaBrowser{Dir: rec, FrontChanged: rec != "" && e.frontChanged(ctx, wt, p.BaseBranch)})
 	o, err := e.runAgent(ctx, j, p, domain.RoleQA, t.Attempt, hermes.RunRequest{Input: input, Instructions: instr})
 	if err != nil {
 		return err
+	}
+	if rec != "" {
+		e.ingestQARecordings(ctx, t, o.Run.ID, rec)
 	}
 	art, err := e.evaluate(ctx, o, func(s string) (any, error) { return domain.ParseQA(s, sha, expectedAcceptance) })
 	if err != nil {

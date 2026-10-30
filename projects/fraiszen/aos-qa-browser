@@ -1,0 +1,89 @@
+#!/bin/bash
+# QA navigateur FraisZen, SANS réseau, en UNE commande (chaque commande d'agent peut tourner dans un
+# conteneur neuf) : démarre l'application sur le commit courant, joue le scénario Playwright,
+# enregistre vidéo + trace + captures + report.json dans le dossier de sortie, puis arrête tout.
+#   aos-qa-browser <scénario.mjs> <dossier de sortie> [worktree]
+#   aos-qa-browser --self-test <dossier de sortie> [worktree]   (connexion + capture du calendrier)
+# Le commit HEAD du worktree est extrait dans une copie (les modifications non commitées ne sont pas
+# testées). Base MariaDB locale + fixtures (compte alice@example.com / Test1234!), API Symfony
+# (php -S) et front Vite. Durée typique : 30 s + le scénario (180 s max).
+set -uo pipefail
+if [ "${1:-}" = "--self-test" ]; then selftest=1; out="${2:-}"; wt="${3:-.}"; else selftest=0; scenario="${1:-}"; out="${2:-}"; wt="${3:-.}"; fi
+[ -n "$out" ] || { echo "usage : aos-qa-browser <scénario.mjs> <dossier de sortie> [worktree]" >&2; exit 2; }
+mkdir -p "$out" 2>/dev/null && [ -w "$out" ] || { echo "aos-qa-browser : dossier de sortie non inscriptible : $out" >&2; exit 2; }
+out="$(cd "$out" && pwd)"
+if [ "$selftest" = 1 ]; then
+  scenario="$out/scenario.mjs"
+  cat >"$scenario" <<'EOF'
+export default async ({ page, login, shot, step }) => {
+  await step("connexion", () => login());
+  await step("calendrier", async () => {
+    await page.getByText("Calendrier").first().waitFor();
+    await shot("Calendrier après connexion", { criterion: 1 });
+  });
+};
+EOF
+fi
+[ -f "$scenario" ] || { echo "aos-qa-browser : scénario introuvable : $scenario" >&2; exit 2; }
+scenario="$(cd "$(dirname "$scenario")" && pwd)/$(basename "$scenario")"
+cd "$wt" || exit 2
+sha="$(git rev-parse HEAD 2>/dev/null || true)"
+
+scratch="${AOS_SCRATCH_DIR:-/opt/aos/scratch}"
+mkdir -p "$scratch" && work="$(mktemp -d "$scratch/aos-qa-XXXXXX")" || { echo "aos-qa-browser : $scratch non inscriptible" >&2; exit 2; }
+mkdir -p "$work"/{app,db,run} "$out/logs"
+pids=()
+cleanup() {
+  pkill -P $$ 2>/dev/null
+  for p in "${pids[@]}"; do kill "$p" 2>/dev/null; done
+  [ -f "$work/run/db.pid" ] && kill "$(cat "$work/run/db.pid")" 2>/dev/null
+  wait 2>/dev/null
+  rm -rf "$work" 2>/dev/null || { sleep 2; rm -rf "$work" 2>/dev/null; } || true
+}
+trap cleanup EXIT
+fail() { echo "aos-qa-browser : $1" >&2; [ -n "${2:-}" ] && tail -n 25 "$2" >&2; exit 1; }
+
+if [ -n "$sha" ]; then
+  git archive --format=tar "$sha" | tar -x -C "$work/app" || fail "extraction du commit impossible"
+  echo "aos-qa-browser : commit ${sha:0:12}"
+else # arbre exporté sans historique (vérification de l'image)
+  tar -c --exclude=./vendor --exclude=./frontend/node_modules --exclude=./var --exclude=./.env -f - . | tar -x -C "$work/app" || fail "copie du worktree impossible"
+  echo "aos-qa-browser : worktree sans dépôt git, copie de l'arbre"
+fi
+aos-setup "$work/app" >"$out/logs/setup.log" 2>&1 || fail "préparation (aos-setup) en échec" "$out/logs/setup.log"
+cd "$work/app" || exit 2
+sed -i 's#^DATABASE_URL=.*#DATABASE_URL="mysql://app:app@127.0.0.1:3306/app?serverVersion=10.11.0-MariaDB\&charset=utf8mb4"#' .env
+
+db="$out/logs/db.log"
+mariadb-install-db --no-defaults --datadir="$work/db" --auth-root-authentication-method=normal --skip-test-db >"$db" 2>&1 || fail "initialisation de MariaDB" "$db"
+mariadbd --no-defaults --datadir="$work/db" --socket="$work/run/db.sock" --pid-file="$work/run/db.pid" \
+  --port=3306 --bind-address=127.0.0.1 --skip-name-resolve >>"$db" 2>&1 &
+pids+=($!)
+for _ in $(seq 30); do mariadb-admin --socket="$work/run/db.sock" -uroot ping >/dev/null 2>&1 && break; sleep 1; done
+mariadb --socket="$work/run/db.sock" -uroot -e "CREATE DATABASE app CHARACTER SET utf8mb4; CREATE USER 'app'@'127.0.0.1' IDENTIFIED BY 'app'; GRANT ALL ON app.* TO 'app'@'127.0.0.1';" >>"$db" 2>&1 \
+  || fail "MariaDB ne démarre pas" "$db"
+
+mig="$out/logs/migrations.log"
+if ! php bin/console doctrine:migrations:migrate -n >"$mig" 2>&1; then
+  echo "aos-qa-browser : migrations en échec sur MariaDB, repli sur doctrine:schema:create (voir logs/migrations.log)"
+  php bin/console doctrine:schema:drop --force --full-database -n >>"$mig" 2>&1
+  php bin/console doctrine:schema:create -n >>"$mig" 2>&1 || fail "schéma de base impossible" "$mig"
+fi
+php bin/console doctrine:fixtures:load -n >"$out/logs/fixtures.log" 2>&1 || fail "fixtures en échec" "$out/logs/fixtures.log"
+
+php -S 127.0.0.1:8000 -t public public/index.php >"$out/logs/api.log" 2>&1 &
+pids+=($!)
+(cd frontend && API_TARGET=http://127.0.0.1:8000 exec npx vite --host 127.0.0.1 --port 5173 --strictPort) >"$out/logs/front.log" 2>&1 &
+pids+=($!)
+for _ in $(seq 60); do curl -sf -o /dev/null http://127.0.0.1:5173/ && break; sleep 1; done
+curl -sf -o /dev/null http://127.0.0.1:5173/ || fail "le front Vite ne répond pas" "$out/logs/front.log"
+
+# Le scénario importe playwright depuis l'outillage de l'image.
+ln -sfn /opt/aos/qa/node_modules "$(dirname "$scenario")/node_modules" 2>/dev/null || true
+node /opt/aos/qa/aos-qa-runner.mjs "$scenario" "$out" http://127.0.0.1:5173
+status=$?
+rm -f "$(dirname "$scenario")/node_modules"
+# Journaux bornés (les 400 dernières lignes) pour l'onglet d'enregistrement.
+for f in "$out"/logs/*.log; do tail -n 400 "$f" >"$f.tmp" && mv "$f.tmp" "$f"; done
+echo "aos-qa-browser : fichiers dans $out (video.webm, trace.zip, shots/, report.json, logs/)"
+exit "$status"

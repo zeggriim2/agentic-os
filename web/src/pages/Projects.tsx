@@ -59,6 +59,7 @@ interface FormState {
   telegram_chat: string;
   telegram_thread: string;
   integration_mode: IntegrationMode;
+  qa_browser: boolean;
 }
 
 /** Valeur d'option du sélecteur de modèle : "<provider>/<model>" (le modèle peut contenir des « / »). */
@@ -94,6 +95,7 @@ const EMPTY: FormState = {
   telegram_chat: "",
   telegram_thread: "",
   integration_mode: "direct",
+  qa_browser: false,
 };
 
 /** Lien vers le groupe/sujet Telegram (supergroupes : -100… → t.me/c/…). */
@@ -425,6 +427,7 @@ function ProjectDialog({
               ? String(project.telegram_thread_id)
               : "",
             integration_mode: project.integration_mode ?? "direct",
+            qa_browser: project.qa_browser ?? false,
           }
         : EMPTY,
     );
@@ -459,6 +462,7 @@ function ProjectDialog({
         ? Number(f.telegram_thread.trim())
         : 0,
       integration_mode: f.integration_mode,
+      qa_browser: f.qa_browser,
     };
     const done = {
       onSuccess: () => {
@@ -591,6 +595,22 @@ function ProjectDialog({
             </Select>
           )}
         </Field>
+        <label className="flex items-start gap-2 text-sm sm:col-span-2">
+          <input
+            type="checkbox"
+            className="focus-ring mt-0.5 h-4 w-4 rounded border-border"
+            checked={f.qa_browser}
+            onChange={(e) => set("qa_browser", e.target.checked)}
+          />
+          <span>
+            <span className="font-medium text-fg">QA avec navigateur (enregistré)</span>
+            <span className="block text-xs text-fg-muted">
+              Le QA démarre l'application dans l'image des agents (outil <code>aos-qa-browser</code>), joue un scénario Playwright et
+              enregistre vidéo, trace et captures, visibles dans l'onglet « Enregistrement QA » du ticket (15 jours). Requiert une image de projet
+              qui fournit cet outil.
+            </span>
+          </span>
+        </label>
         <Field
           label="Commande de test"
           error={err("test_command")}

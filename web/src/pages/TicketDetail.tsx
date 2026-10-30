@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { CheckCircle2, CircleDashed, RotateCcw, XCircle } from "lucide-react";
 import { errorMessage } from "@/api/client";
-import { useRun, useTicket, useTicketAction } from "@/api/queries";
+import { useRun, useTicket, useTicketAction, useTicketRecordings } from "@/api/queries";
 import type { QaArtifact, ReviewArtifact, Run, TicketDetail } from "@/api/types";
 import { ApprovalList, RunsTable, Timeline } from "@/components/domain";
 import { Button } from "@/components/ui/Button";
@@ -17,6 +17,7 @@ import { useToast } from "@/components/ui/Toast";
 import { shortSha } from "@/lib/format";
 import { TICKET_TERMINAL } from "@/lib/states";
 import { CiBadge } from "./FeatureDetail";
+import { QARecordings } from "./QARecordings";
 
 function latest(runs: Run[], role: string): Run | undefined {
   return runs
@@ -114,6 +115,7 @@ function Info({ t }: { t: TicketDetail }) {
 export default function TicketDetailPage() {
   const id = Number(useParams().id);
   const q = useTicket(id);
+  const recordings = useTicketRecordings(id);
   const action = useTicketAction(id);
   const toast = useToast();
   const [tab, setTab] = useState("body");
@@ -212,6 +214,7 @@ export default function TicketDetailPage() {
                 { id: "runs", label: "Runs", count: t.runs.length },
                 { id: "approvals", label: "Approbations", count: t.approvals.length },
                 { id: "timeline", label: "Timeline", count: t.timeline.length },
+                { id: "recordings", label: "Enregistrement QA", count: recordings.data?.length ?? 0 },
               ]}
             >
               {tab === "body" && (
@@ -231,6 +234,7 @@ export default function TicketDetailPage() {
               )}
               {tab === "runs" && <RunsTable runs={t.runs} />}
               {tab === "approvals" && <ApprovalList approvals={t.approvals} />}
+              {tab === "recordings" && <QARecordings ticketId={t.id} acceptance={t.acceptance ?? []} />}
               {tab === "timeline" && <Timeline entries={t.timeline} truncatedLink={t.timeline_truncated ? `/audit?subject_type=ticket&subject_id=${t.id}` : undefined} />}
             </Tabs>
           </Card>

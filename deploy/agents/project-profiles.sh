@@ -28,6 +28,10 @@ log() { printf '[%s] %s\n' "$(date -u +%H:%M:%SZ)" "$*"; }
 docker image inspect "$image" >/dev/null 2>&1 || { echo "image $image absente : task project:image:build PROJECT=$slug" >&2; exit 1; }
 # Créé ici avec l'UID de l'hôte : sinon Docker le créerait en root au premier montage.
 mkdir -p "$ws"; chmod 755 "$ws"
+# Dépôt des enregistrements du QA navigateur (aos-qa-browser), seul dossier inscriptible du QA ;
+# Agentic OS en copie le contenu validé dans son stockage (recordings/store, jamais monté ici).
+rec="$data/recordings/inbox/$slug"
+mkdir -p "$rec"; chmod 755 "$rec"
 mkdir -p "$data/secrets/hermes"
 
 for role in developer reviewer qa; do
@@ -47,7 +51,9 @@ for role in developer reviewer qa; do
 
   mode=""; [ "$role" = developer ] || mode=":ro"
   "$hermes_bin" -p "$p" config set terminal.docker_image "$image" >/dev/null
-  "$hermes_bin" -p "$p" config set terminal.docker_volumes "[\"$ws:$ws$mode\"]" >/dev/null
+  vols="[\"$ws:$ws$mode\"]"
+  [ "$role" = qa ] && vols="[\"$ws:$ws$mode\", \"$rec:$rec\"]"
+  "$hermes_bin" -p "$p" config set terminal.docker_volumes "$vols" >/dev/null
   "$hermes_bin" -p "$p" config set terminal.container_cpu "$AOS_PROJECT_CPU" >/dev/null
   "$hermes_bin" -p "$p" config set terminal.container_memory "$AOS_PROJECT_MEMORY_MB" >/dev/null
   "$hermes_bin" -p "$p" config set terminal.timeout "$AOS_PROJECT_COMMAND_TIMEOUT" >/dev/null

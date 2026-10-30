@@ -93,3 +93,10 @@ export function formatDuration(start: string | null | undefined, end?: string | 
 export function shortSha(sha: string | null | undefined): string {
   return sha ? sha.slice(0, 7) : "—";
 }
+
+/** Taille lisible (Ko/Mo, base 1024). */
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} o`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} Ko`;
+  return `${(n / (1024 * 1024)).toFixed(1).replace(".", ",")} Mo`;
+}

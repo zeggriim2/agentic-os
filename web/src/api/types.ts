@@ -139,6 +139,8 @@ export interface Project extends Timestamps {
   telegram_thread_id?: number;
   /** Mode d'intégration proposé par défaut aux nouvelles features. */
   integration_mode?: IntegrationMode;
+  /** QA navigateur : le QA joue et enregistre un scénario (vidéo, trace, captures). */
+  qa_browser?: boolean;
 }
 /** Profil Hermes utilisable (clé configurée) ; rôle deviné d'après le suffixe du nom. */
 export interface HermesProfile {
@@ -156,6 +158,36 @@ export interface ModelProvider {
   name: string;
   is_current: boolean;
   models: string[];
+}
+/** Fichier d'un enregistrement QA (servi par /api/recordings/{id}/file). */
+export interface RecordingFile {
+  id: ID;
+  name: string;
+  size: number;
+  label?: string;
+  criterion?: number;
+}
+/** Rapport du scénario navigateur (report.json). */
+export interface RecordingReport {
+  ok: boolean;
+  error: string | null;
+  duration_ms: number;
+  steps: { name: string; ok: boolean; ms: number; error?: string }[] | null;
+  console_errors: string[] | null;
+  failed_requests: string[] | null;
+  blocked_external: number;
+}
+/** Session QA navigateur enregistrée (un run QA). */
+export interface RecordingSession {
+  run_id: ID;
+  created_at: string;
+  expires_at: string;
+  report: RecordingReport | null;
+  video: RecordingFile | null;
+  trace: RecordingFile | null;
+  scenario: RecordingFile | null;
+  shots: RecordingFile[];
+  logs: RecordingFile[];
 }
 /** Fournisseur + modèle tels que Hermes les nomme. */
 export interface ModelRef {
@@ -206,6 +238,7 @@ export interface ProjectCreate {
   telegram_chat_id?: string;
   telegram_thread_id?: number;
   integration_mode?: IntegrationMode;
+  qa_browser?: boolean;
 }
 export type ProjectPatch = Partial<Omit<ProjectCreate, "slug">> & {
   enabled?: boolean;

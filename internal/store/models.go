@@ -26,12 +26,14 @@ type Project struct {
 	TelegramChatID   string `db:"telegram_chat_id"`
 	TelegramThreadID int64  `db:"telegram_thread_id"`
 	// IntegrationMode : mode d'intégration proposé par défaut aux nouvelles features.
-	IntegrationMode string    `db:"integration_mode"`
-	CreatedAt       time.Time `db:"created_at"`
-	UpdatedAt       time.Time `db:"updated_at"`
+	IntegrationMode string `db:"integration_mode"`
+	// QABrowser : le QA joue et enregistre un scénario navigateur (aos-qa-browser de l'image du projet).
+	QABrowser bool      `db:"qa_browser"`
+	CreatedAt time.Time `db:"created_at"`
+	UpdatedAt time.Time `db:"updated_at"`
 }
 
-const projectCols = `id, slug, name, repository, base_branch, required_checks, mode, enabled, test_command, agent_profiles, agent_models, telegram_chat_id, telegram_thread_id, integration_mode, created_at, updated_at`
+const projectCols = `id, slug, name, repository, base_branch, required_checks, mode, enabled, test_command, agent_profiles, agent_models, telegram_chat_id, telegram_thread_id, integration_mode, qa_browser, created_at, updated_at`
 
 // ProfileFor renvoie le profil Hermes à utiliser pour role : celui du projet s'il en définit un,
 // sinon le profil par défaut de l'agent.

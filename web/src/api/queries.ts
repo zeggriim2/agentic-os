@@ -32,6 +32,7 @@ import type {
   ModelRef,
   ProfileModel,
   ProfileModels,
+  RecordingSession,
 } from "./types";
 
 // Clés de requête — préfixes utilisés pour l'invalidation SSE.
@@ -50,6 +51,7 @@ export const qk = {
   features: (p: Record<string, QueryValue> = {}) => ["features", p] as const,
   feature: (id: number) => ["feature", id] as const,
   ticket: (id: number) => ["ticket", id] as const,
+  ticketRecordings: (id: number) => ["ticket-recordings", id] as const,
   runs: (p: Record<string, QueryValue> = {}) => ["runs", p] as const,
   run: (id: number) => ["run", id] as const,
   approvals: (p: Record<string, QueryValue> = {}) => ["approvals", p] as const,
@@ -227,6 +229,13 @@ export const useFeature = (id: number) =>
         ),
         ["tickets", "approvals", "runs", "timeline"],
       ),
+  });
+
+/** Sessions QA navigateur enregistrées d'un ticket (récentes d'abord). */
+export const useTicketRecordings = (id: number) =>
+  useQuery({
+    queryKey: qk.ticketRecordings(id),
+    queryFn: async ({ signal }) => asPage<RecordingSession>(await api.get(`/api/tickets/${id}/recordings`, signal)).items,
   });
 
 export const useTicket = (id: number) =>

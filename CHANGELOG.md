@@ -4,6 +4,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 
 ## [Non publié]
 
+## [1.9.0] — 2026-10-30
+
+### Ajouté
+- **QA avec navigateur, enregistré** (réglage par projet) : le QA démarre l'application dans l'image
+  des agents (sans réseau : MariaDB, API Symfony, front Vite), joue un scénario Playwright et enregistre
+  **vidéo**, **trace**, **captures liées aux critères**, étapes et problèmes relevés (erreurs JS, requêtes
+  en erreur). Onglet **« Enregistrement QA »** sur la page du ticket, avec le **visualiseur de traces
+  Playwright intégré** (aucun service externe). Conservation 15 jours, purge automatique. Migration 0010.
+- Image FraisZen : `aos-qa-browser` (+ MariaDB, Chromium headless, Playwright 1.59.1), self-test dans la
+  vérification de l'image ; profil QA : dossier de dépôt des enregistrements en écriture.
+
 ## [1.8.0] — 2026-10-30
 
 ### Ajouté
