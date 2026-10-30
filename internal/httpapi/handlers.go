@@ -109,6 +109,8 @@ type projectCreate struct {
 	TelegramThreadID int64  `json:"telegram_thread_id"`
 	// IntegrationMode : mode d'intégration par défaut des nouvelles features ("" = direct).
 	IntegrationMode string `json:"integration_mode"`
+	// QABrowser : QA navigateur enregistré (outil aos-qa-browser de l'image du projet).
+	QABrowser bool `json:"qa_browser"`
 }
 
 func validateProject(in *store.ProjectInput) (string, string) {
@@ -202,7 +204,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	in := store.ProjectInput{Slug: trim(req.Slug), Name: req.Name, Repository: trim(req.Repository), BaseBranch: req.BaseBranch,
 		RequiredChecks: req.RequiredChecks, Mode: req.Mode, TestCommand: req.TestCommand, Enabled: false, AgentProfiles: req.AgentProfiles,
 		AgentModels: req.AgentModels, TelegramChatID: req.TelegramChatID, TelegramThreadID: req.TelegramThreadID,
-		IntegrationMode: req.IntegrationMode}
+		IntegrationMode: req.IntegrationMode, QABrowser: req.QABrowser}
 	if code, msg := validateProject(&in); code != "" {
 		writeError(w, 422, code, msg)
 		return
@@ -259,6 +261,7 @@ type projectPatch struct {
 	TelegramChatID   *string                        `json:"telegram_chat_id"`
 	TelegramThreadID *int64                         `json:"telegram_thread_id"`
 	IntegrationMode  *string                        `json:"integration_mode"`
+	QABrowser        *bool                          `json:"qa_browser"`
 	Confirm          *string                        `json:"confirm"`
 }
 
@@ -280,7 +283,7 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		in := store.ProjectInput{Slug: cur.Slug, Name: cur.Name, Repository: cur.Repository, BaseBranch: cur.BaseBranch,
 			RequiredChecks: cur.RequiredChecks, Mode: cur.Mode, Enabled: cur.Enabled, TestCommand: cur.TestCommand,
 			AgentProfiles: cur.AgentProfiles, AgentModels: cur.AgentModels, TelegramChatID: cur.TelegramChatID, TelegramThreadID: cur.TelegramThreadID,
-			IntegrationMode: cur.IntegrationMode}
+			IntegrationMode: cur.IntegrationMode, QABrowser: cur.QABrowser}
 		if req.Name != nil {
 			in.Name = *req.Name
 		}
@@ -316,6 +319,9 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.IntegrationMode != nil {
 			in.IntegrationMode = *req.IntegrationMode
+		}
+		if req.QABrowser != nil {
+			in.QABrowser = *req.QABrowser
 		}
 		if code, msg := validateProject(&in); code != "" {
 			return &userError{422, code, msg}

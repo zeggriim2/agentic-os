@@ -249,14 +249,20 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) int {
 		log.Error("racine des workspaces inaccessible", "error", err.Error())
 		return 1
 	}
+	// Enregistrements du QA navigateur : facultatifs (sans dossier, le QA se fait sans navigateur).
+	recordingsRoot := cfg.RecordingsRoot
+	if err := os.MkdirAll(filepath.Join(recordingsRoot, "store"), 0o750); err != nil {
+		log.Warn("dossier des enregistrements QA inaccessible : QA navigateur désactivé", "error", err.Error())
+		recordingsRoot = ""
+	}
 	eng := &engine.Engine{
 		Store: s, Hermes: d.hermes, GitHub: d.github, Git: d.git, Notifier: d.telegram, Log: log,
-		Workers: cfg.Workers, Lease: cfg.Lease(), MaxRework: cfg.MaxRework,
+		Workers: cfg.Workers, Lease: cfg.Lease(), MaxRework: cfg.MaxRework, Recordings: recordingsRoot,
 	}
 	eng.Init()
 	hub := httpapi.NewHub()
 	api := &httpapi.Server{
-		Store: s, Engine: eng, Log: log, Hub: hub, Web: web.Dist(), AdminLogin: cfg.AdminLogin,
+		Store: s, Engine: eng, Log: log, Hub: hub, Web: web.Dist(), AdminLogin: cfg.AdminLogin, Recordings: recordingsRoot,
 		PasswordHash:  func() (string, error) { return d.secrets.Read("admin_password_hash") },
 		SessionKey:    sessionKey,
 		WebhookSecret: func() ([]byte, error) { v, err := d.secrets.Read("github_webhook_secret"); return []byte(v), err },

@@ -61,7 +61,21 @@ ENV COMPOSER_DISABLE_NETWORK=1 \
     npm_config_audit=false \
     npm_config_fund=false
 
-COPY --chmod=755 aos-setup aos-ci /usr/local/bin/
+# QA navigateur (aos-qa-browser) : base MariaDB locale, Chromium headless piloté par Playwright,
+# téléchargés au build uniquement. Les scénarios du QA importent playwright depuis /opt/aos/qa.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/aos/ms-playwright
+# hadolint ignore=DL3008
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends mariadb-server curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /opt/aos/qa && cd /opt/aos/qa \
+ && npm_config_offline=false npm install --no-audit --no-fund --no-save playwright@1.59.1 \
+ && npm_config_offline=false npx playwright install --with-deps --only-shell chromium \
+ && rm -rf /var/lib/apt/lists/* \
+ && chmod -R a+rX /opt/aos/qa /opt/aos/ms-playwright
+COPY --chmod=644 aos-qa-runner.mjs /opt/aos/qa/
+
+COPY --chmod=755 aos-setup aos-ci aos-qa-browser /usr/local/bin/
 
 # Hermes lance ses propres commandes : pas d'entrypoint FrankenPHP.
 WORKDIR /tmp

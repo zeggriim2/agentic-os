@@ -295,6 +295,9 @@ type env struct {
 	design string
 	// agentModels : modèles imposés par le projet (rôle → fournisseur/modèle).
 	agentModels map[string]domain.ModelChoice
+	// qaBrowser active le QA navigateur du projet ; qaHook simule les dépôts de l'agent QA.
+	qaBrowser bool
+	qaHook    func(req hermes.RunRequest)
 }
 
 const poOK = "Voici la spec.\n```json\n{\"summary\":\"s\",\"user_stories\":[\"en tant que…\"],\"acceptance_criteria\":[\"c1\"],\"open_questions\":[]}\n```"
@@ -354,6 +357,9 @@ func newEnv(t *testing.T) *env {
 		case "aos-reviewer":
 			return ev.review(reviewRe.FindStringSubmatch(req.Input)[1], call), 500
 		case "aos-qa":
+			if ev.qaHook != nil {
+				ev.qaHook(req)
+			}
 			return ev.qa(qaRe.FindStringSubmatch(req.Input)[1], call), 500
 		}
 		return "", 0
@@ -375,7 +381,7 @@ func (ev *env) project() *store.Project {
 	p, err := store.CreateProject(context.Background(), ev.s.Pool, store.ProjectInput{Slug: "demo", Name: "Demo", Repository: "o/r",
 		BaseBranch: "main", Mode: "sandbox", Enabled: true, RequiredChecks: []string{"tests"}, TestCommand: "go test ./...",
 		AgentProfiles: ev.agentProfiles, AgentModels: ev.agentModels, TelegramChatID: ev.telegramChat, TelegramThreadID: ev.telegramThread,
-		IntegrationMode: ev.integration})
+		IntegrationMode: ev.integration, QABrowser: ev.qaBrowser})
 	if err != nil {
 		ev.t.Fatal(err)
 	}

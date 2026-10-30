@@ -87,6 +87,10 @@ services:
       - type: bind
         source: /home/hermes/agentic-os-data/workspaces
         target: /home/hermes/agentic-os-data/workspaces
+      # Enregistrements du QA navigateur : inbox/<projet> (monté chez l'agent QA) et store (Agentic OS).
+      - type: bind
+        source: /home/hermes/agentic-os-data/recordings
+        target: /home/hermes/agentic-os-data/recordings
     depends_on:
       migrate:
         condition: service_completed_successfully

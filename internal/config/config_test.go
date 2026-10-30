@@ -8,7 +8,7 @@ import (
 )
 
 func TestLoadDefaultsAndValidation(t *testing.T) {
-	for _, k := range []string{"AOS_HTTP_ADDR", "AOS_WORKERS", "AOS_LEASE_SECONDS", "AOS_MAX_REWORK", "AOS_WORKSPACE_ROOT",
+	for _, k := range []string{"AOS_HTTP_ADDR", "AOS_WORKERS", "AOS_LEASE_SECONDS", "AOS_MAX_REWORK", "AOS_WORKSPACE_ROOT", "AOS_RECORDINGS_ROOT",
 		"AOS_SECRETS_DIR", "AOS_GIT_BINARY", "AOS_PUBLIC_TZ", "AOS_HERMES_URL"} {
 		t.Setenv(k, "")
 	}

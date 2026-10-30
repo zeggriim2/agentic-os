@@ -27,7 +27,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: shellcheck
-        run: shellcheck -x -P deploy/ops -S warning deploy/ops/*.sh deploy/agents/sync-profile-models.sh deploy/agents/install-profile-sync.sh
+        run: shellcheck -x -P deploy/ops -S warning deploy/ops/*.sh deploy/agents/sync-profile-models.sh deploy/agents/install-profile-sync.sh deploy/agents/project-profiles.sh projects/fraiszen/aos-qa-browser
       - name: test-ops
         env:
           GOTOOLCHAIN: local

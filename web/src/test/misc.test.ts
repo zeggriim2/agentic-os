@@ -80,6 +80,7 @@ describe("utilitaires d'écran", () => {
       telegram_chat: "",
       telegram_thread: "",
       integration_mode: "direct" as const,
+      qa_browser: false,
     };
     expect(validateProject(ok, true)).toEqual({});
     expect(

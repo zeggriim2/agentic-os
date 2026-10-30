@@ -487,3 +487,18 @@ func (m *Manager) Push(ctx context.Context, path, branch string) error {
 	}
 	return nil
 }
+
+// ChangedFiles liste les fichiers modifiés entre baseRef et HEAD (renommages : nouveau chemin).
+func (m *Manager) ChangedFiles(ctx context.Context, path, baseRef string) ([]string, error) {
+	out, err := m.Git.Run(ctx, path, nil, "diff", "--name-only", "-z", baseRef+"...HEAD", "--")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, f := range strings.Split(out, "\x00") {
+		if f != "" {
+			files = append(files, f)
+		}
+	}
+	return files, nil
+}

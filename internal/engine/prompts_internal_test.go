@@ -33,7 +33,7 @@ func TestToolRolePromptsAreContextFrugalAndUseRemoteBase(t *testing.T) {
 	roles = append(roles, role{"développeur", i, in})
 	i, in = reviewerPrompt(p, tk, "/w/p-F1-T1-review", sha)
 	roles = append(roles, role{"reviewer", i, in})
-	i, in = qaPrompt(p, tk, "/w/p-F1-T1-qa", sha)
+	i, in = qaPrompt(p, tk, "/w/p-F1-T1-qa", sha, qaBrowser{})
 	roles = append(roles, role{"qa", i, in})
 	i, in = techLeadPrompt(p, &store.Feature{Title: "F"}, "")
 	roles = append(roles, role{"tech lead", i, in})
@@ -61,5 +61,26 @@ func TestToolRolePromptsAreContextFrugalAndUseRemoteBase(t *testing.T) {
 	// Instructions du développeur : la règle d'économie ajoute peu (≈ 1 000 caractères).
 	if n := len(roles[0].instr); n > 3500 {
 		t.Fatalf("instructions du développeur trop longues : %d caractères", n)
+	}
+}
+
+func TestQAPromptBrowserRules(t *testing.T) {
+	p := &store.Project{Repository: "o/r", BaseBranch: "develop"}
+	tk := &store.Ticket{Key: "p-F1-T1", Title: "T"}
+	sha := strings.Repeat("a", 40)
+	i, _ := qaPrompt(p, tk, "/w/qa", sha, qaBrowser{})
+	if strings.Contains(i, "aos-qa-browser") {
+		t.Fatal("sans dossier d'enregistrement, pas de consignes navigateur")
+	}
+	i, _ = qaPrompt(p, tk, "/w/qa", sha, qaBrowser{Dir: "/rec/in/p-F1-T1-j9-a1"})
+	for _, want := range []string{"cd /w/qa && aos-qa-browser /rec/in/p-F1-T1-j9-a1/scenario.mjs /rec/in/p-F1-T1-j9-a1",
+		"facultatif", "Forfait 10 %\")", "{ criterion: 2 }", "report.json"} {
+		if !strings.Contains(i, want) {
+			t.Fatalf("consigne absente : %q\n%s", want, i)
+		}
+	}
+	i, _ = qaPrompt(p, tk, "/w/qa", sha, qaBrowser{Dir: "/rec/x", FrontChanged: true})
+	if !strings.Contains(i, "OBLIGATOIRE") || strings.Contains(i, "%!") {
+		t.Fatalf("ticket front : %s", i)
 	}
 }

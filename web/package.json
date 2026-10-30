@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && node scripts/copy-trace-viewer.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "lint": "tsc --noEmit"
@@ -28,6 +28,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "autoprefixer": "^10.4.20",
     "jsdom": "^30.1.3",
+    "playwright-core": "1.64.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.19",
     "typescript": "~5.8.3",

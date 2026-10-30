@@ -66,6 +66,8 @@ type ProjectInput struct {
 	TelegramThreadID                                      int64
 	// IntegrationMode : mode par défaut des nouvelles features ("" = direct).
 	IntegrationMode string
+	// QABrowser : QA navigateur enregistré (aos-qa-browser).
+	QABrowser bool
 }
 
 func (in *ProjectInput) defaults() {
@@ -87,9 +89,9 @@ func (in *ProjectInput) defaults() {
 func CreateProject(ctx context.Context, q Q, in ProjectInput) (*Project, error) {
 	in.defaults()
 	p, err := one[Project](ctx, q, `INSERT INTO projects (slug, name, repository, base_branch, required_checks, mode, enabled, test_command, agent_profiles,
-		telegram_chat_id, telegram_thread_id, agent_models, integration_mode) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING `+projectCols,
+		telegram_chat_id, telegram_thread_id, agent_models, integration_mode, qa_browser) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING `+projectCols,
 		in.Slug, in.Name, in.Repository, in.BaseBranch, in.RequiredChecks, in.Mode, in.Enabled, in.TestCommand, in.AgentProfiles,
-		in.TelegramChatID, in.TelegramThreadID, in.AgentModels, in.IntegrationMode)
+		in.TelegramChatID, in.TelegramThreadID, in.AgentModels, in.IntegrationMode, in.QABrowser)
 	if IsUniqueViolation(err) {
 		return nil, ErrDuplicate
 	}
@@ -117,10 +119,10 @@ func UpdateProject(ctx context.Context, q Q, id int64, in ProjectInput) (*Projec
 	in.defaults()
 	return one[Project](ctx, q, `UPDATE projects SET name=$2, repository=$3, base_branch=$4, required_checks=$5, mode=$6,
 		enabled=$7, test_command=$8, agent_profiles=$9, telegram_chat_id=$10, telegram_thread_id=$11, agent_models=$12,
-		integration_mode=$13, updated_at=now()
+		integration_mode=$13, qa_browser=$14, updated_at=now()
 		WHERE id=$1 RETURNING `+projectCols,
 		id, in.Name, in.Repository, in.BaseBranch, in.RequiredChecks, in.Mode, in.Enabled, in.TestCommand, in.AgentProfiles,
-		in.TelegramChatID, in.TelegramThreadID, in.AgentModels, in.IntegrationMode)
+		in.TelegramChatID, in.TelegramThreadID, in.AgentModels, in.IntegrationMode, in.QABrowser)
 }
 
 // ProjectAgentProfiles liste les profils Hermes propres aux projets actifs (sans doublon, triés).
