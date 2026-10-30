@@ -14,6 +14,8 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
   (`deploy/agents/install-profile-sync.sh`, `sync-profile-models.sh`) : copie de sauvegarde, `hermes
   config set`, relecture, config d'origine remise en cas d'échec. Migration 0009.
 
+## [1.7.0] — 2026-10-29
+
 ### Ajouté
 - **Mode d'intégration par feature** : « Directe » (PR de chaque ticket vers la base, comme avant) ou
   « Branche de feature » : les tickets partent d'une branche `feature/F<n>-<titre>` créée depuis la base,
