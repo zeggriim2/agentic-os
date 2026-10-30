@@ -4,6 +4,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 
 ## [Non publié]
 
+## [1.8.0] — 2026-10-30
+
+### Ajouté
+- **Modèle par défaut des profils Hermes depuis Agentic OS** (page Agents) : modèle actuel de chaque
+  profil `aos-*` lu dans Hermes, liste déroulante du catalogue pour le changer, état de la demande
+  (en attente, appliqué, échec avec le message). Hermes résout le défaut du profil avant le modèle demandé
+  par le projet : un défaut en quota épuisé faisait échouer les runs (FraisZen F6-T2). Les rôles concernés
+  sont signalés avec un bouton « Aligner le profil ».
+- Application sur l'hôte par le timer systemd utilisateur `aos-profile-sync`
+  (`deploy/agents/install-profile-sync.sh`, `sync-profile-models.sh`) : copie de sauvegarde, `hermes
+  config set`, relecture, config d'origine remise en cas d'échec. Migration 0009.
+
 ## [1.7.0] — 2026-10-29
 
 ### Ajouté

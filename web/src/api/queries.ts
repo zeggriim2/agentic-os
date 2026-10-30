@@ -29,6 +29,9 @@ import type {
   GitGraph,
   HermesProfile,
   ModelProvider,
+  ModelRef,
+  ProfileModel,
+  ProfileModels,
 } from "./types";
 
 // Clés de requête — préfixes utilisés pour l'invalidation SSE.
@@ -43,6 +46,7 @@ export const qk = {
   agents: ["agents"] as const,
   hermesProfiles: ["hermes-profiles"] as const,
   hermesModels: ["hermes-models"] as const,
+  profileModels: ["profile-models"] as const,
   features: (p: Record<string, QueryValue> = {}) => ["features", p] as const,
   feature: (id: number) => ["feature", id] as const,
   ticket: (id: number) => ["ticket", id] as const,
@@ -273,6 +277,23 @@ export const useHealth = () =>
   });
 
 // ---------- Écritures ----------
+/** Modèles par défaut des profils aos-* ; rafraîchi toutes les 10 s tant qu'une demande est en attente. */
+export const useProfileModels = () =>
+  useQuery({
+    queryKey: qk.profileModels,
+    queryFn: ({ signal }) => api.get<ProfileModels>("/api/profile-models", signal),
+    refetchInterval: (query) => (query.state.data?.items.some((p) => p.state === "PENDING") ? 10_000 : false),
+  });
+
+export function useRequestProfileModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ profile, ...m }: ModelRef & { profile: string }) =>
+      api.put<ProfileModel>(`/api/profile-models/${encodeURIComponent(profile)}`, m),
+    onSettled: () => invalidateMany(qc, ["profile-models"]),
+  });
+}
+
 function invalidateMany(qc: QueryClient, keys: string[]) {
   return Promise.all(keys.map((k) => qc.invalidateQueries({ queryKey: [k] })));
 }

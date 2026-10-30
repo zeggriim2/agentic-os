@@ -58,6 +58,34 @@ avec un message explicite, l'agent le signale dans son livrable. Reconstruire l'
 branche du ticket n'est pas prévu : merger d'abord l'ajout de dépendance, ou relancer le ticket
 après reconstruction.
 
+## Modèle par défaut des profils (timer `aos-profile-sync`, 1.8.0)
+
+Hermes résout le fournisseur par défaut du profil **avant** d'appliquer la surcharge `model`/`provider`
+d'un run (`gateway/platforms/api_server.py`, `_resolve_runtime_agent_kwargs`) : un défaut indisponible
+(quota Codex épuisé) fait échouer le run même si le projet demande un autre fournisseur. L'API Hermes
+n'expose que la **lecture** du modèle d'un profil (`GET /p/<profil>/api/model/options`) ; l'écriture
+(`POST /api/model/set`) n'existe que dans le tableau de bord Hermes. D'où :
+
+- Agentic OS enregistre le modèle voulu (`PUT /api/profile-models/{profil}`, table `profile_models`,
+  état `PENDING`, révision) ;
+- `deploy/agents/sync-profile-models.sh`, lancé toutes les 30 s par le timer systemd **utilisateur**
+  `aos-profile-sync`, applique chaque demande : copie `0600` du `config.yaml` dans
+  `~/.hermes/backups/aos-profile-models/`, `hermes -p <profil> config set model.provider` puis
+  `model.default` (Hermes efface lui-même un `base_url` propre à l'ancien fournisseur), relecture par
+  `config get`, puis `APPLIED` ou `FAILED` (config d'origine remise) pour la révision lue ;
+- Agentic OS relit le modèle effectif par l'API Hermes (cache 30 s) et signale les écarts.
+
+Installation (une fois, sur l'hôte Hermes, utilisateur `hermes`, « linger » systemd actif) :
+
+```sh
+deploy/agents/install-profile-sync.sh            # installe et lance un premier passage
+journalctl --user -u aos-profile-sync -n 20      # journal
+deploy/agents/install-profile-sync.sh --uninstall
+```
+
+Le chemin de `hermes` est résolu à l'installation et figé dans l'unité (`AOS_HERMES_BIN`). Le script ne lit
+aucun secret ; PostgreSQL est joint par le conteneur `db` comme les scripts `deploy/ops`.
+
 ## Sécurité
 
 - Pendant les runs : `--network none`, UID de l'hôte, aucun secret, aucune variable d'environnement

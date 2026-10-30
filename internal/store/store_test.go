@@ -647,3 +647,39 @@ func TestFeatureIntegrationModeMigrationAndDefaults(t *testing.T) {
 		t.Fatalf("mise à jour pending : %v %v %+v", ok, err, ap)
 	}
 }
+
+func TestProfileModelsRequestAndRevision(t *testing.T) {
+	s := pgtest.New(t)
+	ctx := context.Background()
+	if at, _, err := store.ProfileSyncLastSeen(ctx, s.Pool); err != nil || at != nil {
+		t.Fatalf("aucun passage attendu : %v %v", at, err)
+	}
+	pm, err := store.RequestProfileModel(ctx, s.Pool, "aos-fraiszen-developer", "anthropic", "claude-opus-5-5", "admin")
+	if err != nil || pm.Revision != 1 || pm.State != store.ProfileModelPending {
+		t.Fatalf("demande : %+v %v", pm, err)
+	}
+	// Le script note l'échec de la révision 1, puis une nouvelle demande repart en PENDING, révision 2.
+	if _, err := s.Pool.Exec(ctx, `UPDATE profile_models SET state='FAILED', error='x' WHERE profile='aos-fraiszen-developer' AND revision=1`); err != nil {
+		t.Fatal(err)
+	}
+	pm, err = store.RequestProfileModel(ctx, s.Pool, "aos-fraiszen-developer", "openai-codex", "gpt-5.6-luna-900k", "admin")
+	if err != nil || pm.Revision != 2 || pm.State != store.ProfileModelPending || pm.Error != nil || pm.DesiredProvider != "openai-codex" {
+		t.Fatalf("nouvelle révision : %+v %v", pm, err)
+	}
+	// Contraintes : profil hors aos-*, noms invalides.
+	for _, c := range [][3]string{{"dev-developer", "anthropic", "m"}, {"aos-x", "bad provider", "m"}, {"aos-x", "anthropic", "m'; --"}} {
+		if _, err := store.RequestProfileModel(ctx, s.Pool, c[0], c[1], c[2], "admin"); err == nil {
+			t.Fatalf("refus attendu : %v", c)
+		}
+	}
+	if _, err := s.Pool.Exec(ctx, `INSERT INTO profile_sync_status(last_seen_at, host) VALUES (now(), 'h')`); err != nil {
+		t.Fatal(err)
+	}
+	if at, host, err := store.ProfileSyncLastSeen(ctx, s.Pool); err != nil || at == nil || host != "h" {
+		t.Fatalf("passage : %v %q %v", at, host, err)
+	}
+	all, err := store.ListProfileModels(ctx, s.Pool)
+	if err != nil || len(all) != 1 {
+		t.Fatalf("liste : %v %v", all, err)
+	}
+}

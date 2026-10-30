@@ -103,4 +103,51 @@ AOS_BACKUP_KEEP_MIN=$((n_before - 1)) "$OPS/backup.sh" retention >/dev/null 2>&1
 [ ! -e "$AOS_BACKUP_DIR/agentic-os-old40-x.dump" ] && [ ! -e "$AOS_BACKUP_DIR/agentic-os-old35-x.dump" ] && ok "archives expirées supprimées au-delà du minimum" || fail "archives expirées supprimées au-delà du minimum"
 [ -e "$AOS_BACKUP_DIR/agentic-os-old30-x.dump" ] && ok "minimum d'archives conservé même expirées" || fail "minimum d'archives conservé même expirées"
 
+echo "▶ synchronisation des modèles de profils (deploy/agents/sync-profile-models.sh)"
+bash -c "$AOS_MIGRATE" >/dev/null 2>&1
+HH="$WORK/hermes-home"
+FAKE="$WORK/fake-hermes"
+# Faux hermes : « hermes -p <profil> config set|get <clé> [valeur] » sur un fichier clé=valeur.
+cat >"$FAKE" <<FAKE
+#!/usr/bin/env bash
+p=\$2; f="\$HERMES_HOME/profiles/\$p/config.yaml"
+case "\$4" in
+set)
+	[ "\$p" = aos-casse ] && [ "\$5" = model.default ] && { echo boom >&2; exit 1; }
+	if [ "\$p" = aos-course ] && [ "\$5" = model.default ]; then
+		docker exec -i $C psql -X -q -U agentic_os -d agentic_os -c "UPDATE profile_models SET revision=revision+1, desired_model='m2' WHERE profile='aos-course' AND desired_model='m1'" >/dev/null
+	fi
+	grep -v "^\$5=" "\$f" >"\$f.tmp" || true; echo "\$5=\$6" >>"\$f.tmp"; mv "\$f.tmp" "\$f" ;;
+get) [ "\$p" = aos-menteur ] && { echo autre; exit 0; }; sed -n "s/^\$5=//p" "\$f" ;;
+esac
+FAKE
+chmod +x "$FAKE"
+for p in aos-ok aos-casse aos-menteur aos-course; do
+	mkdir -p "$HH/profiles/$p"; printf 'model.provider=openai-codex\nmodel.default=gpt-5.6-luna-900k\nagent=garde\n' >"$HH/profiles/$p/config.yaml"
+done
+sql "INSERT INTO profile_models(profile, desired_provider, desired_model, requested_by) VALUES
+	('aos-ok','anthropic','claude-opus-5-5','a'), ('aos-casse','anthropic','claude-opus-5-5','a'),
+	('aos-menteur','anthropic','claude-opus-5-5','a'), ('aos-course','anthropic','m1','a'), ('aos-absent','anthropic','m','a')"
+SYNC="$REPO/deploy/agents/sync-profile-models.sh"
+if AOS_HERMES_BIN=hermes HERMES_HOME="$HH" "$SYNC" 2>/dev/null; then fail "chemin relatif de hermes accepté"; else ok "chemin relatif de hermes refusé"; fi
+expect_eq "rien modifié sans hermes valide" "$(sql "SELECT count(*) FROM profile_models WHERE state<>'PENDING'")" "0"
+AOS_HERMES_BIN="$FAKE" HERMES_HOME="$HH" "$SYNC" 2>>"$WORK/sync.log" || { cat "$WORK/sync.log" >&2; fail "passage du script"; }
+state() { sql "SELECT state||':'||revision FROM profile_models WHERE profile='$1'"; }
+expect_eq "profil appliqué" "$(state aos-ok)" "APPLIED:1"
+expect_eq "config écrite (fournisseur, modèle), reste conservé" "$(sort "$HH/profiles/aos-ok/config.yaml" | tr '\n' ' ')" "agent=garde model.default=claude-opus-5-5 model.provider=anthropic "
+bk=$(ls "$HH"/backups/aos-profile-models/aos-ok-*-r1.yaml)
+expect_eq "copie de sauvegarde en 0600" "$(stat -c %a "$bk")" "600"
+expect_eq "répertoire des copies en 0700" "$(stat -c %a "$HH/backups/aos-profile-models")" "700"
+expect_eq "échec de hermes noté" "$(state aos-casse)" "FAILED:1"
+sql "SELECT error FROM profile_models WHERE profile='aos-casse'" | grep -q boom && ok "message de hermes conservé" || fail "message de hermes conservé"
+expect_eq "config d'origine remise après échec" "$(sort "$HH/profiles/aos-casse/config.yaml" | tr '\n' ' ')" "agent=garde model.default=gpt-5.6-luna-900k model.provider=openai-codex "
+expect_eq "relecture différente refusée" "$(state aos-menteur)" "FAILED:1"
+expect_eq "config d'origine remise après relecture différente" "$(grep -c openai-codex "$HH/profiles/aos-menteur/config.yaml")" "1"
+expect_eq "profil absent de l'hôte refusé" "$(state aos-absent)" "FAILED:1"
+expect_eq "demande modifiée pendant l'application : reste en attente" "$(state aos-course)" "PENDING:2"
+expect_eq "battement du script enregistré" "$(sql "SELECT count(*) FROM profile_sync_status WHERE last_seen_at > now() - interval '1 minute'")" "1"
+AOS_HERMES_BIN="$FAKE" HERMES_HOME="$HH" "$SYNC" 2>>"$WORK/sync.log" || { cat "$WORK/sync.log" >&2; fail "passage du script"; }
+expect_eq "révision suivante appliquée au passage suivant" "$(state aos-course)" "APPLIED:2"
+expect_eq "profil déjà appliqué non retouché" "$(ls "$HH"/backups/aos-profile-models/aos-ok-* | wc -l)" "1"
+
 echo "OK : $pass vérifications"

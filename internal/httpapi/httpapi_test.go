@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -1095,5 +1096,130 @@ func TestIntegrationModeOnProjectFeatureAndSwitch(t *testing.T) {
 	r = c.do("GET", "/api/pipeline", nil, false)
 	if !strings.Contains(r.raw, `"label":"Recette humaine","state":"ACCEPTANCE"`) {
 		t.Fatalf("pipeline : colonne de recette absente")
+	}
+}
+
+// profileCatalog : catalogue Hermes dont le modèle courant dépend du profil (GET /p/<profil>/api/model/options).
+type profileCatalog struct {
+	mu      sync.Mutex
+	current map[string][2]string
+	calls   map[string]int
+}
+
+func (f *profileCatalog) ModelOptions(_ context.Context, profile string) (hermes.ModelOptions, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls[profile]++
+	cur, ok := f.current[profile]
+	if !ok {
+		return hermes.ModelOptions{}, &hermes.Error{Status: 404, Class: domain.ErrClassProvider, Msg: "profil inconnu " + profile}
+	}
+	return hermes.ModelOptions{Provider: cur[0], Model: cur[1], Providers: []hermes.ModelProvider{
+		{Slug: "openai-codex", Name: "OpenAI Codex", Authenticated: true, Models: []string{"gpt-5.6-luna-900k"}},
+		{Slug: "anthropic", Name: "Anthropic", Authenticated: true, Models: []string{"claude-opus-5-5"}},
+	}}, nil
+}
+
+func TestProfileModelsListRequestAndMismatch(t *testing.T) {
+	cat := &profileCatalog{calls: map[string]int{}, current: map[string][2]string{
+		"aos-po": {"openai-codex", "gpt-5.6-luna-900k"}, "aos-developer": {"openai-codex", "gpt-5.6-luna-900k"},
+		"aos-fz-developer": {"openai-codex", "gpt-5.6-luna-900k"}, "aos-fz-qa": {"anthropic", "claude-opus-5-5"},
+	}}
+	profiles := []string{"aos-po", "aos-developer", "aos-fz-developer", "aos-fz-qa", "aos-cassé", "dev-developer", "default"}
+	c := setupWith(t, nil, func(s *httpapi.Server) {
+		s.Models = cat
+		s.HermesProfiles = func() ([]string, error) { return profiles, nil }
+	})
+	expectStatus(t, "non authentifié", c.do("GET", "/api/profile-models", nil, false), 401, "")
+	c.login()
+	// Projet : développeur et QA sur des profils propres, tous deux demandés en Claude.
+	choice := map[string]string{"provider": "anthropic", "model": "claude-opus-5-5"}
+	r := c.do("POST", "/api/projects", map[string]any{"slug": "fz", "name": "FZ", "repository": "o/fz",
+		"agent_profiles": map[string]string{"developer": "aos-fz-developer", "qa": "aos-fz-qa"},
+		"agent_models":   map[string]any{"developer": choice, "qa": choice, "po": choice}}, true)
+	expectStatus(t, "projet", r, 201, "")
+	expectStatus(t, "activation", c.do("PATCH", "/api/projects/"+itoa(r.body["id"]), map[string]any{"enabled": true}, true), 200, "")
+
+	r = c.do("GET", "/api/profile-models", nil, false)
+	expectStatus(t, "liste", r, 200, "")
+	items, _ := r.body["items"].([]any)
+	names := []string{}
+	for _, it := range items {
+		names = append(names, it.(map[string]any)["profile"].(string))
+	}
+	if strings.Join(names, ",") != "aos-developer,aos-fz-developer,aos-fz-qa,aos-po" {
+		t.Fatalf("seuls les profils aos-* valides : %v", names)
+	}
+	dev := items[1].(map[string]any)
+	if dev["role"] != "developer" || dev["state"] != "" || dev["desired"] != nil {
+		t.Fatalf("profil sans demande : %v", dev)
+	}
+	if cur := dev["current"].(map[string]any); cur["provider"] != "openai-codex" {
+		t.Fatalf("modèle courant : %v", cur)
+	}
+	if u := dev["usages"].([]any); len(u) != 1 || u[0].(map[string]any)["project"] != "fz" {
+		t.Fatalf("usages : %v", u)
+	}
+	// Écarts : développeur fz (profil Codex, Claude demandé) et PO (profil par défaut aos-po). QA aligné.
+	mm, _ := r.body["mismatches"].([]any)
+	got := []string{}
+	for _, m := range mm {
+		x := m.(map[string]any)
+		got = append(got, x["project"].(string)+"/"+x["role"].(string)+"/"+x["profile"].(string))
+	}
+	sort.Strings(got)
+	if strings.Join(got, ",") != "fz/developer/aos-fz-developer,fz/po/aos-po" {
+		t.Fatalf("écarts : %v", got)
+	}
+	if sy := r.body["sync"].(map[string]any); sy["stale"] != true || sy["last_seen_at"] != nil {
+		t.Fatalf("script jamais vu : %v", sy)
+	}
+	// Cache : une seconde lecture n'interroge pas Hermes.
+	c.do("GET", "/api/profile-models", nil, false)
+	if cat.calls["aos-fz-qa"] != 1 {
+		t.Fatalf("cache des modèles courants : %v", cat.calls)
+	}
+
+	// Demandes : refus (hors aos-*, inconnu, hors catalogue, sans CSRF), puis acceptation.
+	put := func(p, prov, model string, csrf bool) resp {
+		return c.do("PUT", "/api/profile-models/"+p, map[string]string{"provider": prov, "model": model}, csrf)
+	}
+	expectStatus(t, "dev-* refusé", put("dev-developer", "anthropic", "claude-opus-5-5", true), 422, "invalid_profile")
+	expectStatus(t, "inconnu", put("aos-absent", "anthropic", "claude-opus-5-5", true), 404, "unknown_profile")
+	expectStatus(t, "hors catalogue", put("aos-fz-developer", "anthropic", "claude-x", true), 422, "invalid_agent_models")
+	expectStatus(t, "nom invalide", put("aos-fz-developer", "anthropic", "a b", true), 422, "invalid_model")
+	expectStatus(t, "sans CSRF", put("aos-fz-developer", "anthropic", "claude-opus-5-5", false), 403, "")
+	r = put("aos-fz-developer", "anthropic", "claude-opus-5-5", true)
+	if r.status != 200 || r.body["state"] != "PENDING" || r.body["revision"] != float64(1) {
+		t.Fatalf("demande : %s", r.raw)
+	}
+	r = put("aos-fz-developer", "anthropic", "claude-opus-5-5", true)
+	if r.body["revision"] != float64(2) {
+		t.Fatalf("nouvelle révision : %s", r.raw)
+	}
+	// Le script applique : état APPLIED, Hermes relit le nouveau modèle → aligné, plus d'écart.
+	if _, err := c.s.Pool.Exec(context.Background(), `UPDATE profile_models SET state='APPLIED', applied_at=now() WHERE profile='aos-fz-developer';
+		INSERT INTO profile_sync_status(last_seen_at, host) VALUES (now(), 'srv')`); err != nil {
+		t.Fatal(err)
+	}
+	cat.mu.Lock()
+	cat.current["aos-fz-developer"] = [2]string{"anthropic", "claude-opus-5-5"}
+	cat.mu.Unlock()
+	r = c.do("GET", "/api/profile-models", nil, false)
+	for _, it := range r.body["items"].([]any) {
+		x := it.(map[string]any)
+		if x["profile"] == "aos-fz-developer" && (x["state"] != "APPLIED" || x["matches_desired"] != true) {
+			t.Fatalf("appliqué : %v", x)
+		}
+	}
+	if mm, _ := r.body["mismatches"].([]any); len(mm) != 1 {
+		t.Fatalf("écart restant (PO) : %v", mm)
+	}
+	if sy := r.body["sync"].(map[string]any); sy["stale"] != false || sy["host"] != "srv" {
+		t.Fatalf("script vu : %v", sy)
+	}
+	var n int
+	if err := c.s.Pool.QueryRow(context.Background(), `SELECT count(*) FROM audit_log WHERE action='profile_model.requested'`).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("audit : %d %v", n, err)
 	}
 }
