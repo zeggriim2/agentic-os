@@ -4,6 +4,8 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 
 ## [Non publié]
 
+## [1.9.0] — 2026-10-30
+
 ### Ajouté
 - **QA avec navigateur, enregistré** (réglage par projet) : le QA démarre l'application dans l'image
   des agents (sans réseau : MariaDB, API Symfony, front Vite), joue un scénario Playwright et enregistre
