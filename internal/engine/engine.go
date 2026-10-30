@@ -41,6 +41,7 @@ type GitHub interface {
 	EnsureDraftPR(ctx context.Context, repo, head, base, title, body string) (gh.PR, bool, error)
 	GetPR(ctx context.Context, repo string, number int) (gh.PR, error)
 	RetargetPR(ctx context.Context, repo string, number int, base string) (gh.PR, error)
+	UpdatePR(ctx context.Context, repo string, number int, title, body string) (gh.PR, error)
 	CIState(ctx context.Context, repo, sha string, required []string) (string, []gh.CheckEvidence, error)
 }
 

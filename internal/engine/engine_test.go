@@ -135,6 +135,7 @@ type fakeGitHub struct {
 	// mergedPRs : PR mergées individuellement (mergePR) ; retargets : PATCH base appliqués.
 	mergedPRs map[int]bool
 	retargets []string
+	updates   map[int]string // corps des PR mises à jour (UpdatePR)
 }
 
 // mergePR simule le merge (fast-forward) d'une PR : la base avance au SHA de la head, la PR est mergée.
@@ -144,7 +145,12 @@ func (f *fakeGitHub) mergePR(t *testing.T, n int) {
 	defer f.mu.Unlock()
 	for _, pr := range f.prs {
 		if pr.Number == n {
-			gitRun(t, filepath.Dir(f.bare), "--git-dir", f.bare, "update-ref", "refs/heads/"+pr.Base.Ref, pr.Head.SHA)
+			// Comme GitHub : la PR suit sa branche head (commits poussés après l'ouverture inclus).
+			head := pr.Head.SHA
+			if out, err := exec.Command("/usr/bin/git", "--git-dir", f.bare, "rev-parse", "refs/heads/"+pr.Head.Ref).Output(); err == nil {
+				head = strings.TrimSpace(string(out))
+			}
+			gitRun(t, filepath.Dir(f.bare), "--git-dir", f.bare, "update-ref", "refs/heads/"+pr.Base.Ref, head)
 			if f.mergedPRs == nil {
 				f.mergedPRs = map[int]bool{}
 			}
@@ -165,6 +171,24 @@ func (f *fakeGitHub) RetargetPR(_ context.Context, _ string, n int, base string)
 			}
 			pr.Base.Ref = base
 			f.retargets = append(f.retargets, fmt.Sprintf("#%d→%s", n, base))
+			return *pr, nil
+		}
+	}
+	return gh.PR{}, &gh.Error{Status: 404, Class: domain.ErrClassExternal}
+}
+
+func (f *fakeGitHub) UpdatePR(_ context.Context, _ string, n int, title, body string) (gh.PR, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, pr := range f.prs {
+		if pr.Number == n {
+			if f.merged || f.mergedPRs[n] {
+				return gh.PR{}, &gh.Error{Status: 422, Class: domain.ErrClassPolicy, Msg: "PR non ouverte"}
+			}
+			if f.updates == nil {
+				f.updates = map[int]string{}
+			}
+			f.updates[n] = title + "\n" + body
 			return *pr, nil
 		}
 	}

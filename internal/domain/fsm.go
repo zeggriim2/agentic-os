@@ -88,9 +88,12 @@ const (
 	FeatureEvTicketsIntegrated FeatureEvent = "tickets_integrated"
 	// FeatureEvFeaturePRMerged : PR finale (branche de feature → base) mergée par un humain.
 	FeatureEvFeaturePRMerged FeatureEvent = "feature_pr_merged"
-	FeatureEvFail            FeatureEvent = "fail"
-	FeatureEvCancel          FeatureEvent = "cancel"
-	FeatureEvRetry           FeatureEvent = "retry"
+	// FeatureEvCorrectionRequested : retour de recette humaine, un ticket de correction est ajouté
+	// sur la branche de feature (recette, ou blocage depuis la recette → tickets en cours).
+	FeatureEvCorrectionRequested FeatureEvent = "correction_requested"
+	FeatureEvFail                FeatureEvent = "fail"
+	FeatureEvCancel              FeatureEvent = "cancel"
+	FeatureEvRetry               FeatureEvent = "retry"
 )
 
 type featureKey struct {
@@ -121,6 +124,8 @@ var featureTransitions = map[featureKey]FeatureState{
 	{FeatureInDev, FeatureEvTicketsIntegrated}:         FeatureAcceptance,
 	{FeatureAcceptance, FeatureEvFeaturePRMerged}:      FeatureDone,
 	{FeatureAcceptance, FeatureEvFail}:                 FeatureBlocked,
+	{FeatureAcceptance, FeatureEvCorrectionRequested}:  FeatureInDev,
+	{FeatureBlocked, FeatureEvCorrectionRequested}:     FeatureInDev,
 }
 
 // FeatureRetryTargets : états depuis lesquels une feature peut être bloquée puis reprise.

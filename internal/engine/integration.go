@@ -141,6 +141,13 @@ func (e *Engine) completeFeature(ctx context.Context, tx pgx.Tx, f *store.Featur
 	if err != nil {
 		return "", err
 	}
+	// Retour en recette après une correction : la PR finale déjà ouverte suit la branche ; seuls
+	// son titre et son corps (tickets intégrés, Closes) sont mis à jour.
+	if nf.FeaturePRNumber != nil {
+		_, err := e.enqueue(ctx, tx, store.NewJob{Kind: domain.JobRefreshFeaturePR, SubjectType: "feature", SubjectID: nf.ID, ProjectID: &nf.ProjectID,
+			IdempotencyKey: jobKey(domain.JobRefreshFeaturePR, "feature", nf.ID, fmt.Sprintf("v%d", nf.Version))})
+		return domain.FeatureAcceptance, err
+	}
 	return domain.FeatureAcceptance, e.requestFeaturePR(ctx, tx, nf, p, issues)
 }
 

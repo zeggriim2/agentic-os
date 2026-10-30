@@ -14,6 +14,7 @@ import (
 
 	"github.com/zeggriim2/agentic-os/internal/audit"
 	"github.com/zeggriim2/agentic-os/internal/domain"
+	"github.com/zeggriim2/agentic-os/internal/engine"
 	"github.com/zeggriim2/agentic-os/internal/notify"
 	"github.com/zeggriim2/agentic-os/internal/store"
 )
@@ -706,6 +707,32 @@ func (s *Server) featureIntegration(w http.ResponseWriter, r *http.Request) {
 	}
 	names, _ := store.ProjectNames(r.Context(), s.Store.Pool)
 	writeJSON(w, 200, viewFeature(f, names))
+}
+
+type correctionReq struct {
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Criteria    []string `json:"acceptance_criteria"`
+}
+
+// requestCorrection : retour de recette humaine, ajoute un ticket de correction sur la branche de
+// feature (la feature repart en développement puis revient en recette).
+func (s *Server) requestCorrection(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var req correctionReq
+	if !decode(w, r, &req) {
+		return
+	}
+	t, err := s.Engine.RequestCorrection(r.Context(), id, engine.CorrectionRequest{Title: req.Title, Description: req.Description, Criteria: req.Criteria}, actorLogin(r))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	names, _ := store.ProjectNames(r.Context(), s.Store.Pool)
+	writeJSON(w, 201, viewTicket(t, names))
 }
 
 // ================================================================== tickets
