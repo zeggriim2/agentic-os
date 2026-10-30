@@ -522,3 +522,26 @@ lease owner) et le ticket expose `worktree` relatif (`<slug>/<key>`).
   `profile_model.requested`.
 - Application : `deploy/agents/sync-profile-models.sh` (voir `agents-projets.md`), testé par
   `deploy/ops/test-ops.sh` (faux `hermes`, vrai PostgreSQL).
+
+### QA navigateur et enregistrements (migration 0010, 1.9.0)
+
+- `projects.qa_browser` (défaut `false`) : active les consignes navigateur du QA (dossier de dépôt,
+  commande `aos-qa-browser`, format du scénario, règles de verdict). Obligatoire dans les consignes
+  quand `git diff --name-only origin/<base>...HEAD` touche `frontend/`, `templates/` ou `assets/`.
+- Racine `AOS_RECORDINGS_ROOT` (défaut `/home/hermes/agentic-os-data/recordings`, montée dans le
+  conteneur `app`) : `inbox/<slug>/<clé>-j<job>-a<tentative>/` (écrit par le QA) et `store/<run>/`.
+- Ingestion (`internal/recordings`, après le run QA, avant l'évaluation du livrable ; un échec est
+  journalisé, jamais bloquant) : liste blanche `video.webm` (EBML), `trace.zip` (PK), `shots/*.png`
+  (signature PNG, 40 max), `report.json`, `scenario.mjs`, `logs/*.log` ; fichiers réguliers seulement
+  (liens refusés), tailles bornées (100 Mo vidéo/trace, 300 Mo au total), SHA-256 ; libellés et critères
+  des captures repris de `report.json` (validés). Audit `ticket.qa_recorded`.
+- `qa_recordings` : `run_id`, `ticket_id`, `kind`, `name` (relatif, contraint), `label`, `criterion`,
+  `size_bytes`, `sha256`, `expires_at` (+15 jours). Purge horaire : fichiers puis lignes des runs
+  expirés, dossiers de dépôt de plus de 24 h.
+- `GET /api/tickets/{id}/recordings` : sessions (récentes d'abord) avec rapport, vidéo, trace,
+  scénario, captures, journaux. `GET /api/recordings/{id}/file` : type fixé par le moteur (jamais
+  deviné), `nosniff`, `Content-Security-Policy: sandbox`, `Range` pris en charge (lecteur vidéo),
+  traces/scénarios/journaux en pièce jointe ; 404 si expiré ou absent.
+- Visualiseur de traces : application statique de `playwright-core` (même version que les e2e)
+  copiée au build dans `web/dist/trace-viewer` ; en-têtes propres (service worker, cadres de même
+  origine, `blob:`) ; ouvert sur `/trace-viewer/index.html?trace=/api/recordings/<id>/file`.

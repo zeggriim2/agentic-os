@@ -43,6 +43,7 @@ type projectView struct {
 	TelegramChat   string                        `json:"telegram_chat_id"`
 	TelegramThread int64                         `json:"telegram_thread_id"`
 	Integration    string                        `json:"integration_mode"`
+	QABrowser      bool                          `json:"qa_browser"`
 	CreatedAt      string                        `json:"created_at"`
 	UpdatedAt      string                        `json:"updated_at"`
 }
@@ -61,7 +62,7 @@ func viewProject(p *store.Project) projectView {
 		am = map[string]domain.ModelChoice{}
 	}
 	return projectView{p.ID, p.Slug, p.Name, p.Repository, p.BaseBranch, rc, p.Mode, p.Enabled, p.TestCommand, ap, am, p.TelegramChatID, p.TelegramThreadID,
-		p.IntegrationMode, ts(p.CreatedAt), ts(p.UpdatedAt)}
+		p.IntegrationMode, p.QABrowser, ts(p.CreatedAt), ts(p.UpdatedAt)}
 }
 
 type agentView struct {

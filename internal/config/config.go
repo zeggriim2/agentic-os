@@ -21,6 +21,7 @@ type Config struct {
 	DatabaseURLFile string
 	SecretsDir      string
 	WorkspaceRoot   string
+	RecordingsRoot  string
 	HermesURL       string
 	Workers         int
 	LeaseSeconds    int
@@ -43,6 +44,7 @@ func Load() (Config, error) {
 		DatabaseURLFile: os.Getenv("AOS_DATABASE_URL_FILE"),
 		SecretsDir:      env("AOS_SECRETS_DIR", "/run/secrets/agentic-os"),
 		WorkspaceRoot:   env("AOS_WORKSPACE_ROOT", "/home/hermes/agentic-os-data/workspaces"),
+		RecordingsRoot:  env("AOS_RECORDINGS_ROOT", "/home/hermes/agentic-os-data/recordings"),
 		HermesURL:       strings.TrimRight(env("AOS_HERMES_URL", "http://127.0.0.1:8642"), "/"),
 		AdminLogin:      env("AOS_ADMIN_LOGIN", "admin"),
 		GitBinary:       env("AOS_GIT_BINARY", "/usr/bin/git"),
@@ -61,10 +63,11 @@ func Load() (Config, error) {
 	if c.MaxRework, err = envInt("AOS_MAX_REWORK", 3, 0, 20); err != nil {
 		return c, err
 	}
-	if !filepath.IsAbs(c.WorkspaceRoot) || !filepath.IsAbs(c.SecretsDir) || !filepath.IsAbs(c.GitBinary) {
-		return c, errors.New("AOS_WORKSPACE_ROOT, AOS_SECRETS_DIR et AOS_GIT_BINARY doivent être des chemins absolus")
+	if !filepath.IsAbs(c.WorkspaceRoot) || !filepath.IsAbs(c.SecretsDir) || !filepath.IsAbs(c.GitBinary) || !filepath.IsAbs(c.RecordingsRoot) {
+		return c, errors.New("AOS_WORKSPACE_ROOT, AOS_RECORDINGS_ROOT, AOS_SECRETS_DIR et AOS_GIT_BINARY doivent être des chemins absolus")
 	}
 	c.WorkspaceRoot = filepath.Clean(c.WorkspaceRoot)
+	c.RecordingsRoot = filepath.Clean(c.RecordingsRoot)
 	return c, nil
 }
 

@@ -36,6 +36,8 @@ state_set rollback_backup "$backup"
 log "arrêt, migrations, démarrage en $tag"
 run_action "$AOS_APP_STOP"
 run_action "$AOS_MIGRATE"
+# Dossier des enregistrements QA (monté par compose) : créé par l'utilisateur hôte, pas par Docker (root).
+mkdir -p "$AOS_DATA_DIR/recordings/store" "$AOS_DATA_DIR/recordings/inbox"
 run_action "$AOS_APP_START"
 state_set current_tag "$tag"
 log "version $tag déployée (schéma $(schema_version)). Retour arrière : deploy/ops/rollback.sh --yes"

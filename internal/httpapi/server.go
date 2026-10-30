@@ -62,6 +62,8 @@ type Server struct {
 	TelegramSend func(ctx context.Context, to notify.Destination, text string) error
 	// Models lit le catalogue des modèles Hermes (nil : indisponible, tout réglage de modèle est refusé).
 	Models ModelCatalog
+	// Recordings : racine des enregistrements du QA navigateur ("" : indisponible).
+	Recordings string
 
 	gitCache    gitGraphCache
 	limiter     *rateLimiter
@@ -114,6 +116,8 @@ func (s *Server) Router() http.Handler {
 			r.Get("/hermes-profiles", s.listHermesProfiles)
 			r.Get("/hermes/models", s.listHermesModels)
 			r.Get("/profile-models", s.listProfileModels)
+			r.Get("/tickets/{id}/recordings", s.listTicketRecordings)
+			r.Get("/recordings/{id}/file", s.recordingFile)
 			r.Put("/profile-models/{profile}", s.requestProfileModel)
 			r.Post("/agents/sync", s.syncAgents)
 			r.Patch("/agents/{role}", s.patchAgent)
@@ -334,10 +338,25 @@ func (s *Server) spa(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := strings.TrimPrefix(r.URL.Path, "/")
+	// Visualiseur de traces Playwright : application statique servie avec ses propres en-têtes ; son
+	// index est servi directement (ServeFileFS redirigerait index.html vers le répertoire).
+	if (p == "trace-viewer" || strings.HasPrefix(p, "trace-viewer/")) && !strings.Contains(p, "..") {
+		if p == "trace-viewer" || strings.HasSuffix(p, "/") || p == "trace-viewer/index.html" {
+			if b, err := fs.ReadFile(s.Web, "trace-viewer/index.html"); err == nil {
+				traceViewerHeaders(w.Header())
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				_, _ = w.Write(b)
+				return
+			}
+		}
+	}
 	if p != "" && !strings.Contains(p, "..") {
 		if st, err := fs.Stat(s.Web, p); err == nil && !st.IsDir() {
 			if strings.HasPrefix(p, "assets/") {
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			}
+			if strings.HasPrefix(p, "trace-viewer/") {
+				traceViewerHeaders(w.Header())
 			}
 			http.ServeFileFS(w, r, s.Web, p)
 			return

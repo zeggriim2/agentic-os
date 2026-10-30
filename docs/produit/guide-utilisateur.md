@@ -95,6 +95,15 @@ présenter des conflits à résoudre sur GitHub.
   (une copie de l'ancienne est gardée). Si le bandeau jaune dit que le script ne tourne pas, l'exploitant
   lance `deploy/agents/install-profile-sync.sh` sur l'hôte Hermes. Seuls les profils `aos-*` sont
   modifiables ; le changement vaut pour les runs suivants.
+- **Ticket → onglet « Enregistrement QA »** (projets avec « QA avec navigateur ») : la session navigateur
+  du QA, enregistrée dans l'image des agents, sans réseau, sur l'application démarrée au commit testé :
+  **vidéo**, **captures** rattachées aux critères d'acceptation (« Critère 2 » + son texte), étapes du
+  scénario, problèmes relevés (erreurs JavaScript, requêtes en erreur, étape en échec) et bouton
+  **Ouvrir la trace** : le visualiseur Playwright (servi par Agentic OS, rien n'est envoyé ailleurs)
+  rejoue la session action par action, avec l'état de la page avant/après, le réseau et la console.
+  Le QA enregistre une session quand le ticket modifie l'interface (`frontend/`, `templates/`,
+  `assets/`) ou qu'un critère porte sur ce que voit l'utilisateur. Les enregistrements sont supprimés
+  automatiquement après **15 jours**. Réglage : **Projets → Modifier → QA avec navigateur**.
 - **Audit** : l'historique complet de qui a fait quoi.
 - **Santé** : état de la base, de Hermes, de GitHub, de Telegram et des workers.
 

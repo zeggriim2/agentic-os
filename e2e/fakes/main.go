@@ -18,6 +18,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -139,6 +140,7 @@ type run struct {
 	Key         string
 	Digest      string
 	Input       string
+	Instr       string // instructions (dossier d'enregistrement du QA navigateur)
 	Status      string
 	Output      string
 	Usage       map[string]int64
@@ -369,7 +371,7 @@ func (f *fakes) createRun(w http.ResponseWriter, r *http.Request) {
 	}
 	f.nextRun++
 	id := fmt.Sprintf("run_e2e_%04d_%s", f.nextRun, randomHex(4))
-	rn := &run{ID: id, Profile: profile, Role: roleOf(req.Instructions), Key: key, Digest: digest, Input: req.Input,
+	rn := &run{ID: id, Profile: profile, Role: roleOf(req.Instructions), Key: key, Digest: digest, Input: req.Input, Instr: req.Instructions,
 		Status: "running", release: make(chan struct{}), changed: make(chan struct{}), CreatedAt: time.Now()}
 	if req.Model != "" {
 		rn.Model = req.Model
@@ -603,6 +605,9 @@ func (f *fakes) produce(rn *run) (string, error) {
 			"summary": "Diff minimal et conforme au ticket.",
 		})
 	case "qa":
+		if err := recordQA(rn.Instr); err != nil {
+			return "", err
+		}
 		return f.qa(in)
 	}
 	return "", errors.New("rôle inconnu (instructions non reconnues)")
@@ -717,6 +722,39 @@ func (f *fakes) qa(in string) (string, error) {
 		"acceptance": acc,
 		"summary":    "Vérification du fichier de démonstration au SHA exact.",
 	})
+}
+
+//go:embed qafixtures/video.webm qafixtures/trace.zip qafixtures/shot.png
+var qaFixtures embed.FS
+
+var recDirRe = regexp.MustCompile(`Dossier d'enregistrement \(seul endroit où écrire\) : (/\S+)`)
+
+// recordQA simule une session QA navigateur (aos-qa-browser) : quand Agentic OS fournit un dossier
+// d'enregistrement, y dépose une vraie vidéo, une vraie trace Playwright, une capture et report.json.
+func recordQA(instructions string) error {
+	m := recDirRe.FindStringSubmatch(instructions)
+	if m == nil {
+		return nil
+	}
+	dir := m[1]
+	if err := os.MkdirAll(filepath.Join(dir, "shots"), 0o755); err != nil {
+		return err
+	}
+	for src, dst := range map[string]string{"qafixtures/video.webm": "video.webm", "qafixtures/trace.zip": "trace.zip", "qafixtures/shot.png": "shots/01-recapitulatif.png"} {
+		b, err := qaFixtures.ReadFile(src)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dir, dst), b, 0o644); err != nil {
+			return err
+		}
+	}
+	report := `{"ok":true,"error":null,"duration_ms":4200,"steps":[{"name":"connexion","ok":true,"ms":900},{"name":"récapitulatif","ok":true,"ms":1300}],` +
+		`"shots":[{"file":"shots/01-recapitulatif.png","label":"Récapitulatif (faux QA navigateur)","criterion":1}],"console_errors":[],"failed_requests":[],"blocked_external":1}`
+	if err := os.WriteFile(filepath.Join(dir, "report.json"), []byte(report), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "scenario.mjs"), []byte("export default async ({ login, shot }) => { await login(); await shot(\"Récapitulatif\", { criterion: 1 }); };\n"), 0o644)
 }
 
 // acceptanceFrom relit la liste JSON des critères (« Critères d'acceptation : [...] »).

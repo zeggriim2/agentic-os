@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -1221,5 +1223,136 @@ func TestProfileModelsListRequestAndMismatch(t *testing.T) {
 	var n int
 	if err := c.s.Pool.QueryRow(context.Background(), `SELECT count(*) FROM audit_log WHERE action='profile_model.requested'`).Scan(&n); err != nil || n != 2 {
 		t.Fatalf("audit : %d %v", n, err)
+	}
+}
+
+func TestQARecordingsListAndFileServing(t *testing.T) {
+	root := t.TempDir()
+	c := setupWith(t, nil, func(s *httpapi.Server) { s.Recordings = root })
+	ctx := context.Background()
+	c.login()
+	r := c.do("POST", "/api/projects", map[string]any{"slug": "fz", "name": "FZ", "repository": "o/fz", "qa_browser": true}, true)
+	expectStatus(t, "projet", r, 201, "")
+	if r.body["qa_browser"] != true {
+		t.Fatalf("qa_browser : %s", r.raw)
+	}
+	pid := int64(r.body["id"].(float64))
+	r = c.do("PATCH", fmt.Sprintf("/api/projects/%d", pid), map[string]any{"qa_browser": false}, true)
+	if r.status != 200 || r.body["qa_browser"] != false {
+		t.Fatalf("patch qa_browser : %s", r.raw)
+	}
+	f, err := store.CreateFeature(ctx, c.s.Pool, pid, "F", "d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tid, jid, rid int64
+	if err := c.s.Pool.QueryRow(ctx, `INSERT INTO tickets (feature_id, project_id, key, seq, title, body, acceptance, state)
+		VALUES ($1,$2,'fz-F1-T1',1,'T','b','["c1","c2"]','QA') RETURNING id`, f.ID, pid).Scan(&tid); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.s.Pool.QueryRow(ctx, `INSERT INTO jobs (kind, subject_type, subject_id, idempotency_key) VALUES ('qa','ticket',$1,'k-qa') RETURNING id`, tid).Scan(&jid); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.s.Pool.QueryRow(ctx, `INSERT INTO runs (job_id, agent_role, hermes_profile, status) VALUES ($1,'qa','aos-qa','completed') RETURNING id`, jid).Scan(&rid); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "store", fmt.Sprint(rid))
+	files := map[string][]byte{
+		"video.webm": {0x1A, 0x45, 0xDF, 0xA3, 7}, "trace.zip": {'P', 'K', 3, 4},
+		"shots/01-recap.png": {0x89, 'P', 'N', 'G'}, "report.json": []byte(`{"ok":false,"error":"timeout","console_errors":["TypeError: x"],"failed_requests":["500 GET /api/summary"]}`),
+	}
+	for name, b := range files {
+		_ = os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755)
+		if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	two := 2
+	if err := store.InsertRecordings(ctx, c.s.Pool, rid, tid, []store.NewRecording{
+		{Kind: "video", Name: "video.webm", Size: 5, SHA256: strings.Repeat("a", 64)},
+		{Kind: "trace", Name: "trace.zip", Size: 4, SHA256: strings.Repeat("b", 64)},
+		{Kind: "screenshot", Name: "shots/01-recap.png", Label: "Récapitulatif", Criterion: &two, Size: 4, SHA256: strings.Repeat("c", 64)},
+		{Kind: "report", Name: "report.json", Size: 10, SHA256: strings.Repeat("d", 64)},
+	}, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	expectStatus(t, "ticket inconnu", c.do("GET", "/api/tickets/999999/recordings", nil, false), 404, "")
+	r = c.do("GET", fmt.Sprintf("/api/tickets/%d/recordings", tid), nil, false)
+	expectStatus(t, "liste", r, 200, "")
+	items := r.body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("sessions : %s", r.raw)
+	}
+	run := items[0].(map[string]any)
+	rep := run["report"].(map[string]any)
+	shots := run["shots"].([]any)
+	if run["run_id"] != float64(rid) || rep["ok"] != false || rep["error"] != "timeout" || len(shots) != 1 ||
+		shots[0].(map[string]any)["criterion"] != float64(2) || run["video"] == nil || run["trace"] == nil {
+		t.Fatalf("session : %s", r.raw)
+	}
+	vid := int64(run["video"].(map[string]any)["id"].(float64))
+	trace := int64(run["trace"].(map[string]any)["id"].(float64))
+
+	get := func(id int64) *http.Response {
+		req, _ := http.NewRequest("GET", c.srv.URL+fmt.Sprintf("/api/recordings/%d/file", id), nil)
+		resp, err := c.http.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { resp.Body.Close() })
+		return resp
+	}
+	resp := get(vid)
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "video/webm" || !bytes.Equal(body, files["video.webm"]) ||
+		!strings.HasPrefix(resp.Header.Get("Content-Disposition"), "inline") || resp.Header.Get("X-Content-Type-Options") != "nosniff" ||
+		!strings.Contains(resp.Header.Get("Content-Security-Policy"), "sandbox") {
+		t.Fatalf("vidéo : %d %v", resp.StatusCode, resp.Header)
+	}
+	// Lecture partielle (lecteur vidéo).
+	req, _ := http.NewRequest("GET", c.srv.URL+fmt.Sprintf("/api/recordings/%d/file", vid), nil)
+	req.Header.Set("Range", "bytes=0-1")
+	pr, err := c.http.Do(req)
+	if err != nil || pr.StatusCode != 206 {
+		t.Fatalf("Range : %v %v", pr, err)
+	}
+	pr.Body.Close()
+	if resp := get(trace); resp.Header.Get("Content-Type") != "application/zip" || !strings.HasPrefix(resp.Header.Get("Content-Disposition"), "attachment") {
+		t.Fatalf("trace : %v", resp.Header)
+	}
+	// Expiré ou fichier disparu : 404 ; non authentifié : 401.
+	if _, err := c.s.Pool.Exec(ctx, `UPDATE qa_recordings SET expires_at = now() - interval '1 second' WHERE id=$1`, trace); err != nil {
+		t.Fatal(err)
+	}
+	if resp := get(trace); resp.StatusCode != 404 {
+		t.Fatalf("expiré : %d", resp.StatusCode)
+	}
+	_ = os.Remove(filepath.Join(dir, "video.webm"))
+	if resp := get(vid); resp.StatusCode != 404 {
+		t.Fatalf("fichier disparu : %d", resp.StatusCode)
+	}
+	anon, _ := http.Get(c.srv.URL + fmt.Sprintf("/api/recordings/%d/file", vid))
+	if anon.StatusCode != 401 {
+		t.Fatalf("anonyme : %d", anon.StatusCode)
+	}
+	anon.Body.Close()
+}
+
+func TestTraceViewerHeaders(t *testing.T) {
+	web := fstest.MapFS{"index.html": {Data: []byte("<html>app</html>")}, "trace-viewer/index.html": {Data: []byte("<html>trace</html>")}}
+	c := setupWith(t, web, nil)
+	resp, err := http.Get(c.srv.URL + "/trace-viewer/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.Header.Get("X-Frame-Options") != "SAMEORIGIN" || !strings.Contains(resp.Header.Get("Content-Security-Policy"), "worker-src 'self'") {
+		t.Fatalf("visualiseur : %v", resp.Header)
+	}
+	resp, _ = http.Get(c.srv.URL + "/features")
+	resp.Body.Close()
+	if resp.Header.Get("X-Frame-Options") != "DENY" {
+		t.Fatalf("reste de l'interface : %v", resp.Header)
 	}
 }

@@ -53,6 +53,7 @@ type Git interface {
 	CurrentBranch(ctx context.Context, path string) (string, error)
 	RevParse(ctx context.Context, dir, ref string) (string, error)
 	DeletedTestFiles(ctx context.Context, path, baseRef string) ([]string, error)
+	ChangedFiles(ctx context.Context, path, baseRef string) ([]string, error)
 	Push(ctx context.Context, path, branch string) error
 	EnsureRemoteBranch(ctx context.Context, slug, repo, branch, from string) (string, bool, error)
 	Relative(p string) string
@@ -118,6 +119,8 @@ type Engine struct {
 	RunTimeout   time.Duration
 	IdleInterval time.Duration
 	Backoff      time.Duration
+	// Recordings : racine des enregistrements du QA navigateur ("" : désactivé).
+	Recordings string
 	// HeartbeatFn prolonge le lease (store.Heartbeat par défaut ; injectable pour les tests).
 	HeartbeatFn func(ctx context.Context, id int64, owner string, lease time.Duration) (bool, error)
 	ownerPrefix string
@@ -234,7 +237,8 @@ func (e *Engine) Start(ctx context.Context) {
 			e.workerLoop(ctx, fmt.Sprintf("%s-w%d", e.ownerPrefix, i))
 		}(i)
 	}
-	wg.Add(4)
+	wg.Add(5)
+	go func() { defer wg.Done(); e.every(ctx, time.Hour, e.PurgeRecordings) }()
 	go func() { defer wg.Done(); e.every(ctx, 30*time.Second, e.Recover) }()
 	go func() { defer wg.Done(); e.every(ctx, 30*time.Second, e.ReconcileStops) }()
 	go func() { defer wg.Done(); e.every(ctx, 30*time.Second, e.RetryDeliveries) }()

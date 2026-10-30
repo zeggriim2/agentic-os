@@ -135,11 +135,44 @@ Livrable : {"verdict": "approved"|"changes_requested", "sha": str, "findings": [
 	return instr, b.String()
 }
 
-func qaPrompt(p *store.Project, t *store.Ticket, worktree, sha string) (string, string) {
+// qaBrowser : QA navigateur du passage (Dir vide : non disponible pour ce projet).
+type qaBrowser struct {
+	Dir          string
+	FrontChanged bool
+}
+
+func qaBrowserRules(b qaBrowser, worktree string) string {
+	if b.Dir == "" {
+		return ""
+	}
+	need := "facultatif, sauf si un critère porte sur ce que voit l'utilisateur"
+	if b.FrontChanged {
+		need = "OBLIGATOIRE : ce ticket modifie l'interface (frontend/, templates/ ou assets/)"
+	}
+	return fmt.Sprintf(`
+QA navigateur (enregistré : vidéo, trace, captures, montrés à l'humain) — %[1]s.
+- Dossier d'enregistrement (seul endroit où écrire) : %[2]s
+- Écris le scénario dans %[2]s/scenario.mjs puis lance en UNE seule commande (elle démarre l'application, joue le scénario, enregistre et arrête tout, ~1 min) :
+  cd %[3]s && aos-qa-browser %[2]s/scenario.mjs %[2]s
+- Format : export default async ({ page, login, shot, step }) => {
+    await step("récapitulatif", async () => {
+      await login();                     // compte de démonstration des fixtures
+      await page.goto("/summary");
+      await page.getByText("Forfait 10 %%").waitFor();
+      await shot("Récapitulatif 2025", { criterion: 2 });   // n° du critère illustré (1 = premier)
+    });
+  };
+- Au moins une capture par critère visible ; page, login, shot, step uniquement (pas d'import). Les requêtes externes sont bloquées.
+- report.json (même dossier) liste étapes, erreurs JS et requêtes ≥ 400 : un scénario en échec, une erreur JS ou une requête ≥ 400 sur la page testée rend le critère not_met, sauf si c'est sans rapport (justifie-le).
+- Si le scénario échoue à cause de l'outil ou de l'environnement (et non de l'application), dis-le dans summary et corrige le scénario une fois ; ne bloque pas un critère pour cela seul.
+- Dans evidence, cite les captures (ex. « capture shots/02-recapitulatif-2025.png »).`, need, b.Dir, worktree)
+}
+
+func qaPrompt(p *store.Project, t *store.Ticket, worktree, sha string, browser qaBrowser) (string, string) {
 	instr := `Tu es le QA d'Agentic OS. Exécute les tests et vérifie chaque critère d'acceptation au SHA exact indiqué.
 ` + commonRules + `
 Contraintes : ne modifie aucun fichier suivi, ne crée aucun commit, laisse le worktree propre (supprime tes fichiers temporaires).
-passed interdit si un check a exit_code≠0 ou si un critère est not_met.` + baseRules(p.BaseBranch) + contextRules + `
+passed interdit si un check a exit_code≠0 ou si un critère est not_met.` + qaBrowserRules(browser, worktree) + baseRules(p.BaseBranch) + contextRules + `
 Livrable : {"verdict": "passed"|"failed", "sha": str, "checks": [{"command": str, "exit_code": int}], "acceptance": [{"criterion": str, "status": "met"|"not_met", "evidence": str}], "summary": str}`
 	var b strings.Builder
 	fmt.Fprintf(&b, "Dépôt : %s\nWorktree (détaché) : %s\nSHA à tester : %s\nBase : origin/%s\nCommande de test indicative : %q\n\n",
