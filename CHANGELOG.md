@@ -4,6 +4,8 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 
 ## [Non publié]
 
+## [1.7.0] — 2026-10-29
+
 ### Ajouté
 - **Modèle par défaut des profils Hermes depuis Agentic OS** (page Agents) : modèle actuel de chaque
   profil `aos-*` lu dans Hermes, liste déroulante du catalogue pour le changer, état de la demande
