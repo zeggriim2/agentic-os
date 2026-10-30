@@ -47,6 +47,7 @@ export const FEATURE_STATES = [
 export type FeatureState = (typeof FEATURE_STATES)[number];
 
 export const TICKET_STATES = [
+  "PLANNED",
   "READY_FOR_DEV",
   "DEV",
   "REVIEW",
@@ -346,6 +347,8 @@ export interface Ticket extends Timestamps {
   title: string;
   body: string;
   acceptance: string[] | null;
+  /** design = issu de la conception ; correction = demandé en recette humaine. */
+  origin?: "design" | "correction";
   state: TicketState;
   state_reason: string | null;
   issue_number: number | null;
@@ -616,4 +619,11 @@ export interface TokenUsageSplit {
   fresh_input: number;
   cache_read: number;
   output: number;
+}
+
+/** Retour de recette : ticket de correction sur la branche de feature. */
+export interface CorrectionInput {
+  title: string;
+  description: string;
+  acceptance_criteria: string[];
 }

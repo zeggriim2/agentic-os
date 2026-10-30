@@ -27,6 +27,7 @@ export const STATE_META: Record<string, StateMeta> = {
   BLOCKED: { label: "Bloqué", tone: "danger" },
   CANCELLED: { label: "Annulé", tone: "neutral" },
   // Ticket
+  PLANNED: { label: "Planifié", tone: "neutral" },
   DEV: { label: "Développement", tone: "progress" },
   REVIEW: { label: "Revue de code", tone: "progress" },
   QA: { label: "QA", tone: "progress" },

@@ -241,7 +241,7 @@ async function setup(cleanups: (() => void | Promise<void>)[]) {
       "-web-url", "https://github.e2e.test",
       "-webhook-url", `${baseURL}/webhooks/github`,
       "-checks", "tests",
-      "-seed", "o/demo,o/rejet,o/divers,o/integ,o/qarec",
+      "-seed", "o/demo,o/rejet,o/divers,o/integ,o/qarec,o/corr",
     ],
     { PATH: process.env.PATH, HOME: work, TMPDIR: work },
     cleanups,

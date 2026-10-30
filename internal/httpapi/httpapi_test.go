@@ -1356,3 +1356,32 @@ func TestTraceViewerHeaders(t *testing.T) {
 		t.Fatalf("reste de l'interface : %v", resp.Header)
 	}
 }
+
+func TestCorrectionEndpointValidationAndState(t *testing.T) {
+	c := setup(t, nil)
+	c.login()
+	r := c.do("POST", "/api/projects", map[string]any{"slug": "fz", "name": "FZ", "repository": "o/fz", "integration_mode": "feature_branch"}, true)
+	expectStatus(t, "projet", r, 201, "")
+	r = c.do("POST", "/api/features", map[string]any{"project_id": r.body["id"], "title": "Récap", "description": "d"}, true)
+	expectStatus(t, "feature", r, 201, "")
+	fid := itoa(r.body["id"])
+	url := "/api/features/" + fid + "/corrections"
+	body := map[string]any{"title": "Forfait absent", "description": "Le bloc ne s'affiche pas.", "acceptance_criteria": []string{"Le bloc s'affiche"}}
+	expectStatus(t, "hors recette", c.do("POST", url, body, true), 409, "correction_not_allowed")
+	expectStatus(t, "sans CSRF", c.do("POST", url, body, false), 403, "")
+	ctx := context.Background()
+	if _, err := c.s.Pool.Exec(ctx, `UPDATE features SET state='ACCEPTANCE', feature_branch='feature/F1-recap' WHERE id=$1`, fid); err != nil {
+		t.Fatal(err)
+	}
+	expectStatus(t, "description vide", c.do("POST", url, map[string]any{"title": "x", "description": " "}, true), 422, "invalid_correction")
+	expectStatus(t, "trop de critères", c.do("POST", url, map[string]any{"title": "x", "description": "y", "acceptance_criteria": make([]string, 11)}, true), 422, "invalid_correction")
+	r = c.do("POST", url, body, true)
+	expectStatus(t, "correction", r, 201, "")
+	if r.body["origin"] != "correction" || !strings.HasSuffix(r.body["key"].(string), "-F"+fid+"-T1") || r.body["state"] != "PLANNED" {
+		t.Fatalf("ticket : %s", r.raw)
+	}
+	r = c.do("GET", "/api/features/"+fid, nil, false)
+	if r.body["feature"].(map[string]any)["state"] != "IN_DEV" || !strings.Contains(r.raw, "feature.correction_ticket_added") {
+		t.Fatalf("feature : %s", r.raw)
+	}
+}

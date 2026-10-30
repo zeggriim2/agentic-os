@@ -33,6 +33,20 @@ réglable dans « Modifier » du projet) et modifiable dans la carte **Intégrat
   mergez la PR finale : la feature passe en **Terminé**. Une PR finale refusée ou fermée sans merge bloque
   la feature ; **Relancer** redemande une PR finale.
 
+**Un défaut en recette ? « Demander une correction »** (page de la feature, en recette ou bloquée
+depuis la recette) : décrivez le problème (page, étapes, attendu) et, si vous voulez, les critères que le
+QA devra vérifier. Agentic OS crée un **ticket de correction** (marqué « Correction ») et son issue, sur
+la même branche de feature ; la feature repasse en **Tickets en cours** et le ticket suit le cycle
+habituel (développement depuis la branche à jour, revue, QA — enregistrée si le projet a le QA
+navigateur —, PR vers la branche de feature, merge par vous). Quand il est mergé, la feature revient en
+**Recette humaine** :
+- PR finale **déjà ouverte** : elle reste la même (elle suit la branche) ; Agentic OS met à jour sa
+  description (tickets intégrés, « Closes » de la nouvelle issue) ;
+- PR finale **pas encore publiée** : son approbation en attente est retirée à la demande de correction,
+  puis redemandée au retour en recette.
+Pas de feu vert supplémentaire : celui de la feature couvre ses corrections (même dépôt, même branche,
+PR toujours soumises à votre approbation). Vous pouvez demander plusieurs corrections successives.
+
 Le mode reste modifiable **tant qu'aucun ticket n'est mergé**. Après le feu vert, passer en branche de
 feature crée la branche et **redirige les PR déjà ouvertes** vers elle (et inversement en repassant en
 direct). Si la base avance pendant la feature, Agentic OS ne rebase rien : la PR finale peut alors
