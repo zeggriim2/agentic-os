@@ -71,6 +71,7 @@ type Server struct {
 	modelsMu    sync.Mutex
 	modelsCache *hermes.ModelOptions
 	modelsAt    time.Time
+	profileObs  profileObsCache
 }
 
 // Router construit le routeur chi.
@@ -112,6 +113,8 @@ func (s *Server) Router() http.Handler {
 			r.Get("/agents", s.listAgents)
 			r.Get("/hermes-profiles", s.listHermesProfiles)
 			r.Get("/hermes/models", s.listHermesModels)
+			r.Get("/profile-models", s.listProfileModels)
+			r.Put("/profile-models/{profile}", s.requestProfileModel)
 			r.Post("/agents/sync", s.syncAgents)
 			r.Patch("/agents/{role}", s.patchAgent)
 			r.Get("/features", s.listFeatures)

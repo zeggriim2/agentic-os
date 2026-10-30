@@ -16,6 +16,7 @@ import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 import { roleLabel } from "@/lib/states";
 import { LIMITS, validDesiredModel, validMaxTokens } from "@/lib/validation";
+import { ProfileModelsSection } from "./ProfileModels";
 
 function EditAgentDialog({
   agent,
@@ -277,6 +278,7 @@ export default function AgentsPage() {
           </div>
         )}
       </QueryView>
+      <ProfileModelsSection />
       <EditAgentDialog agent={editing} onClose={() => setEditing(null)} />
       <ConfirmDialog
         open={confirmSync}

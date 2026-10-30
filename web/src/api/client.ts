@@ -119,6 +119,7 @@ export const api = {
   get: <T>(path: string, signal?: AbortSignal) => apiRequest<T>(path, { signal }),
   post: <T>(path: string, body?: unknown) => apiRequest<T>(path, { method: "POST", body: body ?? {} }),
   patch: <T>(path: string, body: unknown) => apiRequest<T>(path, { method: "PATCH", body }),
+  put: <T>(path: string, body: unknown) => apiRequest<T>(path, { method: "PUT", body }),
 };
 
 export function errorMessage(err: unknown): string {

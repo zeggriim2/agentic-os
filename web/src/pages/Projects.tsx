@@ -239,11 +239,13 @@ export function ModelSelect({
   value,
   onChange,
   providers,
+  emptyLabel = "Défaut du profil",
   ...rest
 }: {
   value: string;
   onChange: (v: string) => void;
   providers: ModelProvider[];
+  emptyLabel?: string;
   id?: string;
   "aria-invalid"?: boolean;
   "aria-describedby"?: string;
@@ -258,7 +260,7 @@ export function ModelSelect({
       onChange={(e) => onChange(e.target.value)}
       className="font-mono"
     >
-      <option value="">Défaut du profil</option>
+      <option value="">{emptyLabel}</option>
       {!known && <option value={value}>{value} (absent)</option>}
       {providers.map((p) => (
         <optgroup

@@ -27,7 +27,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: shellcheck
-        run: shellcheck -x -P deploy/ops -S warning deploy/ops/*.sh
+        run: shellcheck -x -P deploy/ops -S warning deploy/ops/*.sh deploy/agents/sync-profile-models.sh deploy/agents/install-profile-sync.sh
       - name: test-ops
         env:
           GOTOOLCHAIN: local

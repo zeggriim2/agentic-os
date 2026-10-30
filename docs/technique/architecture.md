@@ -503,3 +503,22 @@ lease owner) et le ticket expose `worktree` relatif (`<slug>/<key>`).
   `publish_pr` en attente réécrits sur la nouvelle cible, job `switch_integration` : création de la branche
   puis `RetargetPR` (PATCH `base`, relecture) des PR de tickets ouvertes, audit `ticket.pr_retargeted`.
 - Pas de rebase automatique de la branche de feature si la base avance : conflits éventuels sur la PR finale.
+
+### Modèle par défaut des profils (migration 0009, 1.8.0)
+
+- `profile_models` : `profile` (PK, `aos-*`), `desired_provider`, `desired_model`, `revision`,
+  `state` (`PENDING|APPLIED|FAILED`), `error`, `requested_by/at`, `applied_at`. Une nouvelle demande
+  incrémente la révision et repasse en `PENDING` ; le script de l'hôte ne note un résultat que pour la
+  révision qu'il a lue (`WHERE revision=$r AND state='PENDING'`).
+- `profile_sync_status` (ligne unique) : dernier passage du script ; sans passage depuis 3 min, l'UI
+  indique que le timer n'est pas installé ou arrêté.
+- `GET /api/profile-models` : profils `aos-*` ayant une clé, modèle courant lu par
+  `GET /p/<profil>/api/model/options` (champs `provider`/`model`, cache 30 s, lectures en parallèle,
+  15 s max), demande et état, usages (rôle par défaut, surcharges des projets), écarts
+  (`mismatches` : projet actif, rôle dont `agent_models` demande un fournisseur différent du défaut du
+  profil résolu), état du script.
+- `PUT /api/profile-models/{profil}` `{"provider","model"}` : profil `aos-*` ayant une clé (404 sinon,
+  422 hors `aos-*`), modèle présent dans le catalogue Hermes (fournisseurs authentifiés), CSRF ; audit
+  `profile_model.requested`.
+- Application : `deploy/agents/sync-profile-models.sh` (voir `agents-projets.md`), testé par
+  `deploy/ops/test-ops.sh` (faux `hermes`, vrai PostgreSQL).
