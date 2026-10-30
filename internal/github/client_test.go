@@ -107,8 +107,11 @@ func (f *fakeGH) handler(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		f.patches++
 		if pr, ok := f.pulls[n]; ok {
-			if !f.ignorePatch {
-				pr["base"] = map[string]any{"ref": in["base"]}
+			if b, ok := in["base"]; ok && !f.ignorePatch {
+				pr["base"] = map[string]any{"ref": b}
+			}
+			if t, ok := in["title"]; ok {
+				pr["title"], pr["body"] = t, in["body"]
 			}
 			_ = json.NewEncoder(w).Encode(pr)
 			return
@@ -290,5 +293,28 @@ func TestRetargetPR(t *testing.T) {
 	}
 	if _, err := c.RetargetPR(ctx, "o/r", pr.Number, "../x"); err == nil {
 		t.Fatal("branche invalide acceptée")
+	}
+}
+
+func TestUpdatePR(t *testing.T) {
+	f, c := newFake(t)
+	ctx := context.Background()
+	pr, _, err := c.EnsureDraftPR(ctx, "o/r", "feature/F6-x", "develop", "F6", "Corps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.UpdatePR(ctx, "o/r", pr.Number, "F6 · Récap", "Closes #3")
+	if err != nil || got.Number != pr.Number || got.Base.Ref != "develop" || f.pulls[pr.Number]["body"] != "Closes #3" {
+		t.Fatalf("mise à jour : %+v %v %v", got, err, f.pulls[pr.Number])
+	}
+	if _, ok := f.pulls[pr.Number]["base"].(map[string]any); !ok || f.pulls[pr.Number]["base"].(map[string]any)["ref"] != "develop" {
+		t.Fatal("la base ne doit pas changer")
+	}
+	if _, err := c.UpdatePR(ctx, "o/r", pr.Number, " ", "x"); err == nil {
+		t.Fatal("titre vide accepté")
+	}
+	f.pulls[pr.Number]["state"] = "closed"
+	if _, err := c.UpdatePR(ctx, "o/r", pr.Number, "T", "x"); err == nil {
+		t.Fatal("PR fermée modifiée")
 	}
 }

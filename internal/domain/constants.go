@@ -22,11 +22,15 @@ const (
 	// JobSwitchIntegration crée la branche de feature et redirige les PR ouvertes après un
 	// changement de mode d'intégration en cours de développement.
 	JobSwitchIntegration = "switch_integration"
+	// JobOpenCorrection crée l'issue d'un ticket de correction (retour de recette) puis le rend prêt.
+	JobOpenCorrection = "open_correction"
+	// JobRefreshFeaturePR met à jour titre et corps de la PR finale déjà ouverte (Closes des corrections).
+	JobRefreshFeaturePR = "refresh_feature_pr"
 )
 
 // JobKinds liste les types de jobs connus.
 var JobKinds = []string{JobPOSpec, JobTechDesign, JobOpenIssues, JobDevelop, JobReview, JobQA, JobPublishPR, JobExecuteApproval, JobSyncAgents,
-	JobPublishFeaturePR, JobSwitchIntegration}
+	JobPublishFeaturePR, JobSwitchIntegration, JobOpenCorrection, JobRefreshFeaturePR}
 
 // Statuts de job.
 const (

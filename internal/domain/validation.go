@@ -2,6 +2,7 @@ package domain
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -57,3 +58,27 @@ func ValidTelegramChat(s string) bool { return s == "" || telegramChatRe.MatchSt
 
 // ValidTelegramThread : identifiant de sujet de forum (0 = aucun).
 func ValidTelegramThread(n int64) bool { return n >= 0 && n <= 1<<31 }
+
+// Retour de recette : ticket de correction.
+const (
+	MaxCorrectionCriteria  = 10
+	MaxCorrectionCriterion = 500
+)
+
+// ValidCorrection valide un retour de recette (titre, description, critères facultatifs).
+func ValidCorrection(title, description string, criteria []string) (string, bool) {
+	switch {
+	case !ValidFeatureTitle(title):
+		return "titre requis (" + strconv.Itoa(MaxFeatureTitleLen) + " caractères max)", false
+	case !ValidFeatureDescription(description):
+		return "description du problème requise", false
+	case len(criteria) > MaxCorrectionCriteria:
+		return "au plus " + strconv.Itoa(MaxCorrectionCriteria) + " critères", false
+	}
+	for _, c := range criteria {
+		if t := strings.TrimSpace(c); t == "" || runes(t) > MaxCorrectionCriterion {
+			return "critère vide ou trop long (" + strconv.Itoa(MaxCorrectionCriterion) + " caractères max)", false
+		}
+	}
+	return "", true
+}

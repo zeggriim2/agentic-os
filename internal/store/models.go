@@ -120,6 +120,7 @@ type Ticket struct {
 	Title         string          `db:"title"`
 	Body          string          `db:"body"`
 	Acceptance    json.RawMessage `db:"acceptance"`
+	Origin        string          `db:"origin"`
 	State         string          `db:"state"`
 	PreviousState *string         `db:"previous_state"`
 	StateReason   string          `db:"state_reason"`
@@ -136,7 +137,7 @@ type Ticket struct {
 	UpdatedAt     time.Time       `db:"updated_at"`
 }
 
-const ticketCols = `id, feature_id, project_id, key, seq, title, body, acceptance, state, previous_state, state_reason, issue_number, issue_url, branch, head_sha, attempt, pr_number, pr_url, ci_state, version, created_at, updated_at`
+const ticketCols = `id, feature_id, project_id, key, seq, title, body, acceptance, origin, state, previous_state, state_reason, issue_number, issue_url, branch, head_sha, attempt, pr_number, pr_url, ci_state, version, created_at, updated_at`
 
 // Job est une ligne de jobs.
 type Job struct {

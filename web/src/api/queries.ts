@@ -33,6 +33,8 @@ import type {
   ProfileModel,
   ProfileModels,
   RecordingSession,
+  CorrectionInput,
+  Ticket,
 } from "./types";
 
 // Clés de requête — préfixes utilisés pour l'invalidation SSE.
@@ -328,6 +330,14 @@ export function useFeatureIntegration(id: number) {
   return useMutation({
     mutationFn: (mode: IntegrationMode) => api.post<Feature>(`/api/features/${id}/integration`, { mode }),
     onSettled: () => invalidateMany(qc, ["feature", "features", "pipeline", "approvals", "approval"]),
+  });
+}
+
+export function useRequestCorrection(featureId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CorrectionInput) => api.post<Ticket>(`/api/features/${featureId}/corrections`, input),
+    onSettled: () => invalidateMany(qc, ["feature", "features", "pipeline", "overview", "approvals", "approval"]),
   });
 }
 

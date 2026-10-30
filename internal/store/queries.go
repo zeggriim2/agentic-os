@@ -293,13 +293,18 @@ type TicketInput struct {
 	Seq                  int
 	Title, Body          string
 	Acceptance           []string
+	Origin               string // design (défaut) ou correction
 }
 
 // InsertTicket crée le ticket si la clé n'existe pas, et renvoie la ligne.
 func InsertTicket(ctx context.Context, q Q, in TicketInput) (*Ticket, error) {
-	_, err := q.Exec(ctx, `INSERT INTO tickets (feature_id, project_id, key, seq, title, body, acceptance)
-		VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (key) DO NOTHING`,
-		in.FeatureID, in.ProjectID, in.Key, in.Seq, in.Title, in.Body, JSON(in.Acceptance))
+	origin := in.Origin
+	if origin == "" {
+		origin = "design"
+	}
+	_, err := q.Exec(ctx, `INSERT INTO tickets (feature_id, project_id, key, seq, title, body, acceptance, origin)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (key) DO NOTHING`,
+		in.FeatureID, in.ProjectID, in.Key, in.Seq, in.Title, in.Body, JSON(in.Acceptance), origin)
 	if err != nil {
 		return nil, err
 	}

@@ -59,6 +59,10 @@ func (e *Engine) handle(ctx context.Context, j *store.Job, owner string) error {
 		return e.handlePublishFeaturePR(ctx, j, owner)
 	case domain.JobSwitchIntegration:
 		return e.handleSwitchIntegration(ctx, j, owner)
+	case domain.JobOpenCorrection:
+		return e.handleOpenCorrection(ctx, j, owner)
+	case domain.JobRefreshFeaturePR:
+		return e.handleRefreshFeaturePR(ctx, j, owner)
 	}
 	return permanent(domain.ErrClassInternal, "type de job inconnu %q", j.Kind)
 }

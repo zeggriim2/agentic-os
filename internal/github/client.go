@@ -340,6 +340,35 @@ func (c *Client) RetargetPR(ctx context.Context, repo string, number int, base s
 	return back, nil
 }
 
+// UpdatePR met à jour titre et corps d'une PR ouverte puis la relit (même numéro, toujours ouverte).
+func (c *Client) UpdatePR(ctx context.Context, repo string, number int, title, body string) (PR, error) {
+	p, err := repoPath(repo)
+	if err != nil {
+		return PR{}, err
+	}
+	if number <= 0 || strings.TrimSpace(title) == "" {
+		return PR{}, &Error{Class: domain.ErrClassPolicy, Msg: "PR ou titre invalide"}
+	}
+	cur, err := c.GetPR(ctx, repo, number)
+	if err != nil {
+		return PR{}, err
+	}
+	if cur.State != "open" {
+		return PR{}, &Error{Class: domain.ErrClassPolicy, Msg: fmt.Sprintf("PR #%d non ouverte : non modifiée", number)}
+	}
+	if err := c.do(ctx, http.MethodPatch, fmt.Sprintf("%s/pulls/%d", p, number), map[string]any{"title": title, "body": body}, nil); err != nil {
+		return PR{}, err
+	}
+	back, err := c.GetPR(ctx, repo, number)
+	if err != nil {
+		return PR{}, err
+	}
+	if back.Number != number || back.State != "open" || back.Head.Ref != cur.Head.Ref || back.Base.Ref != cur.Base.Ref {
+		return PR{}, &Error{Class: domain.ErrClassExternal, Msg: fmt.Sprintf("PR #%d relue incohérente après mise à jour", number)}
+	}
+	return back, nil
+}
+
 // CheckEvidence décrit l'observation d'un check requis.
 type CheckEvidence struct {
 	Name   string `json:"name"`

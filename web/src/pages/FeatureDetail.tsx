@@ -1,20 +1,21 @@
-import { useState, type ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ExternalLink as ExtIcon, GitBranch, GitPullRequest, HelpCircle, Play, RotateCcw, XCircle } from "lucide-react";
+import { ExternalLink as ExtIcon, GitBranch, GitPullRequest, HelpCircle, MessageSquareWarning, Play, Plus, RotateCcw, Trash2, XCircle } from "lucide-react";
 import { errorMessage } from "@/api/client";
-import { useFeature, useFeatureAction, useFeatureIntegration, useProjects } from "@/api/queries";
+import { useFeature, useFeatureAction, useFeatureIntegration, useProjects, useRequestCorrection } from "@/api/queries";
 import type { FeatureDetail, IntegrationMode, Ticket } from "@/api/types";
 import { ApprovalList, RunsTable, Timeline } from "@/components/domain";
 import { Button } from "@/components/ui/Button";
-import { ConfirmDialog } from "@/components/ui/Dialog";
+import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { Card, CardHeader, ExternalLink, Mono, Skeleton } from "@/components/ui/primitives";
+import { Card, CardHeader, ExternalLink, Field, Input, Mono, Skeleton, Textarea } from "@/components/ui/primitives";
 import { StateBadge, Tag } from "@/components/ui/StateBadge";
 import { DegradedBanner, EmptyState, ErrorState } from "@/components/ui/States";
 import { Tabs } from "@/components/ui/Tabs";
 import { Time } from "@/components/ui/Time";
 import { useToast } from "@/components/ui/Toast";
 import { shortSha } from "@/lib/format";
+import { CORRECTION_LIMITS, LIMITS, validFeatureDescription, validFeatureTitle } from "@/lib/validation";
 import { FEATURE_TERMINAL, INTEGRATION_HINTS, integrationLabel } from "@/lib/states";
 import { projectLabel } from "./Features";
 
@@ -162,6 +163,11 @@ function TicketsTab({ f }: { f: FeatureDetail }) {
               <td className="px-3 py-2">
                 <Link to={`/tickets/${t.id}`} className="focus-ring block rounded">
                   <span className="font-mono text-xs text-fg-subtle">{t.key}</span>
+                  {t.origin === "correction" && (
+                    <span className="ml-2" data-testid="ticket-correction">
+                      <Tag>Correction</Tag>
+                    </span>
+                  )}
                   <span className="block font-medium text-fg hover:text-accent">{t.title}</span>
                 </Link>
               </td>
@@ -190,6 +196,133 @@ export function integrationLocked(f: FeatureDetail): string | null {
   if (f.state === "ACCEPTANCE" || (f.state === "BLOCKED" && f.previous_state === "ACCEPTANCE")) return "Feature en recette.";
   const merged = f.tickets.find((t) => t.state === "DONE");
   return merged ? `Le ticket ${merged.key} est déjà mergé.` : null;
+}
+
+/** La recette humaine peut renvoyer une correction : feature en recette, ou bloquée depuis la recette. */
+export function canRequestCorrection(f: FeatureDetail): boolean {
+  if (f.integration_mode !== "feature_branch" || !f.feature_branch) return false;
+  return f.state === "ACCEPTANCE" || (f.state === "BLOCKED" && f.previous_state === "ACCEPTANCE");
+}
+
+export function CorrectionDialog({ f, open, onClose }: { f: FeatureDetail; open: boolean; onClose: () => void }) {
+  const m = useRequestCorrection(f.id);
+  const toast = useToast();
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [criteria, setCriteria] = useState<string[]>([""]);
+  const [touched, setTouched] = useState(false);
+  const filled = criteria.map((c) => c.trim()).filter(Boolean);
+  const errors = {
+    title: !title.trim() ? "Le titre est requis." : !validFeatureTitle(title) ? `${LIMITS.featureTitle} caractères maximum.` : undefined,
+    description: !description.trim()
+      ? "Décrivez le problème constaté (page, étapes, résultat attendu)."
+      : !validFeatureDescription(description)
+        ? "Description trop longue."
+        : undefined,
+    criteria: criteria.some((c) => c.length > CORRECTION_LIMITS.criterion) ? `${CORRECTION_LIMITS.criterion} caractères maximum par critère.` : undefined,
+  };
+  const reset = () => {
+    setTitle("");
+    setDescription("");
+    setCriteria([""]);
+    setTouched(false);
+  };
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    setTouched(true);
+    if (errors.title || errors.description || errors.criteria) return;
+    m.mutate(
+      { title: title.trim(), description: description.trim(), acceptance_criteria: filled },
+      {
+        onSuccess: (t) => {
+          toast.success("Correction demandée", `Ticket ${t?.key ?? ""} créé sur ${f.feature_branch} : la feature repart en développement.`);
+          reset();
+          onClose();
+        },
+      },
+    );
+  };
+  const withPR = f.feature_pr_number
+    ? `La PR finale #${f.feature_pr_number} reste ouverte et suivra la branche ; elle sera mise à jour au retour en recette.`
+    : "La PR finale sera proposée au retour en recette.";
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      size="lg"
+      title="Demander une correction"
+      description={`Un ticket de correction est créé sur ${f.feature_branch} et suit le cycle habituel (développement, revue, QA, PR vers la branche de feature, merge par vous). ${withPR}`}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button variant="primary" type="submit" form="request-correction" loading={m.isPending}>
+            Créer le ticket de correction
+          </Button>
+        </>
+      }
+    >
+      <form id="request-correction" onSubmit={submit} noValidate className="space-y-4">
+        {m.isError && (
+          <p role="alert" className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+            {errorMessage(m.error)}
+          </p>
+        )}
+        <Field label="Titre" required error={touched ? errors.title : undefined}>
+          {(p) => (
+            <Input
+              {...p}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={LIMITS.featureTitle}
+              placeholder="Récapitulatif : le bloc forfait 10 % ne s'affiche pas"
+              data-autofocus
+            />
+          )}
+        </Field>
+        <Field
+          label="Problème constaté"
+          required
+          error={touched ? errors.description : undefined}
+          hint="Page ou URL, étapes pour reproduire, ce que vous voyez, ce que vous attendiez."
+        >
+          {(p) => <Textarea {...p} rows={6} value={description} onChange={(e) => setDescription(e.target.value)} />}
+        </Field>
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium text-fg">Critères d'acceptation</legend>
+          <p className="text-xs text-fg-muted">
+            Facultatif. Le QA vérifie chaque critère. Sans critère : « le problème décrit est corrigé et vérifié dans l'application ».
+          </p>
+          {criteria.map((c, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Input
+                aria-label={`Critère ${i + 1}`}
+                value={c}
+                maxLength={CORRECTION_LIMITS.criterion}
+                onChange={(e) => setCriteria(criteria.map((x, j) => (j === i ? e.target.value : x)))}
+              />
+              {criteria.length > 1 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={`Retirer le critère ${i + 1}`}
+                  onClick={() => setCriteria(criteria.filter((_, j) => j !== i))}
+                  icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />}
+                />
+              )}
+            </div>
+          ))}
+          {touched && errors.criteria && <p className="text-xs text-danger">{errors.criteria}</p>}
+          {criteria.length < CORRECTION_LIMITS.criteria && (
+            <Button variant="ghost" size="sm" onClick={() => setCriteria([...criteria, ""])} icon={<Plus className="h-3.5 w-3.5" aria-hidden />}>
+              Ajouter un critère
+            </Button>
+          )}
+        </fieldset>
+      </form>
+    </Dialog>
+  );
 }
 
 function IntegrationCard({ f, base }: { f: FeatureDetail; base: string | undefined }) {
@@ -274,6 +407,7 @@ export default function FeatureDetailPage() {
   const toast = useToast();
   const [tab, setTab] = useState("spec");
   const [pending, setPending] = useState<Action | null>(null);
+  const [correcting, setCorrecting] = useState(false);
 
   const crumbs = [{ label: "Features", to: "/features" }];
   if (q.isPending)
@@ -298,6 +432,7 @@ export default function FeatureDetailPage() {
   if (f.state === "BLOCKED") actions.push("retry");
   if (!FEATURE_TERMINAL.has(f.state)) actions.push("cancel");
   const pendingApprovals = f.approvals.filter((a) => a.status === "pending");
+  const correctable = canRequestCorrection(f);
 
   const run = () => {
     if (!pending) return;
@@ -335,26 +470,47 @@ export default function FeatureDetailPage() {
             )}
           </>
         }
-        actions={actions.map((a) => (
-          <Button
-            key={a}
-            variant={a === "cancel" ? "danger" : "primary"}
-            size="sm"
-            onClick={() => setPending(a)}
-            icon={
-              a === "start_spec" ? (
-                <Play className="h-3.5 w-3.5" aria-hidden />
-              ) : a === "retry" ? (
-                <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-              ) : (
-                <XCircle className="h-3.5 w-3.5" aria-hidden />
-              )
-            }
-          >
-            {a === "start_spec" ? "Démarrer la spec" : a === "retry" ? "Relancer" : "Annuler"}
-          </Button>
-        ))}
+        actions={[
+          correctable && (
+            <Button
+              key="correction"
+              variant="secondary"
+              size="sm"
+              onClick={() => setCorrecting(true)}
+              icon={<MessageSquareWarning className="h-3.5 w-3.5" aria-hidden />}
+            >
+              Demander une correction
+            </Button>
+          ),
+          ...actions.map((a) => (
+            <Button
+              key={a}
+              variant={a === "cancel" ? "danger" : "primary"}
+              size="sm"
+              onClick={() => setPending(a)}
+              icon={
+                a === "start_spec" ? (
+                  <Play className="h-3.5 w-3.5" aria-hidden />
+                ) : a === "retry" ? (
+                  <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                ) : (
+                  <XCircle className="h-3.5 w-3.5" aria-hidden />
+                )
+              }
+            >
+              {a === "start_spec" ? "Démarrer la spec" : a === "retry" ? "Relancer" : "Annuler"}
+            </Button>
+          )),
+        ]}
       />
+      {correctable && <CorrectionDialog f={f} open={correcting} onClose={() => setCorrecting(false)} />}
+      {f.state === "ACCEPTANCE" && (
+        <p className="mb-4 rounded-md border border-review/40 bg-panel px-3 py-2 text-sm text-fg-muted" data-testid="acceptance-hint">
+          <span className="font-medium text-fg">Recette : </span>
+          testez la branche <Mono>{f.feature_branch}</Mono>. Un défaut ? « Demander une correction » ajoute un ticket sur cette branche ; sinon mergez la PR
+          finale.
+        </p>
+      )}
       {q.isError && (
         <div className="mb-4">
           <DegradedBanner error={q.error} onRetry={() => void q.refetch()} />
