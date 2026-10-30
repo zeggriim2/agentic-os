@@ -57,3 +57,6 @@ export const validTelegramChat = (s: string) =>
   s === "" || TELEGRAM_CHAT.test(s);
 export const validMaxTokens = (n: number) =>
   Number.isInteger(n) && n >= LIMITS.minTokens && n <= LIMITS.maxTokens;
+
+/** Retour de recette (miroir de domain.ValidCorrection). */
+export const CORRECTION_LIMITS = { criteria: 10, criterion: 500 };

@@ -116,6 +116,7 @@ type ticketView struct {
 	Title         string          `json:"title"`
 	Body          string          `json:"body"`
 	Acceptance    json.RawMessage `json:"acceptance"`
+	Origin        string          `json:"origin"`
 	State         string          `json:"state"`
 	PreviousState *string         `json:"previous_state"`
 	StateReason   string          `json:"state_reason"`
@@ -138,7 +139,7 @@ func viewTicket(t *store.Ticket, projects map[int64]string) ticketView {
 	if slug := projects[t.ProjectID]; slug != "" {
 		wt = slug + "/" + t.Key // relatif à AOS_WORKSPACE_ROOT
 	}
-	return ticketView{t.ID, t.FeatureID, t.ProjectID, t.Key, t.Title, t.Body, rawOrNull(t.Acceptance), t.State, t.PreviousState, t.StateReason,
+	return ticketView{t.ID, t.FeatureID, t.ProjectID, t.Key, t.Title, t.Body, rawOrNull(t.Acceptance), t.Origin, t.State, t.PreviousState, t.StateReason,
 		t.IssueNumber, t.IssueURL, t.Branch, t.HeadSHA, t.Attempt, t.PRNumber, t.PRURL, t.CIState, wt, t.Version, ts(t.CreatedAt), ts(t.UpdatedAt)}
 }
 

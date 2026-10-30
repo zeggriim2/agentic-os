@@ -545,3 +545,22 @@ lease owner) et le ticket expose `worktree` relatif (`<slug>/<key>`).
 - Visualiseur de traces : application statique de `playwright-core` (même version que les e2e)
   copiée au build dans `web/dist/trace-viewer` ; en-têtes propres (service worker, cadres de même
   origine, `blob:`) ; ouvert sur `/trace-viewer/index.html?trace=/api/recordings/<id>/file`.
+
+### Correction en recette (migration 0011, 1.10.0)
+
+- `POST /api/features/{id}/corrections` `{title, description, acceptance_criteria[]}` (CSRF, 201 +
+  ticket) : feature `ACCEPTANCE`, ou `BLOCKED` avec `previous_state = ACCEPTANCE` ; mode branche de
+  feature et branche fixée (sinon 409 `correction_not_allowed`). Validation `domain.ValidCorrection`
+  (422 `invalid_correction` : titre, description, 10 critères de 500 caractères max ; critère par défaut
+  si aucun).
+- Une transaction : approbations actionnables de la feature expirées (PR finale non publiée), ticket
+  `seq = max + 1`, clé `<slug>-F<n>-T<seq>`, `tickets.origin = 'correction'`, événement
+  `correction_requested` (`ACCEPTANCE|BLOCKED → IN_DEV`), audit `feature.correction_ticket_added`, job
+  `open_correction`.
+- `open_correction` : issue (`EnsureIssue`, idempotente par clé), ticket `PLANNED → READY_FOR_DEV`,
+  `advanceProject` (séquentiel par projet). Le ticket utilise le projet effectif (base = branche de feature).
+- Retour en recette (`completeFeature`) : si `feature_pr_number` est connu, job `refresh_feature_pr`
+  (`PATCH` titre + corps de la PR finale, relue : même numéro, ouverte, même head/base) ; sinon
+  approbation `publish_feature_pr` comme au premier passage.
+- Limite connue : la PR finale n'est pas observée pendant `IN_DEV` ; mergée à ce moment-là, elle est
+  constatée au retour en recette (`ReconcileFeaturePR` → DONE).

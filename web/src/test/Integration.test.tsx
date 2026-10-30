@@ -133,10 +133,87 @@ describe("Mode d'intégration", () => {
     });
     renderWithProviders(<FeatureDetailPage />, { route: "/features/6", path: "/features/:id" });
     expect(await screen.findByTestId("integration-mode")).toHaveTextContent("Branche de feature");
-    expect(screen.getByText("feature/F6-alerte-frais-reels")).toBeInTheDocument();
+    expect(screen.getByTestId("integration-branch")).toHaveTextContent("feature/F6-alerte-frais-reels");
     expect(screen.getByRole("link", { name: /PR finale #80/ })).toHaveAttribute("href", "https://github.com/o/fraiszen/pull/80");
     expect(screen.getByText(/Mode verrouillé : Feature en recette/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Passer en/ })).not.toBeInTheDocument();
     expect(screen.getAllByText("Recette humaine").length).toBeGreaterThan(0);
+  });
+});
+
+describe("Recette : demander une correction", () => {
+  beforeEach(() => setCsrfToken("csrf"));
+  const inAcceptance = (over: Partial<FeatureDetail> = {}) =>
+    feature({
+      state: "ACCEPTANCE",
+      integration_mode: "feature_branch",
+      feature_branch: "feature/F6-alerte-frais-reels",
+      feature_pr_number: 72,
+      feature_pr_url: "https://github.com/o/fraiszen/pull/72",
+      tickets: [ticket({ state: "DONE" })],
+      ...over,
+    });
+
+  it("crée un ticket de correction avec description et critères, la PR finale restant ouverte", async () => {
+    const { calls } = mockFetch({
+      "GET /api/projects": { body: projects },
+      "GET /api/features/6": { body: inAcceptance() },
+      "POST /api/features/6/corrections": { status: 201, body: ticket({ id: 70, key: "fraiszen-F6-T4", state: "PLANNED", origin: "correction" }) },
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<FeatureDetailPage />, { route: "/features/6", path: "/features/:id" });
+    expect(await screen.findByTestId("acceptance-hint")).toHaveTextContent("Demander une correction");
+    await user.click(screen.getByRole("button", { name: "Demander une correction" }));
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByText(/La PR finale #72 reste ouverte et suivra la branche/)).toBeInTheDocument();
+    // Validation : titre et description requis.
+    await user.click(dialog.getByRole("button", { name: "Créer le ticket de correction" }));
+    expect(dialog.getByText("Le titre est requis.")).toBeInTheDocument();
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+    await user.type(dialog.getByRole("textbox", { name: /Titre/ }), "Récapitulatif : forfait absent");
+    await user.type(dialog.getByRole("textbox", { name: /Problème constaté/ }), "Sur /summary le bloc forfait 10 % ne s'affiche pas.");
+    await user.type(dialog.getByRole("textbox", { name: "Critère 1" }), "Le bloc forfait 10 % s'affiche");
+    await user.click(dialog.getByRole("button", { name: "Ajouter un critère" }));
+    await user.type(dialog.getByRole("textbox", { name: "Critère 2" }), "   ");
+    await user.click(dialog.getByRole("button", { name: "Créer le ticket de correction" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
+    const post = calls.find((c) => c.method === "POST")!;
+    expect(post.url).toBe("/api/features/6/corrections");
+    expect(post.body).toEqual({
+      title: "Récapitulatif : forfait absent",
+      description: "Sur /summary le bloc forfait 10 % ne s'affiche pas.",
+      acceptance_criteria: ["Le bloc forfait 10 % s'affiche"],
+    });
+  });
+
+  it("propose la correction depuis un blocage en recette, jamais hors recette ni en mode direct ; marque les tickets de correction", async () => {
+    mockFetch({
+      "GET /api/projects": { body: projects },
+      "GET /api/features/6": {
+        body: inAcceptance({
+          state: "BLOCKED",
+          previous_state: "ACCEPTANCE",
+          feature_pr_number: null,
+          feature_pr_url: null,
+          tickets: [ticket({ state: "DONE" }), ticket({ id: 70, key: "fraiszen-F6-T4", state: "DONE", origin: "correction" })],
+        }),
+      },
+    });
+    const user = userEvent.setup();
+    const { unmount } = renderWithProviders(<FeatureDetailPage />, { route: "/features/6", path: "/features/:id" });
+    await user.click(await screen.findByRole("button", { name: "Demander une correction" }));
+    expect(await screen.findByText(/La PR finale sera proposée au retour en recette/)).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("tab", { name: /Tickets/ }));
+    expect(screen.getAllByTestId("ticket-correction")).toHaveLength(1);
+    unmount();
+
+    for (const f of [feature({ state: "IN_DEV", integration_mode: "feature_branch", feature_branch: "feature/F6-x" }), feature({ state: "ACCEPTANCE" })]) {
+      mockFetch({ "GET /api/projects": { body: projects }, "GET /api/features/6": { body: f } });
+      const r = renderWithProviders(<FeatureDetailPage />, { route: "/features/6", path: "/features/:id" });
+      expect(await screen.findByTestId("integration-mode")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Demander une correction" })).not.toBeInTheDocument();
+      r.unmount();
+    }
   });
 });

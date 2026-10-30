@@ -126,6 +126,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/features/{id}", s.getFeature)
 			r.Post("/features/{id}/actions", s.featureAction)
 			r.Post("/features/{id}/integration", s.featureIntegration)
+			r.Post("/features/{id}/corrections", s.requestCorrection)
 			r.Get("/tickets/{id}", s.getTicket)
 			r.Post("/tickets/{id}/actions", s.ticketAction)
 			r.Get("/pipeline", s.pipeline)

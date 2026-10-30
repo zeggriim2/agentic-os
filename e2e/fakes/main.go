@@ -1056,7 +1056,9 @@ func (f *fakes) patchPull(w http.ResponseWriter, r *http.Request) {
 	}
 	n, _ := strconv.Atoi(r.PathValue("number"))
 	var req struct {
-		Base string `json:"base"`
+		Base  string  `json:"base"`
+		Title *string `json:"title"`
+		Body  *string `json:"body"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
@@ -1070,6 +1072,14 @@ func (f *fakes) patchPull(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.State != "open" {
 		ghError(w, 422, "Cannot change the base branch of a closed pull request")
+		return
+	}
+	if req.Base == "" && req.Title != nil { // mise à jour titre/corps (PR finale après correction)
+		p.Title = *req.Title
+		if req.Body != nil {
+			p.Body = *req.Body
+		}
+		writeJSON(w, 200, f.pullJSON(bare, p))
 		return
 	}
 	if _, ok := f.branchSHA(bare, req.Base); !ok || req.Base == "" {

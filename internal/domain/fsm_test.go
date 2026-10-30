@@ -31,6 +31,8 @@ func TestFeatureAllowedTransitions(t *testing.T) {
 		{FeatureReadyForDev, FeatureEvTicketsIntegrated, FeatureAcceptance},
 		{FeatureInDev, FeatureEvTicketsIntegrated, FeatureAcceptance},
 		{FeatureAcceptance, FeatureEvFeaturePRMerged, FeatureDone},
+		{FeatureAcceptance, FeatureEvCorrectionRequested, FeatureInDev},
+		{FeatureBlocked, FeatureEvCorrectionRequested, FeatureInDev},
 		{FeatureAcceptance, FeatureEvFail, FeatureBlocked},
 	}
 	for _, s := range AllFeatureStates {
@@ -57,7 +59,7 @@ func TestFeatureRefusesUnlistedTransitions(t *testing.T) {
 		FeatureEvStartSpec, FeatureEvSpecReady, FeatureEvSpecFailed, FeatureEvSpecApproved, FeatureEvSpecRejected,
 		FeatureEvDesignReady, FeatureEvDesignApproved, FeatureEvDesignRejected, FeatureEvIssuesOpened,
 		FeatureEvDevGateApproved, FeatureEvDevGateRejected, FeatureEvTicketStarted, FeatureEvAllTicketsDone,
-		FeatureEvTicketsIntegrated, FeatureEvFeaturePRMerged, FeatureEvFail, FeatureEvCancel, FeatureEvRetry, FeatureEvent("inconnu"),
+		FeatureEvTicketsIntegrated, FeatureEvFeaturePRMerged, FeatureEvCorrectionRequested, FeatureEvFail, FeatureEvCancel, FeatureEvRetry, FeatureEvent("inconnu"),
 	}
 	allowed := 0
 	for _, s := range AllFeatureStates {
