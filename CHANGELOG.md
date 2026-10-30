@@ -5,6 +5,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 ## [Non publié]
 
 ### Ajouté
+- **Modèle par défaut des profils Hermes depuis Agentic OS** (page Agents) : modèle actuel de chaque
+  profil `aos-*` lu dans Hermes, liste déroulante du catalogue pour le changer, état de la demande
+  (en attente, appliqué, échec avec le message). Hermes résout le défaut du profil avant le modèle demandé
+  par le projet : un défaut en quota épuisé faisait échouer les runs (FraisZen F6-T2). Les rôles concernés
+  sont signalés avec un bouton « Aligner le profil ».
+- Application sur l'hôte par le timer systemd utilisateur `aos-profile-sync`
+  (`deploy/agents/install-profile-sync.sh`, `sync-profile-models.sh`) : copie de sauvegarde, `hermes
+  config set`, relecture, config d'origine remise en cas d'échec. Migration 0009.
+
+### Ajouté
 - **Mode d'intégration par feature** : « Directe » (PR de chaque ticket vers la base, comme avant) ou
   « Branche de feature » : les tickets partent d'une branche `feature/F<n>-<titre>` créée depuis la base,
   y sont mergés, puis la feature passe en **Recette humaine** et une **PR finale** branche de feature →

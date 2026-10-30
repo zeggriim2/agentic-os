@@ -157,6 +157,42 @@ export interface ModelProvider {
   is_current: boolean;
   models: string[];
 }
+/** Fournisseur + modèle tels que Hermes les nomme. */
+export interface ModelRef {
+  provider: string;
+  model: string;
+}
+/** État d'une demande de modèle par défaut d'un profil (vide : aucune demande). */
+export type ProfileModelState = "" | "PENDING" | "APPLIED" | "FAILED";
+/** Modèle par défaut d'un profil Hermes aos-* : courant (lu dans Hermes) et voulu (Agentic OS). */
+export interface ProfileModel {
+  profile: string;
+  role: string;
+  usages: { project: string; role: string }[];
+  current: ModelRef | null;
+  current_error?: string;
+  desired: ModelRef | null;
+  state: ProfileModelState;
+  error: string | null;
+  revision: number;
+  requested_by?: string;
+  requested_at: string | null;
+  applied_at: string | null;
+  matches_desired: boolean;
+}
+/** Rôle d'un projet dont le fournisseur demandé diffère du défaut de son profil. */
+export interface ProfileMismatch {
+  project: string;
+  role: string;
+  profile: string;
+  requested: ModelRef;
+  current: ModelRef;
+}
+export interface ProfileModels {
+  items: ProfileModel[];
+  mismatches: ProfileMismatch[];
+  sync: { last_seen_at: string | null; host: string; stale: boolean };
+}
 export interface ProjectCreate {
   slug: string;
   name: string;

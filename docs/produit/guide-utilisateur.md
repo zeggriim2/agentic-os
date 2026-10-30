@@ -85,6 +85,16 @@ présenter des conflits à résoudre sur GitHub.
   le modèle souhaité de la page Agents s'applique alors). Si Hermes refuse le fournisseur demandé, le run
   est relancé une fois sur le modèle par défaut du profil et la page du run l'indique (« modèle demandé
   ≠ servi », « repli »).
+- **Agents → Modèle par défaut des profils Hermes** : le modèle que chaque profil `aos-*` utilise par
+  défaut, lu en direct dans Hermes, et une liste déroulante pour le changer (« Appliquer », avec
+  confirmation). **Important** : Hermes vérifie toujours le modèle par défaut du profil avant d'appliquer
+  celui demandé par le projet ; si ce défaut est indisponible (quota épuisé), le run échoue même avec un
+  autre modèle demandé. Le bandeau rouge liste les rôles concernés (fournisseur demandé ≠ défaut du profil)
+  avec un bouton **Aligner le profil**. La demande passe « En attente d'application », puis « Appliqué »
+  en moins d'une minute : c'est le timer `aos-profile-sync` de l'hôte qui écrit la configuration du profil
+  (une copie de l'ancienne est gardée). Si le bandeau jaune dit que le script ne tourne pas, l'exploitant
+  lance `deploy/agents/install-profile-sync.sh` sur l'hôte Hermes. Seuls les profils `aos-*` sont
+  modifiables ; le changement vaut pour les runs suivants.
 - **Audit** : l'historique complet de qui a fait quoi.
 - **Santé** : état de la base, de Hermes, de GitHub, de Telegram et des workers.
 
