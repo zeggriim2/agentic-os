@@ -3,59 +3,58 @@
 @tailwind utilities;
 
 /*
- * Design system « Agentic OS » — inspiré Linear/Vercel :
- * surfaces quasi noires étagées par luminance, bordures fines, un seul accent indigo,
- * couleurs chromatiques réservées aux états. Valeurs RGB (sans virgule) pour l'alpha Tailwind.
- * Contrastes vérifiés AA (texte ≥ 4.5:1) dans les deux thèmes.
+ * Design system « Agentic OS » (1.11, cockpit) : sombre ardoise par défaut, accent orange.
+ * Code couleur : orange = agents au travail et actions principales ; bleu = ce qui attend ta
+ * décision ; vert = terminé ; rouge = bloqué. Valeurs RGB (sans virgule) pour l'alpha Tailwind.
+ * Contrastes AA (texte ≥ 4.5:1, y compris sur les fonds teintés /15) dans les deux thèmes.
  */
 :root {
-  --bg: 251 251 252;
-  --panel: 244 245 247;
+  --bg: 246 247 246;
+  --panel: 238 241 239;
   --surface: 255 255 255;
   --elevated: 255 255 255;
-  --hover: 236 238 241;
-  --border: 227 229 233;
-  --border-strong: 205 209 215;
-  --fg: 15 16 17;
-  --fg-muted: 82 88 98;
-  --fg-subtle: 104 110 120;
-  --accent: 79 87 201;
-  --accent-solid: 79 87 201;
+  --hover: 228 233 230;
+  --border: 216 222 219;
+  --border-strong: 190 198 194;
+  --fg: 23 32 42;
+  --fg-muted: 76 87 96;
+  --fg-subtle: 91 103 112;
+  --accent: 154 69 7;
+  --accent-solid: 180 83 9;
   --accent-fg: 255 255 255;
 
-  --tone-neutral: 82 88 98;
-  --tone-info: 29 100 196;
-  --tone-progress: 99 72 196;
-  /* review et success assombris : texte des badges ≥ 4.5:1 sur leur fond teinté (axe, E2E) */
-  --tone-review: 133 77 14;
+  --tone-neutral: 76 87 96;
+  --tone-info: 14 102 128;
+  --tone-progress: 154 69 7;
+  --tone-review: 26 92 148;
   --tone-success: 22 101 52;
-  --tone-danger: 196 34 40;
-  --tone-warning: 180 83 9;
+  --tone-danger: 180 30 36;
+  --tone-warning: 133 77 14;
   color-scheme: light;
 }
 
 .dark {
-  --bg: 8 9 10;
-  --panel: 15 16 17;
-  --surface: 20 21 23;
-  --elevated: 28 29 33;
-  --hover: 34 36 40;
-  --border: 38 40 45;
-  --border-strong: 52 54 60;
-  --fg: 247 248 248;
-  --fg-muted: 172 178 189;
-  --fg-subtle: 138 143 152;
-  --accent: 140 146 255;
-  --accent-solid: 94 106 210;
-  --accent-fg: 255 255 255;
+  --bg: 18 23 30;
+  --panel: 22 28 37;
+  --surface: 26 33 43;
+  --elevated: 34 43 55;
+  --hover: 38 48 61;
+  --border: 43 53 66;
+  --border-strong: 60 73 90;
+  --fg: 232 236 241;
+  --fg-muted: 168 178 192;
+  --fg-subtle: 145 156 171;
+  --accent: 246 166 90;
+  --accent-solid: 242 140 40;
+  --accent-fg: 29 16 4;
 
-  --tone-neutral: 160 166 176;
-  --tone-info: 96 165 250;
-  --tone-progress: 167 159 255;
-  --tone-review: 250 204 21;
-  --tone-success: 74 222 128;
+  --tone-neutral: 160 170 184;
+  --tone-info: 94 210 230;
+  --tone-progress: 246 166 90;
+  --tone-review: 120 188 242;
+  --tone-success: 111 199 146;
   --tone-danger: 248 113 113;
-  --tone-warning: 251 146 60;
+  --tone-warning: 250 204 21;
   color-scheme: dark;
 }
 

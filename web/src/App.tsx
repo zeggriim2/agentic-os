@@ -7,6 +7,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ListSkeleton } from "@/components/ui/States";
 import LoginPage from "@/pages/Login";
+import BoardPage from "@/pages/Board";
 import OverviewPage from "@/pages/Overview";
 
 const PipelinePage = lazy(() => import("@/pages/Pipeline"));
@@ -51,7 +52,8 @@ export function AppRoutes() {
           </RequireAuth>
         }
       >
-        <Route index element={<OverviewPage />} />
+        <Route index element={<BoardPage />} />
+        <Route path="overview" element={<OverviewPage />} />
         <Route path="pipeline" element={page(<PipelinePage />)} />
         <Route path="features" element={page(<FeaturesPage />)} />
         <Route path="features/:id" element={page(<FeatureDetailPage />)} />
