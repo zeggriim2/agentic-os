@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic OS — Maquette B · Parcours de la feature</title>
+<style>
+  :root {
+    --night: #142033;     /* fond */
+    --deck: #1c2b42;      /* panneaux */
+    --deck-2: #233552;
+    --line: #34496a;
+    --text: #e6ebf2;
+    --muted: #9fb0c6;
+    --teal: #3fb7a8;      /* agent au travail */
+    --teal-soft: rgba(63,183,168,.14);
+    --sand: #e3b25b;      /* décision humaine */
+    --sand-soft: rgba(227,178,91,.14);
+    --done: #7fa98f;
+    --r: 6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 14px/1.5 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; background: var(--night); color: var(--text);
+    font-variant-numeric: tabular-nums; height: 100vh; display: grid; grid-template-columns: 240px 1fr 400px; overflow: hidden; }
+  button { font: inherit; cursor: pointer; color: inherit; }
+  :focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+  /* Colonne des features */
+  nav { border-right: 1px solid var(--line); padding: 16px 12px; overflow: auto; }
+  nav .brand { font-weight: 700; font-size: 15px; margin-bottom: 18px; }
+  nav h2 { font-size: 12.5px; color: var(--muted); font-weight: 600; margin: 14px 6px 6px; }
+  nav button { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: var(--r); padding: 7px 8px; }
+  nav button:hover { background: var(--deck); }
+  nav button[aria-current="true"] { background: var(--deck-2); }
+  nav button small { display: block; color: var(--muted); font-size: 12px; }
+  nav .st-live small { color: var(--teal); }
+  nav .st-dec small { color: var(--sand); }
+
+  /* Parcours */
+  .journey { overflow: auto; padding: 22px 28px 40px; }
+  .journey header h1 { font-size: 20px; font-weight: 650; }
+  .journey header p { color: var(--muted); margin-top: 2px; }
+  .path { margin-top: 22px; position: relative; padding-left: 28px; }
+  .path::before { content: ""; position: absolute; left: 9px; top: 6px; bottom: 6px; width: 2px; background: var(--line); }
+  .step { position: relative; margin-bottom: 18px; }
+  .step .node { position: absolute; left: -28px; top: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--night); border: 2px solid var(--done);
+    display: grid; place-items: center; font-size: 11px; color: var(--done); }
+  .step.done .node::after { content: "✓"; }
+  .step.live .node { border-color: var(--teal); }
+  .step.live .node::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--teal); animation: beat 1.3s infinite; }
+  .step.todo .node { border-color: var(--line); }
+  .step .title { font-weight: 600; display: flex; gap: 10px; align-items: baseline; }
+  .step .title span { color: var(--muted); font-weight: 400; font-size: 13px; }
+  .step.todo .title { color: var(--muted); }
+  @keyframes beat { 50% { transform: scale(.55); opacity: .5; } }
+
+  .tickets { margin-top: 10px; display: grid; gap: 8px; }
+  .tk { background: var(--deck); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; }
+  .tk .k { color: var(--muted); font-size: 12px; }
+  .tk .n { font-weight: 600; }
+  .tk .s { grid-row: span 2; align-self: center; font-size: 12.5px; padding: 3px 8px; border-radius: 12px; white-space: nowrap; }
+  .tk .s.ok { color: var(--done); border: 1px solid var(--done); }
+  .tk .s.live { color: var(--teal); background: var(--teal-soft); }
+  .tk .s.dec { color: var(--sand); background: var(--sand-soft); }
+  .tk.focus { border-color: var(--teal); }
+  .stages { grid-column: 1 / -1; display: flex; gap: 4px; margin-top: 6px; }
+  .stages i { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
+  .stages i.on { background: var(--done); }
+  .stages i.now { background: var(--teal); animation: beat 1.3s infinite; }
+
+  .stream { grid-column: 1 / -1; margin-top: 8px; background: #0f1a2b; border-radius: var(--r); padding: 8px 10px; max-height: 170px; overflow: auto;
+    font: 12.5px/1.6 ui-monospace, Menlo, Consolas, monospace; color: #c8d4e3; }
+  .stream div span { color: var(--muted); }
+  .stream div.ok { color: #9fd7b5; }
+  .stream div.fresh { animation: inl .5s ease-out; }
+  @keyframes inl { from { background: var(--teal-soft); } }
+  .gate { margin-top: 8px; background: var(--sand-soft); border: 1px solid rgba(227,178,91,.45); border-radius: var(--r); padding: 10px 12px; }
+  .gate b { color: var(--sand); }
+  .gate .row { display: flex; gap: 8px; margin-top: 8px; }
+  .gate button { border: 1px solid var(--line); background: var(--deck); border-radius: var(--r); padding: 5px 12px; }
+  .gate button.go { background: var(--sand); color: #1b1404; border-color: var(--sand); font-weight: 600; }
+
+  /* Conversations */
+  aside { border-left: 1px solid var(--line); background: var(--deck); display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
+  .who { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .who h2 { font-size: 15px; }
+  .who p { color: var(--muted); font-size: 12.5px; }
+  .roster { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 10px; }
+  .roster button { border: 1px solid var(--line); background: none; border-radius: var(--r); padding: 6px 2px; font-size: 12px; text-align: center; }
+  .roster button[aria-pressed="true"] { background: var(--deck-2); border-color: var(--teal); }
+  .roster button em { display: block; font-style: normal; font-size: 11px; color: var(--muted); }
+  .roster button.busy em { color: var(--teal); }
+  .thread { overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+  .b { max-width: 94%; }
+  .b .h { font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+  .b .c { background: var(--deck-2); border-radius: var(--r); padding: 8px 10px; }
+  .b.me { align-self: flex-end; }
+  .b.me .c { background: #2c4a73; }
+  .b.me.steer .c { background: #1f5a55; }
+  .b .c .acts { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .b .c .acts button { border: 1px solid var(--line); background: var(--deck); border-radius: var(--r); padding: 3px 8px; font-size: 12.5px; }
+  .note { align-self: center; color: var(--muted); font-size: 12px; }
+  .composer { border-top: 1px solid var(--line); padding: 12px 16px; }
+  .composer .row { display: flex; gap: 6px; align-items: flex-end; }
+  .composer textarea { flex: 1; resize: none; height: 58px; background: var(--night); color: var(--text); border: 1px solid var(--line); border-radius: var(--r); padding: 8px; font: inherit; }
+  .composer .send { display: grid; gap: 4px; }
+  .composer .send button { border: 0; border-radius: var(--r); padding: 6px 10px; font-size: 12.5px; font-weight: 600; }
+  .composer .send .steer { background: var(--teal); color: #06231f; }
+  .composer .send .ask { background: var(--deck-2); border: 1px solid var(--line); }
+  .composer p { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .toast { position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 90px); background: var(--text); color: var(--night); padding: 9px 14px; border-radius: var(--r); transition: transform .25s; }
+  .toast.show { transform: translate(-50%, 0); }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<nav aria-label="Features">
+  <div class="brand">Agentic OS</div>
+  <h2>FraisZen</h2>
+  <button aria-current="true" class="st-live">F6 · Alerte frais réels<small>Correction en cours · T4</small></button>
+  <button class="st-dec">F7 · Semaine type persistée<small>Spec à valider</small></button>
+  <button>F5 · Gestion des véhicules<small>Idée</small></button>
+  <button>F4 · Calendrier intelligent<small>Idée</small></button>
+  <h2>Sandbox</h2>
+  <button>F2 · Export CSV<small>Terminée</small></button>
+</nav>
+
+<main class="journey">
+  <header>
+    <h1>Alerte « Frais réels potentiellement avantageux »</h1>
+    <p>F6 · branche feature/F6-alerte-frais-reels-potentiellement-avant · PR finale #72 ouverte</p>
+  </header>
+  <div class="path">
+    <div class="step done"><span class="node"></span><div class="title">Idée et spec <span>validée le 24 oct. · 6 user stories</span></div></div>
+    <div class="step done"><span class="node"></span><div class="title">Conception <span>validée le 25 oct. · 3 tickets</span></div></div>
+    <div class="step done"><span class="node"></span><div class="title">Tickets T1 à T3 <span>mergés dans la branche de feature</span></div></div>
+    <div class="step done"><span class="node"></span><div class="title">Recette <span>défaut signalé sur /summary le 8 nov.</span></div></div>
+    <div class="step live" id="corrStep"><span class="node"></span>
+      <div class="title">Correction <span id="corrLabel">le développeur corrige · 3 min</span></div>
+      <div class="tickets">
+        <div class="tk focus">
+          <div class="k">fraiszen-F6-T4 · demandé par toi</div>
+          <div class="s live" id="tkState">Développement</div>
+          <div class="n">Récapitulatif : forfait 10 % absent</div>
+          <div class="stages" id="stages"><i class="now"></i><i></i><i></i><i></i></div>
+          <div class="stream" id="stream" aria-live="polite"></div>
+          <div id="gate"></div>
+        </div>
+      </div>
+    </div>
+    <div class="step todo"><span class="node"></span><div class="title">Retour en recette <span>la PR finale #72 sera mise à jour</span></div></div>
+    <div class="step todo"><span class="node"></span><div class="title">Merge de la PR finale <span>par toi</span></div></div>
+  </div>
+</main>
+
+<aside aria-label="Conversation">
+  <div class="who">
+    <h2 id="whoName">Développeur</h2>
+    <p id="whoCtx">Au travail sur T4 · contexte : spec F6, ticket T4, diff en cours</p>
+    <div class="roster" id="roster">
+      <button data-a="PO" data-c="Rédacteur de la spec F6">PO<em>libre</em></button>
+      <button data-a="Tech lead" data-c="Auteur du découpage">Tech lead<em>libre</em></button>
+      <button data-a="Développeur" aria-pressed="true" class="busy" data-c="Au travail sur T4">Dév.<em>au travail</em></button>
+      <button data-a="Reviewer" data-c="Revue de T4 à venir">Reviewer<em>libre</em></button>
+      <button data-a="QA" data-c="QA de T4 à venir, avec enregistrement">QA<em>libre</em></button>
+    </div>
+  </div>
+  <div class="thread" id="thread">
+    <div class="note">Aujourd'hui</div>
+    <div class="b"><div class="h">Développeur · 19:02</div><div class="c">J'ai reproduit le défaut. Je vais corriger la condition dans SummaryController et ajouter un test pour une configuration 2025 complète.</div></div>
+  </div>
+  <div class="composer">
+    <div class="row">
+      <textarea id="msg" aria-label="Message au développeur">Ajoute aussi le cas où la configuration est incomplète.</textarea>
+      <div class="send"><button class="steer" id="steer">Consigne</button><button class="ask" id="ask">Question</button></div>
+    </div>
+    <p>Consigne : prise en compte pendant le travail. Question : réponse sans toucher au code. Tracé dans l'audit.</p>
+  </div>
+</aside>
+<div class="toast" id="toast"></div>
+
+<script>
+const stream = document.getElementById("stream");
+function line(t, ok) { const d = document.createElement("div"); d.className = "fresh" + (ok ? " ok" : "");
+  d.innerHTML = `<span>${new Date().toLocaleTimeString("fr-FR")}</span>  ${t}`; stream.appendChild(d); stream.scrollTop = stream.scrollHeight; }
+["dev  › lit src/Controller/SummaryController.php", "dev  › aos-ci phpunit --filter Summary  (1 échec, attendu)"].forEach(l => line(l));
+const stages = [...document.querySelectorAll("#stages i")];
+function stage(n, label, cls) { stages.forEach((s, i) => s.className = i < n ? "on" : i === n ? "now" : "");
+  const st = document.getElementById("tkState"); st.textContent = label; st.className = "s " + (cls || "live"); }
+const roster = document.getElementById("roster");
+function busy(name) { roster.querySelectorAll("button").forEach(b => { const on = b.dataset.a === name; b.classList.toggle("busy", on); b.querySelector("em").textContent = on ? "au travail" : "libre"; }); }
+const plan = [
+  [2500, () => line("dev  › modifie templates/summary/_forfait.html.twig")],
+  [4500, () => line("dev  › aos-ci all  → 214 tests verts", true)],
+  [6500, () => { stage(1, "Revue"); busy("Reviewer"); document.getElementById("corrLabel").textContent = "le reviewer relit · 4 fichiers"; line("rev  › relit a3f9c21 (+38 −6)"); }],
+  [9500, () => line("rev  › aucun problème bloquant · 1 suggestion de nommage", true)],
+  [11000, () => { stage(2, "QA"); busy("QA"); document.getElementById("corrLabel").textContent = "la QA vérifie /summary en vidéo"; line("qa   › démarre FraisZen (MariaDB, API, front) · 31 s"); }],
+  [14000, () => line("qa   › critère 1 vérifié · capture « Récapitulatif 2025 »", true)],
+  [16000, () => { stage(3, "Ta décision", "dec"); busy(""); document.getElementById("corrLabel").textContent = "attend ta décision";
+      document.getElementById("corrStep").classList.remove("live");
+      document.getElementById("gate").innerHTML = `<div class="gate"><b>Publier la PR de T4 ?</b> PR draft vers la branche de feature au SHA a3f9c21. QA : 3/3 critères, vidéo de 42 s.
+      <div class="row"><button class="go" onclick="decide()">Publier la PR</button><button>Voir la vidéo</button><button>Refuser</button></div></div>`; }],
+];
+plan.forEach(([ms, f]) => setTimeout(f, ms));
+function decide() { document.getElementById("gate").innerHTML = ""; stage(4, "PR ouverte · à merger", "ok"); toast("PR #81 ouverte vers la branche de feature"); }
+
+roster.onclick = e => { const b = e.target.closest("button"); if (!b) return; roster.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  document.getElementById("whoName").textContent = b.dataset.a; document.getElementById("whoCtx").textContent = b.dataset.c + " · contexte : spec F6, ticket T4";
+  document.getElementById("msg").setAttribute("aria-label", "Message à " + b.dataset.a); note("Conversation avec " + b.dataset.a); };
+const thread = document.getElementById("thread");
+function note(t) { const d = document.createElement("div"); d.className = "note"; d.textContent = t; thread.appendChild(d); thread.scrollTop = thread.scrollHeight; }
+function bubble(cls, head, html) { const d = document.createElement("div"); d.className = "b " + cls; d.innerHTML = `<div class="h">${head}</div><div class="c">${html}</div>`;
+  thread.appendChild(d); thread.scrollTop = thread.scrollHeight; return d; }
+function send(kind) {
+  const m = document.getElementById("msg"), v = m.value.trim(); if (!v) return; const who = document.getElementById("whoName").textContent;
+  bubble("me " + kind, (kind === "steer" ? "Consigne" : "Question") + " · toi", v); m.value = "";
+  const w = bubble("", who, "…");
+  setTimeout(() => { if (kind === "steer") { w.querySelector(".c").textContent = "D'accord, j'ajoute un test pour une configuration incomplète avant de pousser."; line(who.slice(0, 3).toLowerCase() + "  › consigne reçue : cas configuration incomplète"); }
+    else w.querySelector(".c").innerHTML = `La spec ne précisait pas le cas d'une année sans configuration. J'ai supposé « pas de forfait affiché ».<div class="acts"><button onclick="toast('Question envoyée au PO avec le contexte')">Demander au PO</button><button onclick="toast('Correction F6-T5 créée')">Transformer en correction</button></div>`; }, 1300);
+}
+document.getElementById("steer").onclick = () => send("steer");
+document.getElementById("ask").onclick = () => { const m = document.getElementById("msg"); if (m.value.startsWith("Ajoute")) m.value = "Que se passe-t-il si l'année n'a aucune configuration ?"; send("ask"); };
+function toast(t) { const el = document.getElementById("toast"); el.textContent = t; el.classList.add("show"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 2600); }
+</script>
+</body>
+</html>

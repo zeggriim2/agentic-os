@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic OS — Maquette A · Salle de contrôle</title>
+<style>
+  :root {
+    --mineral: #eef1ef;   /* fond */
+    --panel: #ffffff;
+    --ink: #17202a;       /* texte */
+    --slate: #5b6770;     /* texte secondaire */
+    --rule: #d8dedb;
+    --cobalt: #2747d6;    /* activité d'agent */
+    --cobalt-soft: #e7ebfb;
+    --amber: #9a5b00;     /* attend une décision */
+    --amber-soft: #fbf0dc;
+    --pine: #2f6f4a;      /* terminé */
+    --pine-soft: #e3f0e8;
+    --brick: #a3261c;
+    --radius-s: 4px; --radius-m: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 14px/1.45 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; color: var(--ink); background: var(--mineral);
+    font-variant-numeric: tabular-nums; height: 100vh; display: grid; grid-template-rows: 48px 1fr; overflow: hidden; }
+  button { font: inherit; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--cobalt); outline-offset: 2px; }
+
+  /* Barre du haut */
+  header { display: flex; align-items: center; gap: 16px; padding: 0 16px; background: var(--ink); color: #fff; }
+  header strong { font-size: 15px; letter-spacing: .2px; }
+  .proj { color: #c9d1d6; }
+  .search { margin-left: auto; display: flex; align-items: center; gap: 8px; background: #26313c; color: #c9d1d6; border: 0;
+    border-radius: var(--radius-m); padding: 6px 10px; min-width: 260px; text-align: left; }
+  .search kbd { margin-left: auto; font: 12px system-ui; background: #3a4652; border-radius: 3px; padding: 1px 5px; }
+  .decide { display: flex; align-items: center; gap: 6px; background: var(--amber-soft); color: var(--amber); border: 0;
+    border-radius: var(--radius-m); padding: 6px 10px; font-weight: 600; }
+  .decide .n { background: var(--amber); color: #fff; border-radius: 10px; padding: 0 7px; }
+  .live { display: flex; align-items: center; gap: 6px; color: #c9d1d6; font-size: 13px; }
+  .live i { width: 8px; height: 8px; border-radius: 50%; background: #5fd38d; }
+
+  main { display: grid; grid-template-columns: 1fr 380px; min-height: 0; }
+
+  /* Tableau */
+  .board { padding: 16px; overflow: auto; }
+  .feature-line { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+  .feature-line h1 { font-size: 18px; font-weight: 650; }
+  .feature-line span { color: var(--slate); }
+  .cols { display: grid; grid-template-columns: repeat(5, minmax(170px, 1fr)); gap: 10px; }
+  .col h2 { font-size: 13px; font-weight: 600; color: var(--slate); padding: 0 2px 6px; display: flex; justify-content: space-between; }
+  .col .lane { min-height: 340px; background: #e4e9e6; border-radius: var(--radius-m); padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+  .card { background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius-m); padding: 9px 10px; cursor: pointer; }
+  .card:hover { border-color: #aab4b0; }
+  .card.sel { border-color: var(--cobalt); box-shadow: 0 0 0 1px var(--cobalt); }
+  .card .key { font-size: 12px; color: var(--slate); }
+  .card .t { font-weight: 600; margin: 2px 0 6px; }
+  .card .agent { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--cobalt); background: var(--cobalt-soft);
+    border-radius: var(--radius-s); padding: 3px 6px; }
+  .card .agent b { font-weight: 600; }
+  .card .agent .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cobalt); animation: pulse 1.4s infinite; }
+  .card .meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--slate); margin-top: 6px; }
+  .card.wait .agent { color: var(--amber); background: var(--amber-soft); }
+  .card.wait .agent .dot { background: var(--amber); animation: none; }
+  .card.done { opacity: .75; }
+  .card.arrived { animation: arrive .6s ease-out; }
+  @keyframes arrive { from { transform: translateY(-6px); box-shadow: 0 0 0 3px var(--cobalt-soft); } to { transform: none; } }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  .activity { margin-top: 16px; background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius-m); }
+  .activity h3 { font-size: 13px; font-weight: 600; padding: 10px 12px; border-bottom: 1px solid var(--rule); display: flex; justify-content: space-between; }
+  .activity h3 span { color: var(--slate); font-weight: 400; }
+  .feed { max-height: 190px; overflow: auto; font-size: 13px; }
+  .feed li { list-style: none; display: grid; grid-template-columns: 64px 92px 1fr; gap: 8px; padding: 5px 12px; border-bottom: 1px solid #eef1ef; }
+  .feed li .h { color: var(--slate); }
+  .feed li .who { color: var(--cobalt); font-weight: 600; }
+  .feed li code { font: 12.5px ui-monospace, Menlo, Consolas, monospace; background: #f1f3f2; padding: 0 4px; border-radius: 3px; }
+  .feed li.ok .what::before { content: "✓ "; color: var(--pine); }
+  .feed li.new { background: var(--cobalt-soft); }
+
+  /* Panneau de discussion */
+  aside { background: var(--panel); border-left: 1px solid var(--rule); display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
+  .chat-head { padding: 12px 14px; border-bottom: 1px solid var(--rule); }
+  .chat-head .who { font-weight: 650; }
+  .chat-head .ctx { color: var(--slate); font-size: 12.5px; }
+  .agents { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
+  .agents button { border: 1px solid var(--rule); background: #fff; border-radius: 14px; padding: 2px 10px; font-size: 12.5px; }
+  .agents button[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .agents button .busy { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--cobalt); margin-right: 4px; vertical-align: middle; }
+  .msgs { overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .m { max-width: 92%; padding: 8px 10px; border-radius: var(--radius-m); }
+  .m.me { align-self: flex-end; background: var(--ink); color: #fff; }
+  .m.me.steer { background: var(--cobalt); }
+  .m.me .tag { display: block; font-size: 11.5px; opacity: .8; margin-bottom: 2px; }
+  .m.ag { background: #f1f3f2; }
+  .m.ag .from { font-size: 12px; color: var(--slate); margin-bottom: 2px; }
+  .m.sys { align-self: center; font-size: 12px; color: var(--slate); }
+  .m .acts { display: flex; gap: 6px; margin-top: 8px; }
+  .m .acts button { border: 1px solid var(--rule); background: #fff; border-radius: var(--radius-s); padding: 3px 8px; font-size: 12.5px; }
+  .typing { color: var(--slate); font-size: 12.5px; }
+  .composer { border-top: 1px solid var(--rule); padding: 10px 14px 12px; }
+  .mode { display: flex; gap: 4px; margin-bottom: 6px; }
+  .mode button { flex: 1; border: 1px solid var(--rule); background: #fff; border-radius: var(--radius-s); padding: 4px; font-size: 12.5px; }
+  .mode button[aria-pressed="true"] { border-color: var(--cobalt); color: var(--cobalt); background: var(--cobalt-soft); font-weight: 600; }
+  textarea { width: 100%; resize: none; border: 1px solid var(--rule); border-radius: var(--radius-m); padding: 8px; font: inherit; height: 64px; }
+  .send { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 12px; color: var(--slate); }
+  .send button { background: var(--ink); color: #fff; border: 0; border-radius: var(--radius-m); padding: 6px 14px; font-weight: 600; }
+
+  /* Tiroir des décisions + palette */
+  .drawer { position: fixed; top: 48px; right: 0; bottom: 0; width: 420px; background: var(--panel); border-left: 1px solid var(--rule);
+    box-shadow: -8px 0 24px rgba(23,32,42,.12); transform: translateX(100%); transition: transform .2s ease; padding: 16px; z-index: 5; }
+  .drawer.open { transform: none; }
+  .drawer h2 { font-size: 16px; margin-bottom: 10px; display: flex; justify-content: space-between; }
+  .drawer h2 button { border: 0; background: none; font-size: 18px; color: var(--slate); }
+  .ap { border: 1px solid var(--rule); border-radius: var(--radius-m); padding: 10px; margin-bottom: 8px; }
+  .ap .t { font-weight: 600; }
+  .ap .e { font-size: 13px; color: var(--slate); margin: 4px 0 8px; }
+  .ap .b { display: flex; gap: 6px; }
+  .ap .b button { border: 1px solid var(--rule); background: #fff; border-radius: var(--radius-s); padding: 4px 10px; }
+  .ap .b .yes { background: var(--pine); color: #fff; border-color: var(--pine); }
+  .ap.gone { opacity: .45; }
+  .palette { position: fixed; inset: 0; background: rgba(23,32,42,.35); display: none; align-items: flex-start; justify-content: center; padding-top: 12vh; z-index: 9; }
+  .palette.open { display: flex; }
+  .palette .box { width: 560px; background: #fff; border-radius: var(--radius-m); overflow: hidden; box-shadow: 0 16px 48px rgba(23,32,42,.25); }
+  .palette input { width: 100%; border: 0; border-bottom: 1px solid var(--rule); padding: 14px; font: 16px inherit; outline: none; }
+  .palette li { list-style: none; padding: 9px 14px; display: flex; justify-content: space-between; }
+  .palette li span { color: var(--slate); font-size: 12.5px; }
+  .palette li.on { background: var(--cobalt-soft); }
+  .toast { position: fixed; left: 16px; bottom: 16px; background: var(--ink); color: #fff; border-radius: var(--radius-m); padding: 10px 14px;
+    transform: translateY(80px); transition: transform .25s ease; z-index: 8; }
+  .toast.show { transform: none; }
+
+  @media (max-width: 1000px) {
+    body { overflow: auto; height: auto; }
+    main { grid-template-columns: 1fr; }
+    .cols { grid-template-columns: repeat(5, 200px); overflow-x: auto; }
+    aside { min-height: 520px; border-left: 0; border-top: 1px solid var(--rule); }
+    .search { min-width: 0; } .search .lbl, .proj { display: none; }
+    .drawer { width: 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <strong>Agentic OS</strong><span class="proj">FraisZen</span>
+  <button class="search" id="openPalette"><span>⌕</span><span class="lbl">Aller à, rechercher, agir…</span><kbd>Ctrl K</kbd></button>
+  <button class="decide" id="openDecide">À décider <span class="n" id="decN">2</span></button>
+  <span class="live"><i></i>En direct</span>
+</header>
+
+<main>
+  <section class="board" aria-label="Tickets de la feature">
+    <div class="feature-line">
+      <h1>F6 · Alerte « Frais réels potentiellement avantageux »</h1>
+      <span>branche feature/F6-alerte-frais-reels… · PR finale #72</span>
+    </div>
+    <div class="cols">
+      <div class="col"><h2>Prêt <span id="c0">0</span></h2><div class="lane" data-col="0"></div></div>
+      <div class="col"><h2>Développement <span id="c1">0</span></h2><div class="lane" data-col="1"></div></div>
+      <div class="col"><h2>Revue <span id="c2">0</span></h2><div class="lane" data-col="2"></div></div>
+      <div class="col"><h2>QA <span id="c3">0</span></h2><div class="lane" data-col="3"></div></div>
+      <div class="col"><h2>PR et merge <span id="c4">0</span></h2><div class="lane" data-col="4"></div></div>
+    </div>
+
+    <div class="activity">
+      <h3>Activité des agents <span id="tok">412 830 tokens aujourd'hui</span></h3>
+      <ul class="feed" id="feed"></ul>
+    </div>
+  </section>
+
+  <aside aria-label="Discussion avec les agents">
+    <div class="chat-head">
+      <div class="who" id="chatWho">Développeur</div>
+      <div class="ctx" id="chatCtx">fraiszen-F6-T4 · Récapitulatif : forfait 10 % absent</div>
+      <div class="agents" id="agentTabs">
+        <button aria-pressed="false" data-a="PO">PO</button>
+        <button aria-pressed="false" data-a="Tech lead">Tech lead</button>
+        <button aria-pressed="true" data-a="Développeur"><span class="busy"></span>Développeur</button>
+        <button aria-pressed="false" data-a="Reviewer">Reviewer</button>
+        <button aria-pressed="false" data-a="QA">QA</button>
+      </div>
+    </div>
+    <div class="msgs" id="msgs" aria-live="polite">
+      <div class="m sys">Le développeur travaille sur T4 depuis 3 min</div>
+      <div class="m ag"><div class="from">Développeur</div>Je reproduis le défaut : sur /summary le bloc forfait n'apparaît pas quand la configuration fiscale 2025 est complète. La condition teste <code>fiscalConfig === null</code> au lieu de l'année.</div>
+    </div>
+    <div class="composer">
+      <div class="mode" role="group" aria-label="Type de message">
+        <button aria-pressed="true" data-mode="steer">Consigne pendant le travail</button>
+        <button aria-pressed="false" data-mode="ask">Question</button>
+      </div>
+      <textarea id="input" aria-label="Message">Garde le composant SummaryCard existant, ne crée pas de nouveau bloc.</textarea>
+      <div class="send"><span id="hint">Prise en compte au prochain pas de l'agent · tracée dans l'audit</span><button id="send">Envoyer</button></div>
+    </div>
+  </aside>
+</main>
+
+<div class="drawer" id="drawer" role="dialog" aria-label="À décider">
+  <h2>À décider <button id="closeDecide" aria-label="Fermer">×</button></h2>
+  <div id="apList"></div>
+</div>
+
+<div class="palette" id="palette" role="dialog" aria-label="Palette de commandes">
+  <div class="box">
+    <input id="pIn" placeholder="Feature, ticket, action…" aria-label="Rechercher">
+    <ul id="pList"></ul>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const tickets = [
+  { key: "T1", t: "Moteur de comparaison frais réels", col: 4, done: true, agent: "Mergé dans la branche" },
+  { key: "T2", t: "Alerte sur le tableau de bord", col: 4, done: true, agent: "Mergé dans la branche" },
+  { key: "T3", t: "Préférence de rappel", col: 4, done: true, agent: "Mergé dans la branche" },
+  { key: "T4", t: "Récapitulatif : forfait 10 % absent", col: 1, agent: "Développeur · lit SummaryController", tok: "38 k" },
+  { key: "T5", t: "Libellé tronqué dans l'export", col: 0, agent: "En attente de T4" },
+];
+const lanes = [...document.querySelectorAll(".lane")];
+let selected = "T4";
+function render() {
+  lanes.forEach(l => l.innerHTML = "");
+  for (const k of tickets) {
+    const c = document.createElement("div");
+    c.className = "card" + (k.done ? " done" : "") + (k.wait ? " wait" : "") + (k.key === selected ? " sel" : "") + (k.arrived ? " arrived" : "");
+    c.tabIndex = 0;
+    c.innerHTML = `<div class="key">fraiszen-F6-${k.key}</div><div class="t">${k.t}</div>` +
+      (k.done ? `<div class="meta"><span>✓ ${k.agent}</span></div>` :
+      `<div class="agent">${k.col === 0 ? "" : '<span class="dot"></span>'}<b>${k.agent}</b></div>` +
+      (k.tok ? `<div class="meta"><span>${k.tok} tokens</span><span>essai 1</span></div>` : ""));
+    c.onclick = () => { selected = k.key; render(); };
+    k.arrived = false;
+    lanes[k.col].appendChild(c);
+  }
+  for (let i = 0; i < 5; i++) document.getElementById("c" + i).textContent = tickets.filter(t => t.col === i).length;
+}
+render();
+
+const feed = document.getElementById("feed");
+function log(who, what, ok) {
+  const li = document.createElement("li");
+  const d = new Date(); li.className = "new" + (ok ? " ok" : "");
+  li.innerHTML = `<span class="h">${d.toLocaleTimeString("fr-FR")}</span><span class="who">${who}</span><span class="what">${what}</span>`;
+  feed.prepend(li); setTimeout(() => li.classList.remove("new"), 1500);
+}
+[["Développeur", "ouvre <code>src/Controller/SummaryController.php</code>"],
+ ["Développeur", "lance <code>aos-ci phpunit --filter Summary</code>"],
+ ["Développeur", "écrit le test « forfait affiché quand la config 2025 est complète »"]].forEach(e => log(...e));
+
+// Simulation du direct
+const script = [
+  [2500, () => log("Développeur", "modifie <code>templates/summary/_forfait.html.twig</code>")],
+  [5000, () => log("Développeur", "<code>aos-ci all</code> : 214 tests verts", true)],
+  [7000, () => { const t = tickets[3]; t.col = 2; t.agent = "Reviewer · relit le diff (4 fichiers)"; t.tok = "61 k"; t.arrived = true; render();
+                 log("Reviewer", "démarre la revue de <code>a3f9c21</code>"); setBusy("Reviewer"); }],
+  [11000, () => log("Reviewer", "aucun problème bloquant, 1 suggestion", true)],
+  [13000, () => { const t = tickets[3]; t.col = 3; t.agent = "QA · enregistre /summary"; t.tok = "88 k"; t.arrived = true; render();
+                  log("QA", "démarre l'application et joue le scénario /summary"); setBusy("QA"); }],
+  [17000, () => { const t = tickets[3]; t.col = 4; t.wait = true; t.agent = "Ta décision : publier la PR"; t.arrived = true; render();
+                  log("QA", "3 critères vérifiés, vidéo et trace enregistrées", true); addApproval(); }],
+];
+script.forEach(([ms, fn]) => setTimeout(fn, ms));
+let tokens = 412830; setInterval(() => { tokens += Math.floor(Math.random() * 900); document.getElementById("tok").textContent = tokens.toLocaleString("fr-FR") + " tokens aujourd'hui"; }, 1200);
+
+// Agents et discussion
+const tabs = document.getElementById("agentTabs");
+function setBusy(name) { tabs.querySelectorAll("button").forEach(b => { b.querySelector(".busy")?.remove(); if (b.dataset.a === name) b.insertAdjacentHTML("afterbegin", '<span class="busy"></span>'); }); }
+tabs.onclick = e => { const b = e.target.closest("button"); if (!b) return;
+  tabs.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); document.getElementById("chatWho").textContent = b.dataset.a;
+  addMsg("sys", `Discussion avec ${b.dataset.a} · contexte : T4, spec F6, diff courant`); };
+let mode = "steer";
+document.querySelector(".mode").onclick = e => { const b = e.target.closest("button"); if (!b) return; mode = b.dataset.mode;
+  document.querySelectorAll(".mode button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  document.getElementById("hint").textContent = mode === "steer" ? "Prise en compte au prochain pas de l'agent · tracée dans l'audit" : "Réponse sans modifier le code · environ 3 k tokens";
+  document.getElementById("input").value = mode === "steer" ? "Garde le composant SummaryCard existant, ne crée pas de nouveau bloc." : "Pourquoi la condition testait-elle fiscalConfig === null ?"; };
+const msgs = document.getElementById("msgs");
+function addMsg(kind, html) { const d = document.createElement("div"); d.className = "m " + kind; d.innerHTML = html; msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight; return d; }
+document.getElementById("send").onclick = () => {
+  const v = document.getElementById("input").value.trim(); if (!v) return;
+  const who = document.getElementById("chatWho").textContent;
+  addMsg("me" + (mode === "steer" ? " steer" : ""), `<span class="tag">${mode === "steer" ? "Consigne" : "Question"}</span>${v}`);
+  document.getElementById("input").value = "";
+  const typing = addMsg("typing", `${who} écrit…`);
+  setTimeout(() => { typing.remove();
+    if (mode === "steer") { addMsg("ag", `<div class="from">${who}</div>Compris : je réutilise SummaryCard et j'ajoute seulement la variante « forfait ».`); log(who, "consigne reçue de Lilian, prise en compte"); }
+    else addMsg("ag", `<div class="from">${who}</div>La spec de T1 traitait l'absence de configuration comme « pas d'alerte ». Le récapitulatif a repris ce test tel quel, alors que l'année fiscale doit aussi être vérifiée.<div class="acts"><button onclick="toast('Correction F6-T6 créée sur la branche de feature')">Transformer en correction</button><button onclick="toast('Proposition de modification envoyée au PO')">Proposer une modification de spec</button></div>`);
+  }, 1400);
+};
+
+// Décisions
+const aps = [
+  { t: "Spec F7 · Semaine type persistée", e: "Valider la spécification rédigée par le PO (5 user stories, 14 critères)." },
+  { t: "Feu vert · Gestion des véhicules", e: "Autoriser le développement de 3 tickets sur zeggriim2/fraisZen (branche de feature)." },
+];
+const apList = document.getElementById("apList");
+function renderAps() { apList.innerHTML = ""; aps.forEach((a, i) => { const d = document.createElement("div"); d.className = "ap" + (a.gone ? " gone" : "");
+  d.innerHTML = `<div class="t">${a.t}</div><div class="e">${a.e}</div>` + (a.gone ? `<div class="e">${a.gone}</div>` :
+  `<div class="b"><button class="yes">Approuver</button><button>Refuser</button><button>Ouvrir</button></div>`);
+  const [y, n] = d.querySelectorAll(".b button"); if (y) { y.onclick = () => decide(i, "Approuvé"); n.onclick = () => decide(i, "Refusé"); }
+  apList.appendChild(d); }); document.getElementById("decN").textContent = aps.filter(a => !a.gone).length; }
+function decide(i, s) { aps[i].gone = s + " à l'instant"; renderAps(); toast(s + " : " + aps[i].t); }
+function addApproval() { aps.unshift({ t: "Publier la PR · fraiszen-F6-T4", e: "PR draft aos/fraiszen-F6-T4 → feature/F6-… au SHA a3f9c21. QA : 3/3 critères, vidéo disponible." }); renderAps(); toast("Nouvelle décision : publier la PR de T4"); }
+renderAps();
+const drawer = document.getElementById("drawer");
+document.getElementById("openDecide").onclick = () => drawer.classList.toggle("open");
+document.getElementById("closeDecide").onclick = () => drawer.classList.remove("open");
+
+// Palette Ctrl+K
+const items = [["Demander une correction sur F6", "action"], ["F6 · Alerte frais réels", "feature"], ["fraiszen-F6-T4 · Récapitulatif", "ticket"],
+  ["F7 · Semaine type persistée", "feature"], ["Valider la spec de F7", "décision"], ["Parler au tech lead de F7", "discussion"], ["PR finale #72", "GitHub"]];
+const pal = document.getElementById("palette"), pIn = document.getElementById("pIn"), pList = document.getElementById("pList");
+function renderPal() { const q = pIn.value.toLowerCase(); pList.innerHTML = items.filter(i => i[0].toLowerCase().includes(q))
+  .map((i, n) => `<li class="${n === 0 ? "on" : ""}">${i[0]}<span>${i[1]}</span></li>`).join(""); }
+function openPal() { pal.classList.add("open"); pIn.value = ""; renderPal(); pIn.focus(); }
+document.getElementById("openPalette").onclick = openPal;
+pIn.oninput = renderPal;
+document.addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openPal(); }
+  if (e.key === "Escape") { pal.classList.remove("open"); drawer.classList.remove("open"); }
+  if (e.key === "Enter" && pal.classList.contains("open")) { const f = pList.querySelector("li"); if (f) toast("→ " + f.firstChild.textContent); pal.classList.remove("open"); } });
+pal.onclick = e => { if (e.target === pal) pal.classList.remove("open"); };
+
+function toast(t) { const el = document.getElementById("toast"); el.textContent = t; el.classList.add("show"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 2600); }
+</script>
+</body>
+</html>

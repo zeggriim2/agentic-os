@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic OS — Maquette C · Fil d'équipe</title>
+<style>
+  :root {
+    --bg: #f6f6f8;
+    --paper: #ffffff;
+    --graphite: #23232b;
+    --gray: #686874;
+    --hair: #e1e1e7;
+    --violet: #5b3fd1;      /* agents */
+    --violet-soft: #efebff;
+    --ochre: #a35f00;       /* décisions */
+    --ochre-soft: #fff2dc;
+    --green: #26734d;
+    --r: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 14.5px/1.5 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; background: var(--bg); color: var(--graphite);
+    height: 100vh; display: grid; grid-template-columns: 260px 1fr 300px; overflow: hidden; font-variant-numeric: tabular-nums; }
+  button { font: inherit; cursor: pointer; color: inherit; }
+  :focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
+
+  /* Fils */
+  .threads { background: var(--paper); border-right: 1px solid var(--hair); display: flex; flex-direction: column; min-height: 0; }
+  .threads .top { padding: 14px 14px 10px; }
+  .threads .top b { font-size: 15px; }
+  .threads .k { margin-top: 10px; width: 100%; text-align: left; border: 1px solid var(--hair); background: var(--bg); border-radius: 8px; padding: 6px 10px; color: var(--gray); }
+  .threads .list { overflow: auto; padding: 4px 8px 12px; }
+  .threads h2 { font-size: 12.5px; color: var(--gray); font-weight: 600; margin: 12px 6px 4px; }
+  .th { width: 100%; text-align: left; background: none; border: 0; border-radius: 8px; padding: 8px; display: grid; grid-template-columns: 1fr auto; gap: 0 8px; }
+  .th:hover { background: var(--bg); }
+  .th[aria-current="true"] { background: var(--violet-soft); }
+  .th .n { font-weight: 600; }
+  .th .p { grid-column: 1; color: var(--gray); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .th .badge { grid-row: span 2; align-self: center; font-size: 12px; font-weight: 700; border-radius: 10px; padding: 0 7px; }
+  .badge.dec { background: var(--ochre); color: #fff; }
+  .badge.live { background: var(--violet); color: #fff; }
+
+  /* Fil principal */
+  .main { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
+  .main header { padding: 14px 22px; border-bottom: 1px solid var(--hair); background: var(--paper); }
+  .main header h1 { font-size: 17px; }
+  .main header p { color: var(--gray); font-size: 13px; }
+  .flow { overflow: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 14px; }
+  .day { align-self: center; font-size: 12px; color: var(--gray); }
+  .msg { display: grid; grid-template-columns: 34px 1fr; gap: 10px; max-width: 760px; }
+  .av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: #fff; background: var(--violet); }
+  .av.me { background: var(--graphite); }
+  .av.sys { background: #b9b9c4; }
+  .msg .h { font-size: 13px; } .msg .h b { margin-right: 6px; } .msg .h span { color: var(--gray); }
+  .msg .body { margin-top: 2px; }
+  .msg.steer .body { border-left: 3px solid var(--violet); padding-left: 8px; }
+  .work { margin-top: 6px; border: 1px solid var(--hair); background: var(--paper); border-radius: 8px; }
+  .work summary { padding: 7px 10px; cursor: pointer; color: var(--gray); font-size: 13px; list-style: none; display: flex; gap: 8px; align-items: center; }
+  .work summary::before { content: "▸"; } .work[open] summary::before { content: "▾"; }
+  .work summary .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--violet); animation: p 1.3s infinite; }
+  .work ol { list-style: none; padding: 0 10px 8px 26px; font: 12.5px/1.65 ui-monospace, Menlo, Consolas, monospace; color: #3d3d48; }
+  .work ol li.ok::before { content: "✓ "; color: var(--green); }
+  @keyframes p { 50% { opacity: .25; } }
+  .decision { margin-top: 6px; border: 1px solid #f0d29c; background: var(--ochre-soft); border-radius: var(--r); padding: 12px 14px; }
+  .decision .t { font-weight: 650; color: #5c3600; }
+  .decision .e { color: #6b4a1a; font-size: 13.5px; margin: 3px 0 10px; }
+  .decision .facts { display: flex; gap: 16px; font-size: 13px; color: #6b4a1a; margin-bottom: 10px; }
+  .decision .row { display: flex; gap: 8px; }
+  .decision button { border: 1px solid #e3c48c; background: var(--paper); border-radius: 8px; padding: 5px 12px; }
+  .decision button.go { background: var(--ochre); border-color: var(--ochre); color: #fff; font-weight: 600; }
+  .decision.done { background: var(--paper); border-color: var(--hair); }
+  .decision.done .t { color: var(--green); }
+  .acts { display: flex; gap: 6px; margin-top: 8px; }
+  .acts button { border: 1px solid var(--hair); background: var(--paper); border-radius: 8px; padding: 3px 10px; font-size: 13px; }
+  .new { animation: fade .5s ease-out; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } }
+
+  .composer { background: var(--paper); border-top: 1px solid var(--hair); padding: 10px 22px 14px; }
+  .to { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; font-size: 13px; color: var(--gray); }
+  .to select { font: inherit; border: 1px solid var(--hair); border-radius: 6px; padding: 2px 6px; background: var(--paper); }
+  .kind { margin-left: auto; display: flex; border: 1px solid var(--hair); border-radius: 8px; overflow: hidden; }
+  .kind button { border: 0; background: var(--paper); padding: 3px 10px; font-size: 13px; }
+  .kind button[aria-pressed="true"] { background: var(--violet); color: #fff; }
+  .box { display: flex; gap: 8px; }
+  .box textarea { flex: 1; resize: none; height: 48px; border: 1px solid var(--hair); border-radius: 8px; padding: 8px 10px; font: inherit; }
+  .box button { border: 0; background: var(--graphite); color: #fff; border-radius: 8px; padding: 0 16px; font-weight: 600; }
+
+  /* En ce moment */
+  .now { background: var(--paper); border-left: 1px solid var(--hair); padding: 16px; overflow: auto; }
+  .now h2 { font-size: 13px; color: var(--gray); font-weight: 600; margin: 4px 0 8px; }
+  .agent { display: grid; grid-template-columns: 10px 1fr; gap: 2px 8px; padding: 7px 0; border-bottom: 1px solid var(--hair); }
+  .agent i { width: 8px; height: 8px; border-radius: 50%; background: #c9c9d3; margin-top: 6px; }
+  .agent.busy i { background: var(--violet); animation: p 1.3s infinite; }
+  .agent b { font-weight: 600; } .agent span { grid-column: 2; color: var(--gray); font-size: 12.5px; }
+  .meter { margin-top: 18px; }
+  .meter .bar { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; margin: 6px 0 4px; }
+  .meter .bar i { display: block; height: 100%; background: var(--violet); width: 22%; transition: width .6s; }
+  .meter small { color: var(--gray); }
+  .toast { position: fixed; right: 18px; bottom: 18px; background: var(--graphite); color: #fff; border-radius: 8px; padding: 9px 14px; transform: translateY(90px); transition: transform .25s; }
+  .toast.show { transform: none; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<section class="threads" aria-label="Fils de discussion">
+  <div class="top"><b>Agentic OS</b><button class="k" onclick="toast('Palette Ctrl+K : aller à, rechercher, agir')">Rechercher ou agir… Ctrl K</button></div>
+  <div class="list">
+    <h2>À décider</h2>
+    <button class="th"><span class="n">F7 · Semaine type</span><span class="badge dec">1</span><span class="p">PO : spec prête, 5 user stories</span></button>
+    <h2>En cours</h2>
+    <button class="th" aria-current="true"><span class="n">F6 · Alerte frais réels</span><span class="badge live" id="liveBadge">●</span><span class="p" id="f6prev">Développeur : corrige le récapitulatif…</span></button>
+    <h2>Calme</h2>
+    <button class="th"><span class="n">F5 · Gestion des véhicules</span><span></span><span class="p">Idée créée le 2 nov.</span></button>
+    <button class="th"><span class="n">F4 · Calendrier intelligent</span><span></span><span class="p">Idée créée le 28 oct.</span></button>
+  </div>
+</section>
+
+<section class="main">
+  <header><h1>F6 · Alerte « Frais réels potentiellement avantageux »</h1><p>Correction de recette en cours · branche de feature · PR finale #72</p></header>
+  <div class="flow" id="flow" aria-live="polite">
+    <div class="day">Aujourd'hui</div>
+    <div class="msg"><div class="av me">LD</div><div><div class="h"><b>Toi</b><span>18:55 · correction demandée</span></div>
+      <div class="body">Sur /summary, le bloc forfait 10 % ne s'affiche pas alors que la configuration fiscale 2025 est complète.</div></div></div>
+    <div class="msg"><div class="av">DEV</div><div><div class="h"><b>Développeur</b><span>19:02</span></div>
+      <div class="body">J'ai reproduit le défaut : la condition teste l'absence de configuration au lieu de l'année. Je corrige et j'ajoute un test.</div>
+      <details class="work" open id="work"><summary><span class="pulse" id="pulse"></span><span id="workTitle">Au travail · 3 étapes</span></summary><ol id="steps">
+        <li class="ok">lit SummaryController.php</li><li class="ok">test qui échoue écrit</li><li>modifie _forfait.html.twig</li></ol></details></div></div>
+  </div>
+  <div class="composer">
+    <div class="to">À
+      <select id="to" aria-label="Destinataire"><option>Développeur</option><option>Reviewer</option><option>QA</option><option>Tech lead</option><option>PO</option></select>
+      <div class="kind" role="group" aria-label="Type"><button aria-pressed="true" data-k="steer">Consigne</button><button aria-pressed="false" data-k="ask">Question</button></div>
+    </div>
+    <div class="box"><textarea id="txt" aria-label="Message">Pense au cas où la configuration 2025 est incomplète.</textarea><button id="go">Envoyer</button></div>
+  </div>
+</section>
+
+<aside class="now" aria-label="En ce moment">
+  <h2>En ce moment</h2>
+  <div class="agent busy" data-a="Développeur"><i></i><b>Développeur</b><span>F6-T4 · modifie le template</span></div>
+  <div class="agent" data-a="Reviewer"><i></i><b>Reviewer</b><span>libre</span></div>
+  <div class="agent" data-a="QA"><i></i><b>QA</b><span>libre</span></div>
+  <div class="agent" data-a="Tech lead"><i></i><b>Tech lead</b><span>libre</span></div>
+  <div class="agent" data-a="PO"><i></i><b>PO</b><span>F7 · attend ta validation</span></div>
+  <div class="meter"><h2>Budget du ticket</h2><div class="bar"><i id="bar"></i></div><small id="budget">88 000 / 400 000 tokens</small></div>
+  <div class="meter"><h2>CI FraisZen</h2><small id="ci">dernier passage : vert · il y a 2 min</small></div>
+</aside>
+<div class="toast" id="toast"></div>
+
+<script>
+const flow = document.getElementById("flow");
+const steps = document.getElementById("steps");
+function step(t, ok) { const li = document.createElement("li"); if (ok) li.className = "ok"; li.textContent = t; steps.appendChild(li);
+  document.getElementById("workTitle").textContent = "Au travail · " + steps.children.length + " étapes"; }
+function agent(name, txt, busy) { const a = document.querySelector(`.agent[data-a="${name}"]`); a.classList.toggle("busy", !!busy); a.querySelector("span").textContent = txt; }
+function post(html, cls = "") { const d = document.createElement("div"); d.className = "msg new " + cls; d.innerHTML = html; flow.appendChild(d); flow.scrollTop = flow.scrollHeight; return d; }
+let tokens = 88000; function spend(n) { tokens += n; document.getElementById("budget").textContent = tokens.toLocaleString("fr-FR") + " / 400 000 tokens"; document.getElementById("bar").style.width = (tokens / 4000) + "%"; }
+const plan = [
+  [2200, () => { steps.lastElementChild.className = "ok"; step("aos-ci all : 214 tests verts", true); spend(9000); }],
+  [4200, () => { document.getElementById("pulse").remove(); document.getElementById("workTitle").textContent = "Terminé · 4 étapes · commit a3f9c21"; document.getElementById("work").open = false;
+      agent("Développeur", "libre"); agent("Reviewer", "F6-T4 · relit le diff", true); document.getElementById("f6prev").textContent = "Reviewer : relit le diff…";
+      post(`<div class="av">REV</div><div><div class="h"><b>Reviewer</b><span>${hm()}</span></div><div class="body">Je relis a3f9c21 : 4 fichiers, +38 −6.</div></div>`); spend(12000); }],
+  [7500, () => { agent("Reviewer", "libre"); agent("QA", "F6-T4 · enregistre /summary", true); document.getElementById("f6prev").textContent = "QA : vérifie /summary en vidéo…";
+      post(`<div class="av">REV</div><div><div class="h"><b>Reviewer</b><span>${hm()}</span></div><div class="body">Rien de bloquant. Une suggestion : renommer <code>hasConfig</code> en <code>hasCompleteConfigFor(year)</code>.</div></div>`); spend(15000); }],
+  [11500, () => { agent("QA", "libre"); document.getElementById("liveBadge").className = "badge dec"; document.getElementById("liveBadge").textContent = "1";
+      document.getElementById("f6prev").textContent = "À toi : publier la PR de T4";
+      post(`<div class="av">QA</div><div><div class="h"><b>QA</b><span>${hm()}</span></div><div class="body">Les 3 critères sont vérifiés dans l'application. Vidéo de 42 s et trace disponibles.</div>
+        <div class="decision" id="dec"><div class="t">Publier la PR de T4 ?</div><div class="e">PR draft de aos/fraiszen-F6-T4 vers la branche de feature, au SHA a3f9c21. Aucun merge.</div>
+        <div class="facts"><span>Revue : OK</span><span>QA : 3/3</span><span>CI : verte</span></div>
+        <div class="row"><button class="go" onclick="approve()">Publier la PR</button><button onclick="toast('Lecture de la vidéo QA')">Voir la vidéo</button><button>Refuser</button></div></div></div>`); spend(20000); }],
+];
+plan.forEach(([ms, f]) => setTimeout(f, ms));
+function approve() { const d = document.getElementById("dec"); d.className = "decision done"; d.innerHTML = `<div class="t">✓ PR #81 publiée par toi à ${hm()}</div><div class="e" style="color:var(--gray)">À merger sur GitHub dans la branche de feature.</div>`;
+  document.getElementById("liveBadge").className = "badge live"; document.getElementById("liveBadge").textContent = "●"; toast("PR #81 ouverte"); }
+function hm() { return new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }); }
+
+let kind = "steer";
+document.querySelector(".kind").onclick = e => { const b = e.target.closest("button"); if (!b) return; kind = b.dataset.k;
+  document.querySelectorAll(".kind button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  document.getElementById("txt").value = kind === "steer" ? "Pense au cas où la configuration 2025 est incomplète." : "Pourquoi avoir choisi d'afficher le forfait même sans frais saisis ?"; };
+document.getElementById("go").onclick = () => {
+  const t = document.getElementById("txt"), v = t.value.trim(); if (!v) return; const to = document.getElementById("to").value;
+  post(`<div class="av me">LD</div><div><div class="h"><b>Toi → ${to}</b><span>${hm()} · ${kind === "steer" ? "consigne" : "question"}</span></div><div class="body">${v}</div></div>`, kind === "steer" ? "steer" : "");
+  t.value = "";
+  setTimeout(() => {
+    const short = { "Développeur": "DEV", "Reviewer": "REV", "QA": "QA", "Tech lead": "TL", "PO": "PO" }[to];
+    post(`<div class="av">${short}</div><div><div class="h"><b>${to}</b><span>${hm()}</span></div><div class="body">` + (kind === "steer"
+      ? "Noté : j'ajoute ce cas au test avant de pousser."
+      : `Le critère 2 de la spec demande d'afficher l'estimation dès que l'année est configurée, même sans frais. C'est un choix du PO.<div class="acts"><button onclick="toast('Question transmise au PO avec le contexte')">Demander au PO</button><button onclick="toast('Correction F6-T5 créée')">Transformer en correction</button></div>`) + `</div></div>`);
+    spend(3000);
+  }, 1300);
+};
+function toast(t) { const el = document.getElementById("toast"); el.textContent = t; el.classList.add("show"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 2600); }
+</script>
+</body>
+</html>
