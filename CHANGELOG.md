@@ -4,6 +4,8 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 
 ## [Non publié]
 
+## [1.11.0] — 2026-11-08
+
 ### Ajouté
 - **Cockpit en direct** : la page d'accueil devient un **tableau** des tickets en six colonnes (Spec et
   conception, À démarrer, Développement, Revue, QA, À toi) qui se met à jour seul ; chaque carte montre
