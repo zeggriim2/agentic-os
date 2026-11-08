@@ -50,10 +50,14 @@ export default {
       keyframes: {
         shimmer: { "0%": { opacity: "0.5" }, "50%": { opacity: "1" }, "100%": { opacity: "0.5" } },
         "slide-in": { from: { transform: "translateY(8px)", opacity: "0" }, to: { transform: "none", opacity: "1" } },
+        arrive: { from: { transform: "translateY(-6px)", boxShadow: "0 0 0 3px rgb(var(--accent) / 0.35)" }, to: { transform: "none", boxShadow: "none" } },
+        bump: { "40%": { transform: "scale(1.08)" } },
       },
       animation: {
         shimmer: "shimmer 1.6s ease-in-out infinite",
         "slide-in": "slide-in 160ms ease-out",
+        arrive: "arrive 600ms ease-out",
+        bump: "bump 500ms ease-out",
       },
     },
   },

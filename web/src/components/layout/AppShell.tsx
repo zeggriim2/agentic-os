@@ -14,6 +14,7 @@ import {
   Moon,
   ScrollText,
   Sun,
+  Workflow,
   X,
 } from "lucide-react";
 import { EventStreamProvider, useStreamStatus } from "@/api/events";
@@ -21,6 +22,7 @@ import { useOverview } from "@/api/queries";
 import { useLogout, useMe, useUnauthorizedRedirect } from "@/auth/auth";
 import { cn } from "@/lib/cn";
 import { useTheme } from "@/lib/theme";
+import { TopBar } from "./Cockpit";
 import { Logo } from "./Logo";
 
 interface NavItem {
@@ -34,9 +36,10 @@ interface NavItem {
 const NAV: { section?: string; items: NavItem[] }[] = [
   {
     items: [
-      { to: "/", label: "Vue d'ensemble", icon: LayoutDashboard, end: true },
+      { to: "/", label: "Tableau", icon: KanbanSquare, end: true },
+      { to: "/overview", label: "Vue d'ensemble", icon: LayoutDashboard },
       { to: "/approvals", label: "Approbations", icon: CheckSquare, badge: "approvals" },
-      { to: "/pipeline", label: "Pipeline", icon: KanbanSquare },
+      { to: "/pipeline", label: "Pipeline", icon: Workflow },
       { to: "/features", label: "Features", icon: Layers },
       { to: "/runs", label: "Runs", icon: Activity },
     ],
@@ -226,9 +229,12 @@ function Shell({ children }: { children?: ReactNode }) {
         </div>
       </div>
       <MobileDrawer open={open} onClose={() => setOpen(false)} />
-      <main id="main" tabIndex={-1} className="min-w-0 px-4 py-5 outline-none sm:px-6 lg:px-8 lg:py-7">
-        <div className="mx-auto max-w-[1400px]">{children ?? <Outlet />}</div>
-      </main>
+      <div className="min-w-0">
+        <TopBar />
+        <main id="main" tabIndex={-1} className="min-w-0 px-4 py-5 outline-none sm:px-6 lg:px-8 lg:py-6">
+          <div className="mx-auto max-w-[1600px]">{children ?? <Outlet />}</div>
+        </main>
+      </div>
     </div>
   );
 }

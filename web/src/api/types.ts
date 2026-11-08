@@ -627,3 +627,38 @@ export interface CorrectionInput {
   description: string;
   acceptance_criteria: string[];
 }
+
+// ---------- Activité des agents (1.11) ----------
+export interface ActivitySubject {
+  type: SubjectType;
+  id: ID;
+  key?: string;
+  title: string;
+  feature_id: ID | null;
+  feature_title: string;
+  project: string;
+}
+export interface ActivityItem {
+  id: ID;
+  run_id: ID;
+  role: string;
+  kind: "tool" | "message" | "done" | "failed" | "stopped";
+  tool?: string;
+  text: string;
+  at: ISODate;
+  subject: ActivitySubject;
+}
+export interface ActiveRun {
+  run_id: ID;
+  role: string;
+  job_kind: string;
+  status: RunStatus;
+  total_tokens: number;
+  started_at: ISODate;
+  last: ActivityItem | null;
+  subject: ActivitySubject;
+}
+export interface Activity {
+  running: ActiveRun[];
+  events: ActivityItem[];
+}

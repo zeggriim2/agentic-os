@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { api, buildQuery, type QueryValue } from "./client";
 import type {
+  Activity,
   Agent,
   AgentPatch,
   Approval,
@@ -60,6 +61,7 @@ export const qk = {
   approval: (id: number) => ["approval", id] as const,
   audit: (p: Record<string, QueryValue> = {}) => ["audit", p] as const,
   health: ["health"] as const,
+  activity: ["activity"] as const,
 };
 
 /** Accepte une liste paginée {items,next_cursor} ou (tolérance) un tableau brut. */
@@ -126,6 +128,13 @@ export const useOverview = () =>
   useQuery({
     queryKey: qk.overview,
     queryFn: ({ signal }) => api.get<Overview>("/api/overview", signal),
+  });
+
+/** Fil d'activité des agents : runs en cours (dernier pas) et derniers événements. */
+export const useActivity = () =>
+  useQuery({
+    queryKey: qk.activity,
+    queryFn: ({ signal }) => api.get<Activity>("/api/activity?limit=40", signal),
   });
 
 export const usePipeline = () =>

@@ -130,6 +130,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/tickets/{id}", s.getTicket)
 			r.Post("/tickets/{id}/actions", s.ticketAction)
 			r.Get("/pipeline", s.pipeline)
+			r.Get("/activity", s.activity)
 			r.Get("/runs", s.listRuns)
 			r.Get("/runs/{id}", s.getRun)
 			r.Post("/runs/{id}/stop", s.stopRun)

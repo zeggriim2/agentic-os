@@ -564,3 +564,21 @@ lease owner) et le ticket expose `worktree` relatif (`<slug>/<key>`).
   approbation `publish_feature_pr` comme au premier passage.
 - Limite connue : la PR finale n'est pas observée pendant `IN_DEV` ; mergée à ce moment-là, elle est
   constatée au retour en recette (`ReconcileFeaturePR` → DONE).
+
+### Cockpit en direct (1.11.0)
+
+- `GET /api/activity?limit=` (session) : `running` (runs `submitted|running` avec rôle, sujet — ticket
+  ou feature, clé, titre, feature, projet —, tokens et **dernier pas** `tool.started|message.interim`) et
+  `events` (derniers `tool.started`, `message.interim`, `run.completed|failed|cancelled`, du plus
+  récent au plus ancien, 200 max). Textes normalisés et tronqués (160 caractères ; le détail reste sur la
+  page du run). Requêtes : `store.ListActiveRuns` (LATERAL sur le dernier événement), `store.ListActivity`.
+- Temps réel : `run.event` et `run.updated` invalident `activity` côté web, **au plus une relecture
+  toutes les 1,5 s** (`THROTTLED_KEYS`), un agent pouvant émettre plusieurs événements par seconde.
+- Web : `/` = tableau (`pages/Board.tsx`, colonnes `BOARD_COLUMNS` calculées depuis `/api/pipeline`,
+  run associé par sujet, animation des cartes qui changent de colonne) ; vue d'ensemble déplacée sur
+  `/overview` (lien de l'alerte « dispatch en pause » mis à jour). Barre du haut
+  (`components/layout/Cockpit.tsx`) : tiroir « À décider » (approbations `pending`, décision en place,
+  refus avec commentaire obligatoire comme l'API) et palette Ctrl+K (approbations, features, tickets,
+  pages ; filtre par mots sans accents).
+- Thème : sombre ardoise par défaut, accent orange ; `review` (décision humaine) en bleu, `progress`
+  (agent au travail) en orange ; contrastes vérifiés par axe (e2e) dans les deux thèmes.

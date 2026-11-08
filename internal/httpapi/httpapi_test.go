@@ -579,7 +579,7 @@ func TestAgentWithoutDesiredModelIsNotDrifting(t *testing.T) {
 	// Le lien d'alerte du dispatch en pause mène vers une route existante (vue d'ensemble).
 	c.do("POST", "/api/system/dispatch", map[string]any{"paused": true}, true)
 	ov := c.do("GET", "/api/overview", nil, false)
-	if !strings.Contains(ov.raw, `"link":"/"`) || strings.Contains(ov.raw, "/system") {
+	if !strings.Contains(ov.raw, `"link":"/overview"`) || strings.Contains(ov.raw, "/system") {
 		t.Fatalf("lien d'alerte: %s", ov.raw)
 	}
 }
@@ -1383,5 +1383,62 @@ func TestCorrectionEndpointValidationAndState(t *testing.T) {
 	r = c.do("GET", "/api/features/"+fid, nil, false)
 	if r.body["feature"].(map[string]any)["state"] != "IN_DEV" || !strings.Contains(r.raw, "feature.correction_ticket_added") {
 		t.Fatalf("feature : %s", r.raw)
+	}
+}
+
+func TestActivityRunningAndFeed(t *testing.T) {
+	c := setup(t, nil)
+	ctx := context.Background()
+	expectStatus(t, "anonyme", c.do("GET", "/api/activity", nil, false), 401, "")
+	c.login()
+	r := c.do("POST", "/api/projects", map[string]any{"slug": "fz", "name": "FZ", "repository": "o/fz"}, true)
+	pid := int64(r.body["id"].(float64))
+	f, err := store.CreateFeature(ctx, c.s.Pool, pid, "Alerte frais réels", "d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tid, j1, j2, rDev, rPO int64
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(c.s.Pool.QueryRow(ctx, `INSERT INTO tickets (feature_id, project_id, key, seq, title, body, acceptance, state)
+		VALUES ($1,$2,'fz-F1-T4',4,'Récapitulatif','b','["c"]','DEV') RETURNING id`, f.ID, pid).Scan(&tid))
+	must(c.s.Pool.QueryRow(ctx, `INSERT INTO jobs (kind, subject_type, subject_id, idempotency_key) VALUES ('develop','ticket',$1,'k-dev') RETURNING id`, tid).Scan(&j1))
+	must(c.s.Pool.QueryRow(ctx, `INSERT INTO jobs (kind, subject_type, subject_id, idempotency_key) VALUES ('po_spec','feature',$1,'k-po') RETURNING id`, f.ID).Scan(&j2))
+	must(c.s.Pool.QueryRow(ctx, `INSERT INTO runs (job_id, agent_role, hermes_profile, status, total_tokens) VALUES ($1,'developer','aos-dev','running',38000) RETURNING id`, j1).Scan(&rDev))
+	must(c.s.Pool.QueryRow(ctx, `INSERT INTO runs (job_id, agent_role, hermes_profile, status) VALUES ($1,'po','aos-po','completed') RETURNING id`, j2).Scan(&rPO))
+	long := strings.Repeat("x", 400)
+	_, err = c.s.Pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, event, data) VALUES
+		($1, 1, 'tool.started', '{"tool":"read_file","preview":"src/Controller/SummaryController.php"}'),
+		($1, 2, 'tool.completed', '{"tool":"read_file"}'),
+		($1, 3, 'tool.started', $3::jsonb),
+		($2, 1, 'message.interim', '{"text":"Je rédige la spec."}'),
+		($2, 2, 'run.completed', '{"usage":{}}')`, rDev, rPO, `{"tool":"terminal","preview":"`+long+`"}`)
+	must(err)
+
+	r = c.do("GET", "/api/activity?limit=10", nil, false)
+	expectStatus(t, "activité", r, 200, "")
+	running := r.body["running"].([]any)
+	if len(running) != 1 {
+		t.Fatalf("runs en cours : %s", r.raw)
+	}
+	run := running[0].(map[string]any)
+	subj := run["subject"].(map[string]any)
+	last := run["last"].(map[string]any)
+	if run["role"] != "developer" || subj["key"] != "fz-F1-T4" || subj["feature_title"] != "Alerte frais réels" || subj["project"] != "fz" ||
+		last["tool"] != "terminal" || len([]rune(last["text"].(string))) != 160 || run["total_tokens"] != float64(38000) {
+		t.Fatalf("run en cours : %s", r.raw)
+	}
+	evs := r.body["events"].([]any)
+	if len(evs) != 4 { // tool.completed n'est pas retenu
+		t.Fatalf("événements : %s", r.raw)
+	}
+	first, lastEv := evs[0].(map[string]any), evs[3].(map[string]any)
+	if first["kind"] != "done" || first["subject"].(map[string]any)["type"] != "feature" || first["subject"].(map[string]any)["title"] != "Alerte frais réels" ||
+		lastEv["text"] != "src/Controller/SummaryController.php" || lastEv["kind"] != "tool" {
+		t.Fatalf("ordre ou contenu : %s", r.raw)
 	}
 }
