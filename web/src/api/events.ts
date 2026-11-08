@@ -18,16 +18,37 @@ export function subscribeEvents(fn: Listener): () => void {
 /** Clés de requêtes à invalider pour chaque type d'événement SSE (§9). */
 export const INVALIDATION_MAP: Record<SseEventType, string[]> = {
   "job.updated": ["overview", "pipeline", "runs"],
-  "run.updated": ["run", "runs", "overview", "feature", "ticket"],
-  "run.event": [],
+  "run.updated": ["run", "runs", "overview", "feature", "ticket", "activity"],
+  "run.event": ["activity"],
   "approval.updated": ["approval", "approvals", "overview", "pipeline", "feature", "ticket"],
   "feature.updated": ["feature", "features", "pipeline", "overview"],
   "ticket.updated": ["ticket", "feature", "pipeline", "overview"],
   "overview.invalidate": ["overview"],
 };
 
+/** Clés relues au plus une fois par fenêtre : un agent peut émettre plusieurs événements par seconde. */
+export const THROTTLED_KEYS: Record<string, number> = { activity: 1500 };
+const lastRun = new Map<string, number>();
+const pending = new Map<string, ReturnType<typeof setTimeout>>();
+
 export function applyInvalidation(qc: QueryClient, type: SseEventType): void {
-  for (const k of INVALIDATION_MAP[type]) void qc.invalidateQueries({ queryKey: [k] });
+  for (const k of INVALIDATION_MAP[type]) {
+    const win = THROTTLED_KEYS[k];
+    if (!win) {
+      void qc.invalidateQueries({ queryKey: [k] });
+      continue;
+    }
+    if (pending.has(k)) continue;
+    const wait = Math.max(0, (lastRun.get(k) ?? 0) + win - Date.now());
+    pending.set(
+      k,
+      setTimeout(() => {
+        pending.delete(k);
+        lastRun.set(k, Date.now());
+        void qc.invalidateQueries({ queryKey: [k] });
+      }, wait),
+    );
+  }
 }
 
 export function backoffDelay(attempt: number): number {

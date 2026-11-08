@@ -67,6 +67,20 @@ présenter des conflits à résoudre sur GitHub.
 
 ## Les écrans
 
+Thème **sombre par défaut** (bouton soleil/lune en bas du menu pour le thème clair). Code couleur :
+**orange** = un agent travaille ; **bleu** = ça attend ta décision ; **vert** = terminé ; **rouge** = bloqué.
+
+- **Tableau** (page d'accueil) : où en est chaque ticket, **en direct**, en six colonnes : Spec et
+  conception, À démarrer, Développement, Revue, QA, **À toi**. Une carte change de colonne toute seule ;
+  quand un agent y travaille, elle affiche son rôle, son dernier pas (« terminal · aos-ci all ») et ses
+  tokens. Dans « À toi », la carte dit ce que tu dois faire (« Valider la spec », « Publier la PR »,
+  « Merger la PR », « Faire la recette »). Un clic ouvre le ticket ou la feature. À droite :
+  **En ce moment** (agents au travail) et **Activité** (le fil des derniers pas de tous les agents).
+- **À décider** (bouton bleu en haut, avec le nombre en attente) : un tiroir avec toutes les décisions
+  qui t'attendent, toutes features confondues. **Approuver** en un clic ; **Refuser** demande une raison
+  (l'agent s'en sert) ; **Détails** ou **Ouvrir** pour aller voir avant de décider.
+- **Ctrl+K** (ou la barre « Aller à, rechercher… ») : tape quelques lettres d'une feature, d'un ticket,
+  d'une décision ou d'une page, ↑/↓ puis Entrée. « Nouvelle feature » ouvre directement le formulaire.
 - **Vue d'ensemble** : alertes, approbations en attente, éléments bloqués, runs actifs, tokens
   consommés, et le bouton **Mettre en pause** / **Reprendre** du dispatch.
 - **Approbations** : tout ce qui attend votre décision. Le rejet demande un commentaire.

@@ -5,6 +5,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 ## [Non publié]
 
 ### Ajouté
+- **Cockpit en direct** : la page d'accueil devient un **tableau** des tickets en six colonnes (Spec et
+  conception, À démarrer, Développement, Revue, QA, À toi) qui se met à jour seul ; chaque carte montre
+  l'agent au travail et son dernier pas, ou ce que tu dois faire. **Fil d'activité** des agents à droite
+  (`GET /api/activity`). Bouton **« À décider »** avec tiroir pour approuver ou refuser sans quitter la
+  page. **Ctrl+K** pour aller à une feature, un ticket, une décision ou une page.
+
+### Modifié
+- Thème : sombre par défaut, **orange** pour les agents et les actions, **bleu** pour les décisions
+  humaines. La vue d'ensemble passe sur `/overview`.
+
+### Ajouté
 - **« Demander une correction » en recette** (mode branche de feature) : un défaut constaté pendant la
   recette devient un ticket de correction (description, critères facultatifs) sur la branche de feature.
   La feature repart en développement, le ticket suit le cycle habituel, puis la feature revient en

@@ -43,7 +43,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	}
 	alerts := []map[string]any{}
 	if paused {
-		alerts = append(alerts, map[string]any{"level": "warning", "message": "Le dispatch est en pause : aucun nouveau job n'est pris.", "link": "/"})
+		alerts = append(alerts, map[string]any{"level": "warning", "message": "Le dispatch est en pause : aucun nouveau job n'est pris.", "link": "/overview"})
 	}
 	if o.BlockedFeatures+o.BlockedTickets > 0 {
 		alerts = append(alerts, map[string]any{"level": "error", "message": "Des éléments sont bloqués et attendent une action.", "link": "/pipeline"})

@@ -41,7 +41,8 @@ export async function ensureSample(api: Api): Promise<Sample> {
 /** Pages principales vérifiées par les tests responsive et accessibilité. */
 export function mainPages(s: Sample): { name: string; path: string; heading: RegExp }[] {
   return [
-    { name: "vue d'ensemble", path: "/", heading: /Vue d'ensemble/ },
+    { name: "tableau", path: "/", heading: /Tableau/ },
+    { name: "vue d'ensemble", path: "/overview", heading: /Vue d'ensemble/ },
     { name: "projets", path: "/projects", heading: /Projets/ },
     { name: "features", path: "/features", heading: /Features/ },
     { name: "détail de feature", path: `/features/${s.featureId}`, heading: new RegExp(TITLE) },

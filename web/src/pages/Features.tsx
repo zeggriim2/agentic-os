@@ -143,7 +143,16 @@ export default function FeaturesPage() {
   const [sp, setSp] = useSearchParams();
   const state = sp.get("state") ?? "";
   const projectId = sp.get("project_id") ?? "";
-  const [creating, setCreating] = useState(false);
+  // ?new=1 (palette Ctrl+K « Nouvelle feature ») ouvre directement le formulaire.
+  const [creating, setCreatingState] = useState(sp.get("new") === "1");
+  const setCreating = (v: boolean) => {
+    setCreatingState(v);
+    if (!v && sp.has("new")) {
+      const next = new URLSearchParams(sp);
+      next.delete("new");
+      setSp(next, { replace: true });
+    }
+  };
   const projects = useProjects();
   const q = useFeatures({ state, project_id: projectId });
   const items = q.data?.pages.flatMap((p) => p.items) ?? [];

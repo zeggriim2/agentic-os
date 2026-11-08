@@ -16,7 +16,7 @@ test("connexion : mauvais mot de passe refusé, bon mot de passe accepté, puis 
   await page.getByLabel("Mot de passe").fill(e2e.password);
   await page.getByRole("button", { name: "Se connecter" }).click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { level: 1, name: "Vue d'ensemble" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Tableau" })).toBeVisible();
   const me = await page.request.get("/api/auth/me");
   expect(me.status()).toBe(200);
 

@@ -2,7 +2,7 @@ import { expect, test } from "../support/env";
 
 test("dispatch : pause depuis la vue d'ensemble, alerte visible, reprise depuis l'alerte", async ({ page, api }) => {
   const projectId = await api.ensureProject("divers", "o/divers");
-  await page.goto("/");
+  await page.goto("/overview");
   const card = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Dispatch" }) });
   const alert = page.getByRole("region", { name: "Alertes" }).getByRole("link", { name: /Le dispatch est en pause/ });
   await expect(card).toContainText("Actif");
@@ -25,7 +25,7 @@ test("dispatch : pause depuis la vue d'ensemble, alerte visible, reprise depuis 
 
     // L'alerte mène à la carte Dispatch, d'où l'on reprend.
     await alert.click();
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/overview$/);
     await card.getByRole("button", { name: "Reprendre" }).click();
     await page.getByRole("dialog", { name: "Reprendre le dispatch ?" }).getByRole("button", { name: "Reprendre" }).click();
     await expect(card).toContainText("Actif");
