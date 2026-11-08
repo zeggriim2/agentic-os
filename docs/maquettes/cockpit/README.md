@@ -14,4 +14,11 @@ d'ordinateur. Le « direct » est simulé : laisse la page tourner environ 20 s,
 Commun aux trois : consigne pendant le travail ou question, réponse transformable en correction,
 approbation en un clic, budget en tokens en direct, Ctrl+K (actif dans A).
 
+## D · Cockpit (A + C), retenue
+
+`d-cockpit/index.html` : l'accueil est le tableau en direct de A (tickets de toutes les features, équipe
+et activité à droite) ; un clic sur un ticket ouvre le fil d'équipe de C pour sa feature (messages,
+travail repliable, décisions en carte, consigne ou question). « À décider », Ctrl+K et le direct sont
+communs aux deux écrans. Couleurs : cobalt pour les agents au travail, ocre pour tes décisions.
+
 Ces fichiers ne sont pas du code de production : la maquette retenue sera réimplémentée dans `web/`.

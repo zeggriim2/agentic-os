@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic OS — Maquette D · Cockpit (A + C)</title>
+<style>
+  :root {
+    --mineral: #eef1ef; --paper: #ffffff; --ink: #17202a; --slate: #5b6770; --rule: #d8dedb;
+    --cobalt: #2747d6; --cobalt-soft: #e7ebfb;     /* agents au travail */
+    --ochre: #9a5b00; --ochre-soft: #fbf0dc;       /* tes décisions */
+    --pine: #2f6f4a; --pine-soft: #e3f0e8;
+    --r-s: 4px; --r: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 14px/1.45 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; color: var(--ink); background: var(--mineral);
+    font-variant-numeric: tabular-nums; height: 100vh; display: grid; grid-template-rows: 48px 1fr; overflow: hidden; }
+  button { font: inherit; cursor: pointer; color: inherit; }
+  :focus-visible { outline: 2px solid var(--cobalt); outline-offset: 2px; }
+  code { font: 12.5px ui-monospace, Menlo, Consolas, monospace; background: #f1f3f2; padding: 0 4px; border-radius: 3px; }
+
+  /* Barre du haut, commune */
+  header { display: flex; align-items: center; gap: 14px; padding: 0 16px; background: var(--ink); color: #fff; }
+  header strong { font-size: 15px; }
+  header nav { display: flex; gap: 2px; margin-left: 10px; }
+  header nav button { background: none; border: 0; color: #c9d1d6; padding: 6px 10px; border-radius: var(--r); }
+  header nav button[aria-current="true"] { background: #26313c; color: #fff; }
+  .search { margin-left: auto; display: flex; align-items: center; gap: 8px; background: #26313c; color: #c9d1d6; border: 0; border-radius: var(--r); padding: 6px 10px; min-width: 280px; text-align: left; }
+  .search kbd { margin-left: auto; font: 12px system-ui; background: #3a4652; border-radius: 3px; padding: 1px 5px; }
+  .decide { display: flex; align-items: center; gap: 6px; background: var(--ochre-soft); color: var(--ochre); border: 0; border-radius: var(--r); padding: 6px 10px; font-weight: 600; }
+  .decide .n { background: var(--ochre); color: #fff; border-radius: 10px; padding: 0 7px; }
+  .decide.bump { animation: bump .5s; }
+  @keyframes bump { 40% { transform: scale(1.08); } }
+  .live { display: flex; align-items: center; gap: 6px; color: #c9d1d6; font-size: 13px; }
+  .live i { width: 8px; height: 8px; border-radius: 50%; background: #5fd38d; }
+
+  .view { display: none; min-height: 0; }
+  .view.on { display: grid; }
+
+  /* ===== Accueil (de A) ===== */
+  #home { grid-template-columns: 1fr 300px; }
+  .board { padding: 16px; overflow: auto; }
+  .board h1 { font-size: 18px; font-weight: 650; margin-bottom: 2px; }
+  .board .sub { color: var(--slate); margin-bottom: 12px; }
+  .cols { display: grid; grid-template-columns: repeat(5, minmax(170px, 1fr)); gap: 10px; }
+  .col h2 { font-size: 13px; font-weight: 600; color: var(--slate); padding: 0 2px 6px; display: flex; justify-content: space-between; }
+  .lane { min-height: 380px; background: #e4e9e6; border-radius: var(--r); padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+  .card { background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r); padding: 9px 10px; cursor: pointer; text-align: left; }
+  .card:hover { border-color: #aab4b0; }
+  .card .f { font-size: 12px; color: var(--slate); }
+  .card .t { font-weight: 600; margin: 2px 0 6px; }
+  .card .who { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--cobalt); background: var(--cobalt-soft); border-radius: var(--r-s); padding: 3px 6px; }
+  .card .who .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cobalt); animation: pulse 1.4s infinite; }
+  .card.dec .who { color: var(--ochre); background: var(--ochre-soft); }
+  .card.dec .who .dot { background: var(--ochre); animation: none; }
+  .card.idle .who { color: var(--slate); background: #f1f3f2; }
+  .card.idle .who .dot { display: none; }
+  .card.arrived { animation: arrive .6s ease-out; }
+  @keyframes arrive { from { transform: translateY(-6px); box-shadow: 0 0 0 3px var(--cobalt-soft); } }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .side { background: var(--paper); border-left: 1px solid var(--rule); padding: 14px; overflow: auto; }
+  .side h2 { font-size: 13px; color: var(--slate); font-weight: 600; margin: 4px 0 8px; }
+  .agent { display: grid; grid-template-columns: 10px 1fr; gap: 0 8px; padding: 7px 0; border-bottom: 1px solid #eef1ef; }
+  .agent i { width: 8px; height: 8px; border-radius: 50%; background: #c3cbc7; margin-top: 6px; }
+  .agent.busy i { background: var(--cobalt); animation: pulse 1.4s infinite; }
+  .agent span { grid-column: 2; color: var(--slate); font-size: 12.5px; }
+  .feed { list-style: none; margin-top: 16px; font-size: 12.5px; }
+  .feed li { padding: 5px 0; border-bottom: 1px solid #eef1ef; }
+  .feed li b { color: var(--cobalt); font-weight: 600; }
+  .feed li .h { color: var(--slate); margin-right: 6px; }
+  .feed li.new { background: var(--cobalt-soft); }
+  .tok { margin-top: 16px; font-size: 12.5px; color: var(--slate); }
+
+  /* ===== Feature (de C) ===== */
+  #feature { grid-template-columns: 1fr 300px; }
+  .thread { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; background: var(--mineral); }
+  .thread header { all: unset; display: block; padding: 12px 22px; background: var(--paper); border-bottom: 1px solid var(--rule); }
+  .thread .back { border: 0; background: none; color: var(--cobalt); padding: 0; font-size: 13px; }
+  .thread h1 { font-size: 17px; }
+  .thread .sub { color: var(--slate); font-size: 13px; }
+  .strip { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .strip span { font-size: 12.5px; border: 1px solid var(--rule); border-radius: 12px; padding: 1px 9px; background: var(--paper); }
+  .strip span.ok { color: var(--pine); border-color: #b9d6c4; }
+  .strip span.now { color: var(--cobalt); border-color: var(--cobalt); background: var(--cobalt-soft); }
+  .flow { overflow: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 14px; }
+  .day { align-self: center; font-size: 12px; color: var(--slate); }
+  .msg { display: grid; grid-template-columns: 34px 1fr; gap: 10px; max-width: 780px; }
+  .av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 11.5px; font-weight: 700; color: #fff; background: var(--cobalt); }
+  .av.me { background: var(--ink); }
+  .msg .h { font-size: 13px; } .msg .h b { margin-right: 6px; } .msg .h span { color: var(--slate); }
+  .msg .body { margin-top: 2px; background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r); padding: 8px 11px; }
+  .msg.mine .body { background: #f6f8f7; }
+  .msg.steer .body { border-left: 3px solid var(--cobalt); }
+  .work { margin-top: 6px; border: 1px solid var(--rule); background: var(--paper); border-radius: var(--r); }
+  .work summary { padding: 7px 10px; cursor: pointer; color: var(--slate); font-size: 13px; list-style: none; display: flex; gap: 8px; align-items: center; }
+  .work summary::before { content: "▸"; } .work[open] summary::before { content: "▾"; }
+  .work summary .p { width: 7px; height: 7px; border-radius: 50%; background: var(--cobalt); animation: pulse 1.3s infinite; }
+  .work ol { list-style: none; padding: 0 10px 8px 26px; font: 12.5px/1.65 ui-monospace, Menlo, Consolas, monospace; color: #3d4650; }
+  .work ol li.ok::before { content: "✓ "; color: var(--pine); }
+  .decision { margin-top: 6px; border: 1px solid #ecd2a5; background: var(--ochre-soft); border-radius: var(--r); padding: 12px 14px; }
+  .decision .t { font-weight: 650; color: #5c3600; }
+  .decision .e { color: #6b4a1a; font-size: 13.5px; margin: 3px 0 8px; }
+  .decision .facts { display: flex; gap: 16px; font-size: 13px; color: #6b4a1a; margin-bottom: 10px; }
+  .decision .row { display: flex; gap: 8px; }
+  .decision button { border: 1px solid #e3c48c; background: var(--paper); border-radius: var(--r); padding: 5px 12px; }
+  .decision button.go { background: var(--ochre); border-color: var(--ochre); color: #fff; font-weight: 600; }
+  .decision.done { background: var(--paper); border-color: var(--rule); }
+  .decision.done .t { color: var(--pine); }
+  .acts { display: flex; gap: 6px; margin-top: 8px; }
+  .acts button { border: 1px solid var(--rule); background: var(--paper); border-radius: var(--r-s); padding: 3px 9px; font-size: 13px; }
+  .new { animation: fade .45s ease-out; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } }
+  .composer { background: var(--paper); border-top: 1px solid var(--rule); padding: 10px 22px 14px; }
+  .to { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; font-size: 13px; color: var(--slate); }
+  .to select { font: inherit; border: 1px solid var(--rule); border-radius: 6px; padding: 2px 6px; background: var(--paper); }
+  .kind { margin-left: auto; display: flex; border: 1px solid var(--rule); border-radius: var(--r); overflow: hidden; }
+  .kind button { border: 0; background: var(--paper); padding: 3px 10px; font-size: 13px; }
+  .kind button[aria-pressed="true"] { background: var(--cobalt); color: #fff; }
+  .box { display: flex; gap: 8px; }
+  .box textarea { flex: 1; resize: none; height: 48px; border: 1px solid var(--rule); border-radius: var(--r); padding: 8px 10px; font: inherit; }
+  .box button { border: 0; background: var(--ink); color: #fff; border-radius: var(--r); padding: 0 16px; font-weight: 600; }
+  .hint { font-size: 12px; color: var(--slate); margin-top: 5px; }
+  .meter .bar { height: 6px; background: #eef1ef; border-radius: 3px; overflow: hidden; margin: 6px 0 4px; }
+  .meter .bar i { display: block; height: 100%; background: var(--cobalt); width: 22%; transition: width .6s; }
+  .meter small { color: var(--slate); }
+
+  /* Tiroir et palette, communs */
+  .drawer { position: fixed; top: 48px; right: 0; bottom: 0; width: 420px; background: var(--paper); border-left: 1px solid var(--rule);
+    box-shadow: -8px 0 24px rgba(23,32,42,.12); transform: translateX(100%); transition: transform .2s ease; padding: 16px; z-index: 5; overflow: auto; }
+  .drawer.open { transform: none; }
+  .drawer h2 { font-size: 16px; margin-bottom: 10px; display: flex; justify-content: space-between; }
+  .drawer h2 button { border: 0; background: none; font-size: 18px; color: var(--slate); }
+  .ap { border: 1px solid #ecd2a5; background: var(--ochre-soft); border-radius: var(--r); padding: 10px; margin-bottom: 8px; }
+  .ap .t { font-weight: 600; } .ap .e { font-size: 13px; color: #6b4a1a; margin: 4px 0 8px; }
+  .ap .b { display: flex; gap: 6px; }
+  .ap .b button { border: 1px solid #e3c48c; background: var(--paper); border-radius: var(--r-s); padding: 4px 10px; }
+  .ap .b .yes { background: var(--ochre); color: #fff; border-color: var(--ochre); }
+  .ap.gone { background: var(--paper); border-color: var(--rule); opacity: .6; }
+  .palette { position: fixed; inset: 0; background: rgba(23,32,42,.35); display: none; align-items: flex-start; justify-content: center; padding-top: 12vh; z-index: 9; }
+  .palette.open { display: flex; }
+  .palette .bx { width: 560px; background: #fff; border-radius: var(--r); overflow: hidden; box-shadow: 0 16px 48px rgba(23,32,42,.25); }
+  .palette input { width: 100%; border: 0; border-bottom: 1px solid var(--rule); padding: 14px; font: 16px inherit; outline: none; }
+  .palette li { list-style: none; padding: 9px 14px; display: flex; justify-content: space-between; cursor: pointer; }
+  .palette li span { color: var(--slate); font-size: 12.5px; }
+  .palette li:first-child { background: var(--cobalt-soft); }
+  .toast { position: fixed; left: 16px; bottom: 16px; background: var(--ink); color: #fff; border-radius: var(--r); padding: 10px 14px; transform: translateY(80px); transition: transform .25s ease; z-index: 8; }
+  .toast.show { transform: none; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <strong>Agentic OS</strong>
+  <nav><button aria-current="true" data-go="home">Tableau</button><button data-go="feature">F6</button></nav>
+  <button class="search" id="openPalette"><span>⌕</span><span>Aller à, rechercher, agir…</span><kbd>Ctrl K</kbd></button>
+  <button class="decide" id="openDecide">À décider <span class="n" id="decN">1</span></button>
+  <span class="live"><i></i>En direct</span>
+</header>
+
+<!-- ===== Accueil : tableau en direct (A) ===== -->
+<div class="view on" id="home">
+  <section class="board" aria-label="Tableau des tickets">
+    <h1>FraisZen</h1>
+    <div class="sub">2 features actives · 1 agent au travail · clique un ticket pour ouvrir le fil de sa feature</div>
+    <div class="cols">
+      <div class="col"><h2>À démarrer <span id="c0"></span></h2><div class="lane"></div></div>
+      <div class="col"><h2>Développement <span id="c1"></span></h2><div class="lane"></div></div>
+      <div class="col"><h2>Revue <span id="c2"></span></h2><div class="lane"></div></div>
+      <div class="col"><h2>QA <span id="c3"></span></h2><div class="lane"></div></div>
+      <div class="col"><h2>À toi <span id="c4"></span></h2><div class="lane"></div></div>
+    </div>
+  </section>
+  <aside class="side" aria-label="En ce moment">
+    <h2>En ce moment</h2>
+    <div id="agentsHome"></div>
+    <h2 style="margin-top:16px">Activité</h2>
+    <ul class="feed" id="feed"></ul>
+    <div class="tok" id="tok">412 830 tokens aujourd'hui</div>
+  </aside>
+</div>
+
+<!-- ===== Feature : fil d'équipe (C) ===== -->
+<div class="view" id="feature">
+  <section class="thread">
+    <header>
+      <button class="back" data-go="home">← Tableau</button>
+      <h1>F6 · Alerte « Frais réels potentiellement avantageux »</h1>
+      <div class="sub">branche de feature · PR finale #72 · correction de recette en cours</div>
+      <div class="strip" id="strip"><span class="ok">Spec</span><span class="ok">Conception</span><span class="ok">T1 · T2 · T3 mergés</span><span class="ok">Recette</span><span class="now">Correction T4</span><span>Retour en recette</span><span>Merge final</span></div>
+    </header>
+    <div class="flow" id="flow" aria-live="polite">
+      <div class="day">Aujourd'hui</div>
+      <div class="msg mine"><div class="av me">LD</div><div><div class="h"><b>Toi</b><span>18:55 · correction demandée</span></div>
+        <div class="body">Sur /summary, le bloc forfait 10 % ne s'affiche pas alors que la configuration fiscale 2025 est complète.</div></div></div>
+      <div class="msg"><div class="av">DEV</div><div><div class="h"><b>Développeur</b><span>19:02</span></div>
+        <div class="body">J'ai reproduit le défaut : la condition teste l'absence de configuration au lieu de l'année. Je corrige et j'ajoute un test.</div>
+        <details class="work" open id="work"><summary><span class="p" id="pulse"></span><span id="workTitle">Au travail · 3 étapes</span></summary><ol id="steps">
+          <li class="ok">lit <code>SummaryController.php</code></li><li class="ok">test qui échoue écrit</li><li>modifie <code>_forfait.html.twig</code></li></ol></details></div></div>
+    </div>
+    <div class="composer">
+      <div class="to">À <select id="to" aria-label="Destinataire"><option>Développeur</option><option>Reviewer</option><option>QA</option><option>Tech lead</option><option>PO</option></select>
+        <div class="kind" role="group" aria-label="Type de message"><button aria-pressed="true" data-k="steer">Consigne</button><button aria-pressed="false" data-k="ask">Question</button></div></div>
+      <div class="box"><textarea id="txt" aria-label="Message">Pense au cas où la configuration 2025 est incomplète.</textarea><button id="go">Envoyer</button></div>
+      <div class="hint" id="hint">Consigne : prise en compte au prochain pas de l'agent. Tracée dans l'audit.</div>
+    </div>
+  </section>
+  <aside class="side" aria-label="En ce moment">
+    <h2>Équipe de F6</h2>
+    <div id="agentsFeat"></div>
+    <div class="meter" style="margin-top:16px"><h2>Budget de T4</h2><div class="bar"><i id="bar"></i></div><small id="budget">88 000 / 400 000 tokens</small></div>
+    <div class="meter" style="margin-top:16px"><h2>Branche de feature</h2><small>3 tickets mergés · CI verte · PR finale #72 ouverte</small></div>
+  </aside>
+</div>
+
+<div class="drawer" id="drawer" role="dialog" aria-label="À décider"><h2>À décider <button id="closeDecide" aria-label="Fermer">×</button></h2><div id="apList"></div></div>
+<div class="palette" id="palette" role="dialog" aria-label="Palette de commandes"><div class="bx"><input id="pIn" placeholder="Feature, ticket, action…" aria-label="Rechercher"><ul id="pList"></ul></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ---------- état partagé ---------- */
+const tickets = [
+  { f: "F6", k: "T4", t: "Récapitulatif : forfait 10 % absent", col: 1, who: "Développeur · modifie le template", st: "busy" },
+  { f: "F6", k: "T5", t: "Libellé tronqué dans l'export", col: 0, who: "Attend la fin de T4", st: "idle" },
+  { f: "F7", k: "spec", t: "Semaine type persistée", col: 4, who: "Valider la spec du PO", st: "dec" },
+];
+const agents = { "PO": "F7 · spec prête, attend ta validation", "Tech lead": "libre", "Développeur": "F6-T4 · modifie le template", "Reviewer": "libre", "QA": "libre" };
+let busy = "Développeur";
+const aps = [{ t: "Spec F7 · Semaine type persistée", e: "Valider la spécification du PO : 5 user stories, 14 critères." }];
+
+const lanes = [...document.querySelectorAll("#home .lane")];
+function renderBoard() {
+  lanes.forEach(l => l.innerHTML = "");
+  tickets.forEach(k => {
+    const c = document.createElement("button"); c.className = "card " + k.st + (k.arrived ? " arrived" : ""); k.arrived = false;
+    c.innerHTML = `<div class="f">${k.f} · ${k.k}</div><div class="t">${k.t}</div><div class="who"><span class="dot"></span>${k.who}</div>`;
+    c.onclick = () => go(k.f === "F6" ? "feature" : "home", k.f === "F7" ? () => document.getElementById("openDecide").click() : null);
+    lanes[k.col].appendChild(c);
+  });
+  for (let i = 0; i < 5; i++) document.getElementById("c" + i).textContent = tickets.filter(t => t.col === i).length;
+}
+function renderAgents() {
+  for (const id of ["agentsHome", "agentsFeat"]) document.getElementById(id).innerHTML = Object.entries(agents)
+    .map(([n, s]) => `<div class="agent ${n === busy ? "busy" : ""}"><i></i><b>${n}</b><span>${s}</span></div>`).join("");
+}
+function renderAps() {
+  const list = document.getElementById("apList"); list.innerHTML = "";
+  aps.forEach((a, i) => { const d = document.createElement("div"); d.className = "ap" + (a.gone ? " gone" : "");
+    d.innerHTML = `<div class="t">${a.t}</div><div class="e">${a.gone || a.e}</div>` + (a.gone ? "" : `<div class="b"><button class="yes">${a.yes || "Approuver"}</button><button>Refuser</button><button>Ouvrir</button></div>`);
+    const b = d.querySelectorAll(".b button"); if (b.length) { b[0].onclick = () => decide(i, true); b[1].onclick = () => decide(i, false); b[2].onclick = () => { closeDrawer(); if (a.feature) go("feature"); }; }
+    list.appendChild(d); });
+  document.getElementById("decN").textContent = aps.filter(a => !a.gone).length;
+}
+function decide(i, yes) { const a = aps[i]; a.gone = (yes ? "Approuvé" : "Refusé") + " à " + hm(); renderAps(); toast((yes ? "Approuvé : " : "Refusé : ") + a.t);
+  if (a.feature && yes) publishDone(); if (!a.feature) { const t = tickets.find(t => t.f === "F7"); t.col = 0; t.st = "busy"; t.who = "Tech lead · conçoit le découpage"; t.arrived = true; agents["PO"] = "libre"; agents["Tech lead"] = "F7 · conçoit le découpage"; renderBoard(); renderAgents(); } }
+renderBoard(); renderAgents(); renderAps();
+
+/* ---------- navigation ---------- */
+function go(view, then) { document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.id === view));
+  document.querySelectorAll("header nav button").forEach(b => b.setAttribute("aria-current", b.dataset.go === view)); if (then) then(); }
+document.querySelectorAll("[data-go]").forEach(b => b.onclick = () => go(b.dataset.go));
+
+/* ---------- direct simulé ---------- */
+const feed = document.getElementById("feed"), flow = document.getElementById("flow"), steps = document.getElementById("steps");
+function log(who, what) { const li = document.createElement("li"); li.className = "new"; li.innerHTML = `<span class="h">${hm()}</span><b>${who}</b> ${what}`; feed.prepend(li); setTimeout(() => li.classList.remove("new"), 1500); }
+function post(html, cls = "") { const d = document.createElement("div"); d.className = "msg new " + cls; d.innerHTML = html; flow.appendChild(d); flow.scrollTop = flow.scrollHeight; return d; }
+function setT4(col, who, st) { const t = tickets[0]; t.col = col; t.who = who; t.st = st; t.arrived = true; renderBoard(); }
+function setBusy(n, txt) { if (busy) agents[busy] = "libre"; busy = n; if (n) agents[n] = txt; renderAgents(); }
+function strip(n) { const s = [...document.querySelectorAll("#strip span")]; if (n === "back") { s[4].className = "ok"; s[5].className = "now"; } }
+let tokens = 88000; function spend(n) { tokens += n; document.getElementById("budget").textContent = tokens.toLocaleString("fr-FR") + " / 400 000 tokens"; document.getElementById("bar").style.width = (tokens / 4000) + "%"; }
+log("Développeur", "lit <code>SummaryController.php</code>"); log("Développeur", "écrit le test qui échoue");
+const plan = [
+  [2500, () => { steps.lastElementChild.className = "ok"; steps.insertAdjacentHTML("beforeend", "<li class='ok'><code>aos-ci all</code> : 214 tests verts</li>"); document.getElementById("workTitle").textContent = "Au travail · 4 étapes"; log("Développeur", "<code>aos-ci all</code> : 214 tests verts"); spend(9000); }],
+  [4500, () => { document.getElementById("pulse").remove(); document.getElementById("workTitle").textContent = "Terminé · 4 étapes · commit a3f9c21"; document.getElementById("work").open = false;
+      setT4(2, "Reviewer · relit 4 fichiers", "busy"); setBusy("Reviewer", "F6-T4 · relit le diff"); log("Reviewer", "relit <code>a3f9c21</code>");
+      post(`<div class="av">REV</div><div><div class="h"><b>Reviewer</b><span>${hm()}</span></div><div class="body">Je relis a3f9c21 : 4 fichiers, +38 −6.</div></div>`); spend(12000); }],
+  [8000, () => { setT4(3, "QA · enregistre /summary", "busy"); setBusy("QA", "F6-T4 · vérifie /summary en vidéo"); log("QA", "démarre FraisZen et joue le scénario");
+      post(`<div class="av">REV</div><div><div class="h"><b>Reviewer</b><span>${hm()}</span></div><div class="body">Rien de bloquant. Suggestion : renommer <code>hasConfig</code> en <code>hasCompleteConfigFor(year)</code>.</div></div>`); spend(15000); }],
+  [12000, () => { setT4(4, "Publier la PR de T4", "dec"); setBusy("", ""); log("QA", "3/3 critères vérifiés, vidéo enregistrée");
+      aps.unshift({ t: "Publier la PR · F6-T4", e: "PR draft vers la branche de feature au SHA a3f9c21. Revue OK, QA 3/3, CI verte.", yes: "Publier la PR", feature: true }); renderAps();
+      const d = document.getElementById("openDecide"); d.classList.remove("bump"); void d.offsetWidth; d.classList.add("bump"); toast("Nouvelle décision : publier la PR de T4");
+      post(`<div class="av">QA</div><div><div class="h"><b>QA</b><span>${hm()}</span></div><div class="body">Les 3 critères sont vérifiés dans l'application. Vidéo de 42 s et trace disponibles.</div>
+        <div class="decision" id="dec"><div class="t">Publier la PR de T4 ?</div><div class="e">PR draft de aos/fraiszen-F6-T4 vers la branche de feature, au SHA a3f9c21. Aucun merge.</div>
+        <div class="facts"><span>Revue : OK</span><span>QA : 3/3</span><span>CI : verte</span></div>
+        <div class="row"><button class="go" onclick="decide(0, true)">Publier la PR</button><button onclick="toast('Lecture de la vidéo QA')">Voir la vidéo</button><button onclick="decide(0, false)">Refuser</button></div></div></div>`); spend(20000); }],
+];
+plan.forEach(([ms, f]) => setTimeout(f, ms));
+function publishDone() { const d = document.getElementById("dec"); if (d) { d.className = "decision done"; d.innerHTML = `<div class="t">✓ PR #81 publiée par toi à ${hm()}</div><div class="e" style="color:var(--slate)">À merger sur GitHub dans la branche de feature.</div>`; }
+  setT4(4, "PR #81 ouverte · à merger", "idle"); log("Agentic OS", "PR #81 ouverte vers la branche de feature"); }
+let tok = 412830; setInterval(() => { tok += Math.floor(Math.random() * 900); document.getElementById("tok").textContent = tok.toLocaleString("fr-FR") + " tokens aujourd'hui"; }, 1200);
+
+/* ---------- discussion ---------- */
+let kind = "steer";
+document.querySelector(".kind").onclick = e => { const b = e.target.closest("button"); if (!b) return; kind = b.dataset.k;
+  document.querySelectorAll(".kind button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  document.getElementById("txt").value = kind === "steer" ? "Pense au cas où la configuration 2025 est incomplète." : "Pourquoi afficher le forfait même sans frais saisis ?";
+  document.getElementById("hint").textContent = kind === "steer" ? "Consigne : prise en compte au prochain pas de l'agent. Tracée dans l'audit." : "Question : réponse sans toucher au code, environ 3 000 tokens. Tracée dans l'audit."; };
+document.getElementById("go").onclick = () => {
+  const t = document.getElementById("txt"), v = t.value.trim(); if (!v) return; const to = document.getElementById("to").value;
+  post(`<div class="av me">LD</div><div><div class="h"><b>Toi → ${to}</b><span>${hm()} · ${kind === "steer" ? "consigne" : "question"}</span></div><div class="body">${v}</div></div>`, "mine" + (kind === "steer" ? " steer" : ""));
+  t.value = ""; const short = { "Développeur": "DEV", "Reviewer": "REV", "QA": "QA", "Tech lead": "TL", "PO": "PO" }[to];
+  setTimeout(() => { post(`<div class="av">${short}</div><div><div class="h"><b>${to}</b><span>${hm()}</span></div><div class="body">` + (kind === "steer"
+      ? "Noté : j'ajoute ce cas au test avant de pousser."
+      : `Le critère 2 de la spec demande d'afficher l'estimation dès que l'année est configurée, même sans frais. C'est un choix du PO.<div class="acts"><button onclick="toast('Question transmise au PO avec le contexte')">Demander au PO</button><button onclick="toast('Correction F6-T6 créée sur la branche de feature')">Transformer en correction</button></div>`) + `</div></div>`);
+    log(to, kind === "steer" ? "consigne reçue, prise en compte" : "a répondu à ta question"); spend(3000); }, 1300);
+};
+
+/* ---------- tiroir, palette, toast ---------- */
+const drawer = document.getElementById("drawer");
+function closeDrawer() { drawer.classList.remove("open"); }
+document.getElementById("openDecide").onclick = () => drawer.classList.toggle("open");
+document.getElementById("closeDecide").onclick = closeDrawer;
+const items = [["Ouvrir F6 · Alerte frais réels", "feature", () => go("feature")], ["Tableau de FraisZen", "page", () => go("home")],
+  ["Demander une correction sur F6", "action", () => toast("Formulaire de correction ouvert")], ["Valider la spec de F7", "décision", () => drawer.classList.add("open")],
+  ["Parler au tech lead de F7", "discussion", () => toast("Fil de F7 ouvert, destinataire : Tech lead")], ["PR finale #72", "GitHub", () => toast("Ouverture de la PR #72")]];
+const pal = document.getElementById("palette"), pIn = document.getElementById("pIn"), pList = document.getElementById("pList");
+let shown = items;
+function renderPal() { const q = pIn.value.toLowerCase(); shown = items.filter(i => i[0].toLowerCase().includes(q));
+  pList.innerHTML = shown.map((i, n) => `<li data-n="${n}">${i[0]}<span>${i[1]}</span></li>`).join(""); }
+function openPal() { pal.classList.add("open"); pIn.value = ""; renderPal(); pIn.focus(); }
+function runPal(n) { const it = shown[n]; pal.classList.remove("open"); if (it) it[2](); }
+document.getElementById("openPalette").onclick = openPal; pIn.oninput = renderPal;
+pList.onclick = e => { const li = e.target.closest("li"); if (li) runPal(+li.dataset.n); };
+document.addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openPal(); }
+  if (e.key === "Escape") { pal.classList.remove("open"); closeDrawer(); } if (e.key === "Enter" && pal.classList.contains("open")) runPal(0); });
+pal.onclick = e => { if (e.target === pal) pal.classList.remove("open"); };
+function hm() { return new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }); }
+function toast(t) { const el = document.getElementById("toast"); el.textContent = t; el.classList.add("show"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 2600); }
+</script>
+</body>
+</html>
