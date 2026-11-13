@@ -32,9 +32,10 @@ test("branche de feature : PR du ticket vers la branche, recette, PR finale vers
   const publish = (await api.get(`/api/tickets/${ticket.id}`)).approvals.find((a: any) => a.kind === "publish_pr" && a.status === "pending");
   expect(publish.effect).toContain(`vers ${branch}`);
   await api.decide(publish.id, "approved");
-  // PR_OPENED est atteint dès l'approbation ; la PR est créée ensuite par le job de publication.
+  // PR_OPENED est atteint dès l'approbation ; la PR est créée ensuite par le job de publication. La CI
+  // déjà verte peut faire passer le ticket en HUMAN_MERGE avant la relecture : les deux états sont valides.
   await expect.poll(async () => (await ticketOf()).pr_number, { timeout: 60_000 }).toBeTruthy();
-  expect((await ticketOf()).state).toBe("PR_OPENED");
+  expect(["PR_OPENED", "HUMAN_MERGE"]).toContain((await ticketOf()).state);
   const pr = (await fakes.state()).pulls[repo].find((p: any) => p.head.ref === `aos/${ticket.key}`);
   expect(pr).toMatchObject({ draft: true, base: { ref: branch } });
   expect(pr.body).toContain("Refs #");
