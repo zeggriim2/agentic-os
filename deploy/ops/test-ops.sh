@@ -53,6 +53,8 @@ expect_eq "répertoire en 0700" "$(stat -c %a "$AOS_BACKUP_DIR")" "700"
 (cd "$AOS_BACKUP_DIR" && sha256sum -c --quiet "$(basename "$old").sha256") && ok "empreinte SHA-256 cohérente" || fail "empreinte SHA-256 cohérente"
 expect_eq "schéma noté dans les métadonnées" "$(python3 -c "import json;print(json.load(open('${old%.dump}.json'))['schema_version'])")" "2"
 if "$OPS/backup.sh" 'Mauvais Libellé' >/dev/null 2>&1; then fail "libellé invalide accepté"; else ok "libellé invalide refusé"; fi
+b1=$("$OPS/backup.sh" meme 2>/dev/null) && b2=$("$OPS/backup.sh" meme 2>/dev/null) && [ -f "$b1" ] && [ -f "$b2" ] && [ "$b1" != "$b2" ] &&
+	ok "deux sauvegardes du même libellé coup sur coup" || fail "deux sauvegardes du même libellé coup sur coup"
 
 echo "▶ restauration d'une sauvegarde plus ancienne que le schéma courant"
 bash -c "$AOS_MIGRATE" >/dev/null 2>&1

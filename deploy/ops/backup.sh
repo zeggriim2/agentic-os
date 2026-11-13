@@ -10,8 +10,14 @@ label="${1:-manual}"
 [[ "$label" =~ ^[a-z0-9][a-z0-9-]{0,40}$ ]] || die "libellé invalide : $label"
 
 install -d -m 0700 "$AOS_BACKUP_DIR"
-stamp=$(date -u +%Y%m%dT%H%M%SZ)
-base="$AOS_BACKUP_DIR/agentic-os-$stamp-$label"
+# Nom horodaté à la seconde : deux sauvegardes du même libellé dans la même seconde (mise à jour
+# refusée puis relancée aussitôt) attendent la seconde suivante plutôt que d'échouer.
+for _ in 1 2 3; do
+	stamp=$(date -u +%Y%m%dT%H%M%SZ)
+	base="$AOS_BACKUP_DIR/agentic-os-$stamp-$label"
+	[ -e "$base.dump" ] || break
+	sleep 1
+done
 [ ! -e "$base.dump" ] || die "existe déjà : $base.dump"
 
 version=$(schema_version)
