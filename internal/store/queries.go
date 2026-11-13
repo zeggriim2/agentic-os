@@ -656,6 +656,7 @@ type RunResult struct {
 	Output                                 string
 	Artifact                               any
 	Error                                  string
+	SessionID                              string // session Hermes (vide si inconnue)
 }
 
 // MaxOutput borne la sortie stockée (256 KiB).
@@ -678,9 +679,9 @@ func FinishRun(ctx context.Context, q Q, id int64, r RunResult) error {
 	cacheRead := min(max(r.CacheReadTokens, 0), max(r.InputTokens, 0))
 	_, err := q.Exec(ctx, `UPDATE runs SET status=$2, input_tokens=$3, output_tokens=$4, total_tokens=$5, model=NULLIF($6,''),
 		provider=NULLIF($7,''), output=$8, artifact=$9, error=NULLIF($10,''), cache_read_tokens=$11, cache_write_tokens=$12,
-		finished_at=now(), updated_at=now() WHERE id=$1`,
+		hermes_session_id=COALESCE(NULLIF($13,''), hermes_session_id), finished_at=now(), updated_at=now() WHERE id=$1`,
 		id, r.Status, r.InputTokens, r.OutputTokens, r.TotalTokens, r.Model, r.Provider, out, art, truncate(r.Error, 2000),
-		cacheRead, max(r.CacheWriteTokens, 0))
+		cacheRead, max(r.CacheWriteTokens, 0), truncate(r.SessionID, 200))
 	return err
 }
 

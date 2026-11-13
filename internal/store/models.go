@@ -186,14 +186,16 @@ type Run struct {
 	StopAttempts     int             `db:"stop_attempts"`
 	StopError        *string         `db:"stop_error"`
 	// Surcharge de modèle demandée à Hermes (nil = défaut du profil) et repli sur ce défaut après refus du fournisseur.
-	RequestedModel    *string   `db:"requested_model"`
-	RequestedProvider *string   `db:"requested_provider"`
-	ModelFallback     bool      `db:"model_fallback"`
-	CreatedAt         time.Time `db:"created_at"`
-	UpdatedAt         time.Time `db:"updated_at"`
+	RequestedModel    *string `db:"requested_model"`
+	RequestedProvider *string `db:"requested_provider"`
+	ModelFallback     bool    `db:"model_fallback"`
+	// Session Hermes du run (relue en fin de run) : reprise du contexte pour les questions.
+	HermesSessionID *string   `db:"hermes_session_id"`
+	CreatedAt       time.Time `db:"created_at"`
+	UpdatedAt       time.Time `db:"updated_at"`
 }
 
-const runCols = `id, job_id, agent_role, hermes_profile, hermes_run_id, status, input_tokens, output_tokens, total_tokens, cache_read_tokens, cache_write_tokens, model, provider, output, artifact, error, started_at, finished_at, stop_requested_at, stop_attempts, stop_error, requested_model, requested_provider, model_fallback, created_at, updated_at`
+const runCols = `id, job_id, agent_role, hermes_profile, hermes_run_id, status, input_tokens, output_tokens, total_tokens, cache_read_tokens, cache_write_tokens, model, provider, output, artifact, error, started_at, finished_at, stop_requested_at, stop_attempts, stop_error, requested_model, requested_provider, model_fallback, hermes_session_id, created_at, updated_at`
 
 // Delivery est une livraison de webhook GitHub.
 type Delivery struct {

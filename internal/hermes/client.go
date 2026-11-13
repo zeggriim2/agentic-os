@@ -42,6 +42,8 @@ type RunRequest struct {
 	Instructions string `json:"instructions"`
 	Model        string `json:"model,omitempty"`
 	Provider     string `json:"provider,omitempty"`
+	// SessionID reprend une session existante : Hermes recharge son historique (questions aux agents).
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // CreateResult est la réponse 202.
@@ -80,6 +82,7 @@ type RunStatus struct {
 	Partial     bool     `json:"partial"`
 	Interrupted bool     `json:"interrupted"`
 	Error       string   `json:"error"`
+	SessionID   string   `json:"session_id"`
 }
 
 // Indices (insensibles à la casse) d'un échec de résolution du fournisseur dans le message d'erreur
@@ -299,6 +302,29 @@ func (c *Client) GetRun(ctx context.Context, profile, runID string) (RunStatus, 
 func (c *Client) StopRun(ctx context.Context, profile, runID string) error {
 	_, err := c.do(ctx, http.MethodPost, profile, "/runs/"+url.PathEscape(runID)+"/stop", map[string]any{}, nil, nil)
 	return err
+}
+
+// ErrSteerRefused : le run n'accepte pas (ou plus) de consigne (409 Hermes : run terminé ou arrêté).
+var ErrSteerRefused = errors.New("run_not_accepting_steer")
+
+// Steer transmet une consigne à un run en cours, sans le redémarrer. ErrSteerRefused si Hermes la
+// refuse (run terminé, arrêté ou qui n'accepte pas de consigne).
+func (c *Client) Steer(ctx context.Context, profile, runID, text string) error {
+	var out struct {
+		Accepted bool `json:"accepted"`
+	}
+	_, err := c.do(ctx, http.MethodPost, profile, "/runs/"+url.PathEscape(runID)+"/steer", map[string]string{"input": text}, nil, &out)
+	var he *Error
+	if errors.As(err, &he) && (he.Status == http.StatusConflict || he.Status == http.StatusNotFound) {
+		return ErrSteerRefused
+	}
+	if err != nil {
+		return err
+	}
+	if !out.Accepted {
+		return ErrSteerRefused
+	}
+	return nil
 }
 
 // Capabilities sert de health check par profil.
