@@ -22,6 +22,13 @@ token_file="${AOS_GITHUB_TOKEN_FILE:-$data/secrets/github_token}"
 work="$data/agent-images/$slug"
 bare="$work/repo.git"
 image="agentic-os-agent-$slug"
+# Analyse Grype : échoue s'il reste une vulnérabilité haute ou critique déjà corrigée en amont.
+AOS_GRYPE_IMAGE="${AOS_GRYPE_IMAGE:-anchore/grype:v0.121.0}"
+scan() {
+  if [ -n "${AOS_SCAN:-}" ]; then bash -c "$AOS_SCAN" _ "$1"; return; fi
+  docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$AOS_GRYPE_IMAGE" "$1" --only-fixed --fail-on high -q
+}
+
 log() { printf '[%s] %s\n' "$(date -u +%H:%M:%SZ)" "$*"; }
 
 fetch() {
@@ -60,8 +67,20 @@ build)
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
   export_tree "$sha" "$tmp/src"
   log "construction de $image:$hash"
-  DOCKER_BUILDKIT=1 docker build -q -f "$dir/Dockerfile" --build-context "project=$tmp/src" \
-    --build-arg "AOS_LOCK_HASH=$hash" -t "$image:$hash" -t "$image:current" "$dir" >/dev/null
+  # --pull + AOS_PKG_REFRESH : images de base et paquets système à jour à chaque construction.
+  DOCKER_BUILDKIT=1 docker build -q --pull -f "$dir/Dockerfile" --build-context "project=$tmp/src" \
+    --build-arg "AOS_LOCK_HASH=$hash" --build-arg "AOS_PKG_REFRESH=$(date -u +%Y%m%dT%H%M%S)" \
+    -t "$image:$hash.candidate" "$dir" >/dev/null
+  # L'image candidate ne devient :current que si l'analyse passe : les runs gardent l'ancienne sinon.
+  log "analyse de vulnérabilités de $image:$hash.candidate"
+  if ! scan "$image:$hash.candidate"; then
+    echo "vulnérabilités hautes ou critiques corrigeables : $image:current inchangée (AOS_SCAN=true pour passer outre)" >&2
+    docker image rm "$image:$hash.candidate" >/dev/null 2>&1 || true
+    exit 1
+  fi
+  docker tag "$image:$hash.candidate" "$image:$hash"
+  docker tag "$image:$hash.candidate" "$image:current"
+  docker image rm "$image:$hash.candidate" >/dev/null
   log "OK : $image:$hash (alias $image:current), $(docker image inspect "$image:$hash" --format '{{.Size}}' | numfmt --to=iec)"
   ;;
 check)

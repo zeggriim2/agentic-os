@@ -4,6 +4,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 
 ## [Non publié]
 
+## [1.11.1] — 2026-11-13
+
+### Sécurité
+- Les déploiements (`upgrade.sh`) reconstruisent la couche des paquets système et **analysent
+  l'image avec Grype avant d'arrêter l'application** : une vulnérabilité haute ou critique
+  corrigeable bloque la mise à jour. En 1.11.0, une couche en cache gardait zlib et libexpat
+  vulnérables.
+- Image des agents de projet : images de base et paquets Debian à jour à chaque construction, npm
+  fixé en version récente, et analyse Grype avant de remplacer `:current`.
+- Go 1.27.4 pour la construction de l'image (GO-2026-6859).
+
 ## [1.11.0] — 2026-11-08
 
 ### Ajouté
