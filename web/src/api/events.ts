@@ -18,12 +18,13 @@ export function subscribeEvents(fn: Listener): () => void {
 /** Clés de requêtes à invalider pour chaque type d'événement SSE (§9). */
 export const INVALIDATION_MAP: Record<SseEventType, string[]> = {
   "job.updated": ["overview", "pipeline", "runs"],
-  "run.updated": ["run", "runs", "overview", "feature", "ticket", "activity"],
+  "run.updated": ["run", "runs", "overview", "feature", "ticket", "activity", "thread"],
   "run.event": ["activity"],
-  "approval.updated": ["approval", "approvals", "overview", "pipeline", "feature", "ticket"],
+  "approval.updated": ["approval", "approvals", "overview", "pipeline", "feature", "ticket", "thread"],
   "feature.updated": ["feature", "features", "pipeline", "overview"],
   "ticket.updated": ["ticket", "feature", "pipeline", "overview"],
   "overview.invalidate": ["overview"],
+  "feature.message": ["thread"],
 };
 
 /** Clés relues au plus une fois par fenêtre : un agent peut émettre plusieurs événements par seconde. */
