@@ -149,6 +149,8 @@ type run struct {
 	Model       string            // modèle servi (vide = fake-model)
 	Requested   map[string]string // surcharge demandée, renvoyée dans le statut
 	Events      []map[string]any
+	Session     string   // session Hermes (reprise par les questions)
+	Steers      []string // consignes reçues en cours de run
 	release     chan struct{}
 	changed     chan struct{} // fermé puis remplacé à chaque nouvel événement
 	CreatedAt   time.Time
@@ -191,6 +193,7 @@ func (f *fakes) routes() http.Handler {
 	mux.HandleFunc("POST /p/{profile}/v1/runs", f.hermesAuth(f.createRun))
 	mux.HandleFunc("GET /p/{profile}/v1/runs/{id}", f.hermesAuth(f.getRun))
 	mux.HandleFunc("POST /p/{profile}/v1/runs/{id}/stop", f.hermesAuth(f.stopRun))
+	mux.HandleFunc("POST /p/{profile}/v1/runs/{id}/steer", f.hermesAuth(f.steerRun))
 	mux.HandleFunc("GET /p/{profile}/v1/runs/{id}/events", f.hermesAuth(f.runEvents))
 	mux.HandleFunc("GET /p/{profile}/v1/capabilities", f.hermesAuth(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, 200, map[string]any{"runs": true, "events": true, "stop": true, "idempotency": true})
@@ -313,6 +316,8 @@ func roleOf(instructions string) string {
 		return "reviewer"
 	case strings.Contains(instructions, "Tu es le QA"):
 		return "qa"
+	case strings.Contains(instructions, "Tu réponds à une question"):
+		return "question"
 	}
 	return ""
 }
@@ -334,6 +339,7 @@ func (f *fakes) createRun(w http.ResponseWriter, r *http.Request) {
 		Instructions string `json:"instructions"`
 		Model        string `json:"model"`
 		Provider     string `json:"provider"`
+		SessionID    string `json:"session_id"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil || req.Input == "" {
 		writeJSON(w, 400, map[string]any{"error": map[string]any{"code": "invalid_body"}})
@@ -356,7 +362,7 @@ func (f *fakes) createRun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 202, map[string]any{"run_id": id, "status": "started", "replayed": false})
 		return
 	}
-	sum := sha256.Sum256([]byte(req.Instructions + "\x00" + req.Input + "\x00" + req.Provider + "/" + req.Model))
+	sum := sha256.Sum256([]byte(req.Instructions + "\x00" + req.Input + "\x00" + req.Provider + "/" + req.Model + "\x00" + req.SessionID))
 	digest := hex.EncodeToString(sum[:])
 	f.mu.Lock()
 	if id, ok := f.idem[profile+"\x00"+key]; ok {
@@ -372,7 +378,10 @@ func (f *fakes) createRun(w http.ResponseWriter, r *http.Request) {
 	f.nextRun++
 	id := fmt.Sprintf("run_e2e_%04d_%s", f.nextRun, randomHex(4))
 	rn := &run{ID: id, Profile: profile, Role: roleOf(req.Instructions), Key: key, Digest: digest, Input: req.Input, Instr: req.Instructions,
-		Status: "running", release: make(chan struct{}), changed: make(chan struct{}), CreatedAt: time.Now()}
+		Status: "running", Session: req.SessionID, release: make(chan struct{}), changed: make(chan struct{}), CreatedAt: time.Now()}
+	if rn.Session == "" {
+		rn.Session = "sess_" + id
+	}
 	if req.Model != "" {
 		rn.Model = req.Model
 		rn.Requested = map[string]string{"provider": req.Provider, "model": req.Model}
@@ -415,6 +424,7 @@ func (f *fakes) getRun(w http.ResponseWriter, r *http.Request) {
 		"runtime":      map[string]any{"provider": "fake-e2e", "model": model, "route_source": source},
 		"route_source": source,
 		"completed":    rn.Status == "completed", "partial": false, "interrupted": rn.Interrupted,
+		"session_id": rn.Session,
 	}
 	if rn.Requested != nil {
 		out["requested"] = rn.Requested
@@ -558,9 +568,42 @@ func deliverable(prefix string, v any) (string, error) {
 	return prefix + "\n\n```json\n" + string(b) + "\n```\n", nil
 }
 
+// steerRun : consigne transmise à un run en cours (409 sinon), comme Hermes.
+func (f *fakes) steerRun(w http.ResponseWriter, r *http.Request) {
+	rn := f.lookupRun(w, r)
+	if rn == nil {
+		return
+	}
+	var req struct {
+		Input string `json:"input"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if rn.Status != "running" {
+		writeJSON(w, 409, map[string]any{"error": map[string]any{"code": "run_not_accepting_steer"}})
+		return
+	}
+	rn.Steers = append(rn.Steers, req.Input)
+	f.emitLocked(rn, "run.steered", map[string]any{"accepted": true})
+	writeJSON(w, 200, map[string]any{"object": "hermes.run.steer", "run_id": rn.ID, "accepted": true})
+}
+
 func (f *fakes) produce(rn *run) (string, error) {
 	in := rn.Input
 	switch rn.Role {
+	case "question":
+		q := in
+		if i := strings.LastIndex(in, " :\n"); i >= 0 {
+			q = in[i+3:]
+		}
+		resumed := "sans session"
+		if rn.Session != "sess_"+rn.ID {
+			resumed = "dans ma session"
+		}
+		return fmt.Sprintf("Réponse du faux Hermes (%s) à « %s » : le choix vient de la spécification.", resumed, strings.TrimSpace(q)), nil
 	case "po":
 		summary := "Spécification produite par le faux Hermes E2E."
 		if strings.Contains(in, `source="human_feedback"`) {
@@ -1195,7 +1238,8 @@ func (f *fakes) state(w http.ResponseWriter, _ *http.Request) {
 	sort.Strings(ids)
 	for _, id := range ids {
 		rn := f.runs[id]
-		runs = append(runs, map[string]any{"id": rn.ID, "profile": rn.Profile, "role": rn.Role, "status": rn.Status, "events": len(rn.Events)})
+		runs = append(runs, map[string]any{"id": rn.ID, "profile": rn.Profile, "role": rn.Role, "status": rn.Status, "events": len(rn.Events),
+			"session": rn.Session, "steers": rn.Steers})
 	}
 	writeJSON(w, 200, map[string]any{"issues": f.issues, "pulls": pulls, "runs": runs, "telegram_messages": f.messages, "webhooks": f.deliveries})
 }

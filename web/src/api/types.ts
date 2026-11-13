@@ -555,6 +555,7 @@ export const SSE_EVENT_TYPES = [
   "feature.updated",
   "ticket.updated",
   "overview.invalidate",
+  "feature.message",
 ] as const;
 export type SseEventType = (typeof SSE_EVENT_TYPES)[number];
 
@@ -661,4 +662,56 @@ export interface ActiveRun {
 export interface Activity {
   running: ActiveRun[];
   events: ActivityItem[];
+}
+
+// ---------- Discussion avec les agents (1.12) ----------
+export type MessageKind = "instruction" | "question" | "answer";
+export type MessageStatus = "delivered" | "pending" | "consumed" | "answering" | "answered" | "failed";
+
+export interface FeatureMessage {
+  id: ID;
+  kind: MessageKind;
+  /** "user:<login>" ou "agent:<rôle>". */
+  author: string;
+  target_role: string | null;
+  body: string;
+  status: MessageStatus;
+  reply_to: ID | null;
+  run_id: ID | null;
+  /** Précision sur l'état (consigne gardée, échec, poussée détectée…). */
+  note: string | null;
+  created_at: string;
+}
+
+export interface ThreadRun {
+  id: ID;
+  agent_role: string;
+  job_kind: string;
+  ticket_key: string | null;
+  status: string;
+  summary: string;
+  error: string | null;
+  fresh_tokens: number;
+  total_tokens: number;
+  model: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export interface FeatureThread {
+  feature_id: ID;
+  closed: boolean;
+  /** Rôle de l'agent en cours sur la feature (null si aucun). */
+  working: string | null;
+  /** Rôles ayant déjà une session sur la feature. */
+  sessions: Record<string, boolean>;
+  messages: FeatureMessage[];
+  runs: ThreadRun[];
+  approvals: Approval[];
+}
+
+export interface MessageInput {
+  kind: "instruction" | "question";
+  role: string;
+  body: string;
 }
