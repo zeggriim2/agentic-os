@@ -301,3 +301,52 @@ func TestModelOptionsCatalog(t *testing.T) {
 		t.Fatalf("injoignable : %v", err)
 	}
 }
+
+func TestSteerAndSessionResume(t *testing.T) {
+	var steered, created string
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/p/aos-dev/v1/runs/run_live/steer":
+			steered = string(body)
+			_, _ = w.Write([]byte(`{"object":"hermes.run.steer","run_id":"run_live","accepted":true}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/p/aos-dev/v1/runs/run_done/steer":
+			w.WriteHeader(409)
+			_, _ = w.Write([]byte(`{"error":{"code":"run_not_accepting_steer"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/p/aos-dev/v1/runs":
+			created = string(body)
+			w.WriteHeader(202)
+			_, _ = w.Write([]byte(`{"run_id":"run_q","status":"started"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/p/aos-dev/v1/runs/run_q":
+			_, _ = w.Write([]byte(`{"status":"completed","output":"MANDARINE","session_id":"sess_42"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	ctx := context.Background()
+	if err := c.Steer(ctx, "aos-dev", "run_live", "Le mot-code est MANDARINE."); err != nil {
+		t.Fatal(err)
+	}
+	if steered != `{"input":"Le mot-code est MANDARINE."}` {
+		t.Fatalf("corps du steer : %s", steered)
+	}
+	if err := c.Steer(ctx, "aos-dev", "run_done", "x"); !errors.Is(err, ErrSteerRefused) {
+		t.Fatalf("run terminé : %v", err)
+	}
+	if err := c.Steer(ctx, "aos-dev", "run_inconnu", "x"); !errors.Is(err, ErrSteerRefused) {
+		t.Fatalf("run inconnu : %v", err)
+	}
+	if _, err := c.CreateRun(ctx, "aos-dev", "k", RunRequest{Input: "Quel mot ?", SessionID: "sess_42"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(created, `"session_id":"sess_42"`) {
+		t.Fatalf("session non transmise : %s", created)
+	}
+	if _, err := c.CreateRun(ctx, "aos-dev", "k2", RunRequest{Input: "x"}); err != nil || strings.Contains(created, "session_id") {
+		t.Fatalf("session_id doit être omis quand vide : %s %v", created, err)
+	}
+	st, err := c.GetRun(ctx, "aos-dev", "run_q")
+	if err != nil || st.SessionID != "sess_42" {
+		t.Fatalf("session relue : %+v %v", st, err)
+	}
+}

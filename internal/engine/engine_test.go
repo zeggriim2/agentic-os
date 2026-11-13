@@ -44,6 +44,7 @@ type fakeHermes struct {
 	reqs map[string]hermes.RunRequest
 	// rejectProvider simule le refus de résolution du fournisseur par Hermes (run failed, 0 token).
 	rejectProvider func(req hermes.RunRequest) bool
+	steers         []string // consignes reçues (Steer)
 }
 
 func newFakeHermes(respond func(string, hermes.RunRequest) (string, int64)) *fakeHermes {
@@ -79,7 +80,12 @@ func (f *fakeHermes) CreateRun(_ context.Context, profile, key string, req herme
 	if f.cacheHeavy { // run outillé typique : 90 % du total relu du cache, 2 % de sortie
 		usage = hermes.Usage{InputTokens: total - total/50, OutputTokens: total / 50, TotalTokens: total, CacheReadTokens: total * 9 / 10}
 	}
-	f.runs[id] = hermes.RunStatus{Status: "completed", Output: out, Completed: true, Usage: usage, Runtime: hermes.Runtime{Provider: "p", Model: "m1"}}
+	session := req.SessionID
+	if session == "" {
+		session = "sess_" + id
+	}
+	f.runs[id] = hermes.RunStatus{Status: "completed", Output: out, Completed: true, Usage: usage, Runtime: hermes.Runtime{Provider: "p", Model: "m1"},
+		SessionID: session}
 	f.mu.Unlock()
 	return hermes.CreateResult{RunID: id, Status: "started"}, nil
 }
@@ -111,6 +117,16 @@ func (f *fakeHermes) StopRun(_ context.Context, _, id string) error {
 		st.Status = "cancelled"
 		f.runs[id] = st
 	}
+	return nil
+}
+func (f *fakeHermes) Steer(_ context.Context, _, id, text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	st, ok := f.runs[id]
+	if !ok || st.Terminal() {
+		return hermes.ErrSteerRefused
+	}
+	f.steers = append(f.steers, text)
 	return nil
 }
 func (f *fakeHermes) Capabilities(context.Context, string) error       { return nil }
@@ -322,6 +338,8 @@ type env struct {
 	// qaBrowser active le QA navigateur du projet ; qaHook simule les dépôts de l'agent QA.
 	qaBrowser bool
 	qaHook    func(req hermes.RunRequest)
+	// answer répond aux questions de la discussion (nil = réponse par défaut).
+	answer func(profile string, req hermes.RunRequest) string
 }
 
 const poOK = "Voici la spec.\n```json\n{\"summary\":\"s\",\"user_stories\":[\"en tant que…\"],\"acceptance_criteria\":[\"c1\"],\"open_questions\":[]}\n```"
@@ -357,6 +375,12 @@ func newEnv(t *testing.T) *env {
 		ev.calls[profile]++
 		call := ev.calls[profile]
 		ev.mu.Unlock()
+		if strings.Contains(req.Input, "Question de ") {
+			if ev.answer != nil {
+				return ev.answer(profile, req), 300
+			}
+			return "Réponse de " + profile + " : c'est fait.", 300
+		}
 		// Les profils propres au projet (aos-demo-<rôle>) se comportent comme les profils par défaut.
 		switch strings.Replace(profile, "aos-demo-", "aos-", 1) {
 		case "aos-po":

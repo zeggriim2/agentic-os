@@ -26,11 +26,13 @@ const (
 	JobOpenCorrection = "open_correction"
 	// JobRefreshFeaturePR met à jour titre et corps de la PR finale déjà ouverte (Closes des corrections).
 	JobRefreshFeaturePR = "refresh_feature_pr"
+	// JobAnswerQuestion fait répondre un agent à une question posée depuis la page de la feature.
+	JobAnswerQuestion = "answer_question"
 )
 
 // JobKinds liste les types de jobs connus.
 var JobKinds = []string{JobPOSpec, JobTechDesign, JobOpenIssues, JobDevelop, JobReview, JobQA, JobPublishPR, JobExecuteApproval, JobSyncAgents,
-	JobPublishFeaturePR, JobSwitchIntegration, JobOpenCorrection, JobRefreshFeaturePR}
+	JobPublishFeaturePR, JobSwitchIntegration, JobOpenCorrection, JobRefreshFeaturePR, JobAnswerQuestion}
 
 // Statuts de job.
 const (
@@ -251,3 +253,22 @@ func containsDotDot(s string) bool {
 }
 
 func hasSuffix(s, suf string) bool { return len(s) >= len(suf) && s[len(s)-len(suf):] == suf }
+
+// Discussion avec les agents (1.12) : types et statuts des messages d'une feature.
+const (
+	MessageInstruction = "instruction"
+	MessageQuestion    = "question"
+	MessageAnswer      = "answer"
+
+	MessageDelivered = "delivered" // consigne transmise à l'agent en cours (steer)
+	MessagePending   = "pending"   // consigne gardée pour le prochain run
+	MessageConsumed  = "consumed"  // consigne ajoutée aux instructions d'un run
+	MessageAnswering = "answering"
+	MessageAnswered  = "answered"
+	MessageFailed    = "failed"
+
+	// MaxMessageLen borne une consigne ou une question (caractères).
+	MaxMessageLen = 4000
+	// MaxAnswerLen borne la réponse stockée d'un agent (caractères).
+	MaxAnswerLen = 12000
+)
