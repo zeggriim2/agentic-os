@@ -4,7 +4,9 @@
 # Usage : deploy/ops/upgrade.sh <tag>          (ex. 1.0.1 ; le dépôt doit être sur ce tag)
 #
 # 1. sauvegarde pre-upgrade (refus de continuer si elle échoue) ;
-# 2. construction de l'image agentic-os:<tag> (l'image précédente est conservée) ;
+# 2. construction de l'image agentic-os:<tag> (l'image précédente est conservée), paquets système
+#    rafraîchis, puis analyse Grype : arrêt AVANT de toucher à l'app s'il reste une vulnérabilité
+#    haute ou critique corrigée en amont ;
 # 3. arrêt de l'app, migrations, démarrage sur <tag> ;
 # 4. état enregistré (tag précédent + sauvegarde) pour rollback.sh.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -28,8 +30,13 @@ log "sauvegarde pre-upgrade : $backup"
 export AOS_IMAGE_TAG="$tag" AOS_VERSION="$tag"
 AOS_REVISION="$(git -C "$AOS_REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 export AOS_REVISION
+AOS_PKG_REFRESH="$(date -u +%Y%m%dT%H%M%S)"
+export AOS_PKG_REFRESH
 log "construction de agentic-os:$tag"
 run_action "$AOS_BUILD"
+log "analyse de vulnérabilités de agentic-os:$tag"
+run_action "$AOS_SCAN" ||
+	die "vulnérabilités hautes ou critiques corrigeables dans agentic-os:$tag : rien n'a été arrêté ni migré (corriger, ou AOS_SCAN=true pour passer outre)"
 
 state_set previous_tag "${current:-}"
 state_set rollback_backup "$backup"

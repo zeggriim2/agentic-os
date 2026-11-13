@@ -54,6 +54,7 @@ services:
       args:
         VERSION: ${AOS_VERSION:-dev}
         REVISION: ${AOS_REVISION:-unknown}
+        PKG_REFRESH: ${AOS_PKG_REFRESH:-0}
     command: ["migrate"]
     network_mode: host
     restart: "no"

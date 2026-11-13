@@ -33,7 +33,8 @@ export AOS_DATA_DIR="$WORK/data" AOS_BACKUP_DIR="$WORK/data/backups" AOS_STATE_F
 export AOS_DB_EXEC="docker exec -i $C"
 APPLOG="$WORK/app.log"
 export AOS_APP_STOP="echo stop >>$APPLOG" AOS_APP_START="echo start:\${AOS_IMAGE_TAG:-} >>$APPLOG"
-export AOS_BUILD="echo build:\$AOS_IMAGE_TAG >>$APPLOG"
+export AOS_BUILD="echo build:\$AOS_IMAGE_TAG:\${AOS_PKG_REFRESH:+refresh} >>$APPLOG"
+export AOS_SCAN="echo scan:\$AOS_IMAGE_TAG >>$APPLOG"
 export AOS_MIGRATE="env AOS_DATABASE_URL_FILE=$WORK/database_url AOS_SECRETS_DIR=$WORK AOS_WORKSPACE_ROOT=$WORK/ws $WORK/agentic-os migrate"
 OPS="$REPO/deploy/ops"
 sql() { docker exec -i "$C" psql -X -q -t -A -v ON_ERROR_STOP=1 -U agentic_os -d "${2:-agentic_os}" -c "$1"; }
@@ -79,8 +80,13 @@ echo "▶ mise à jour puis retour arrière"
 echo "current_tag=1.0.0" >"$AOS_STATE_FILE"
 "$OPS/upgrade.sh" 1.0.1 2>/dev/null
 grep -q '^previous_tag=1.0.0$' "$AOS_STATE_FILE" && grep -q '^current_tag=1.0.1$' "$AOS_STATE_FILE" && ok "état de déploiement enregistré" || fail "état de déploiement enregistré"
-expect_eq "construction puis arrêt → démarrage en 1.0.1" "$(tr '\n' ' ' <"$APPLOG")" "build:1.0.1 stop start:1.0.1 "
+expect_eq "construction (paquets rafraîchis), analyse, arrêt → démarrage en 1.0.1" "$(tr '\n' ' ' <"$APPLOG")" "build:1.0.1:refresh scan:1.0.1 stop start:1.0.1 "
 if "$OPS/upgrade.sh" 1.0.1 2>/dev/null; then fail "double mise à jour"; else ok "mise à jour vers la version courante refusée"; fi
+cp "$AOS_STATE_FILE" "$WORK/state.before"
+: >"$APPLOG"
+if AOS_SCAN="echo scan-ko >>$APPLOG; exit 2" "$OPS/upgrade.sh" 1.0.3 2>/dev/null; then fail "image vulnérable déployée"; else ok "image vulnérable refusée"; fi
+expect_eq "application ni arrêtée ni migrée après une analyse en échec" "$(tr '\n' ' ' <"$APPLOG")" "build:1.0.3:refresh scan-ko "
+cmp -s "$AOS_STATE_FILE" "$WORK/state.before" && ok "état de déploiement inchangé après refus" || fail "état de déploiement inchangé après refus"
 sql "INSERT INTO schema_migrations(version) VALUES ($((LATEST + 1)))"
 : >"$APPLOG"
 if "$OPS/upgrade.sh" 1.0.2 2>/dev/null; then fail "rétrogradation de schéma acceptée"; else ok "rétrogradation de schéma refusée"; fi
