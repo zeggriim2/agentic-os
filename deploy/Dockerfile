@@ -9,7 +9,7 @@ RUN npm ci --no-fund --ignore-scripts
 COPY web/ ./
 RUN npm run build
 
-FROM golang:1.27-alpine3.24@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS build
+FROM golang:1.27-alpine3.24@sha256:eb61c3873c97416fff0116553fff65d67a3549f72e11d9758849a689cdd8b523 AS build
 WORKDIR /src
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-mod=readonly
 COPY go.mod go.sum ./
@@ -25,6 +25,9 @@ RUN go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.revisi
       -o /out/agentic-os ./cmd/agentic-os
 
 FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+# Change à chaque release (upgrade.sh) : invalide le cache de la couche suivante pour récupérer
+# les correctifs de sécurité Alpine publiés depuis la dernière construction.
+ARG PKG_REFRESH=0
 RUN apk upgrade --no-cache \
  && apk add --no-cache git ca-certificates \
  && addgroup -g 1000 aos \

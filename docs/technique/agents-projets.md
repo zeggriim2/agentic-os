@@ -131,3 +131,12 @@ aucun secret ; PostgreSQL est joint par le conteneur `db` comme les scripts `dep
 2. `task project:setup PROJECT=<slug>` : la vérification doit passer avant d'aller plus loin.
 3. Créer le projet dans Agentic OS avec `agent_profiles` = les trois profils `aos-<slug>-*` et la
    commande de test `aos-setup && aos-ci all`.
+
+### Fraîcheur et analyse de l'image (1.11.1)
+
+`project-image.sh build` reconstruit toujours avec les images de base à jour (`--pull`) et les
+paquets Debian mis à jour (`AOS_PKG_REFRESH` invalide le cache, `apt-get upgrade`). npm est fixé
+(`NPM_VERSION`) : celui livré avec Node 22 embarque des dépendances vulnérables. L'image est d'abord
+étiquetée `<hash>.candidate` et analysée par Grype (`--only-fixed --fail-on high`) : elle ne devient
+`:current` que si l'analyse passe, sinon les runs continuent sur l'image précédente.
+`AOS_SCAN=true` passe outre (à éviter).

@@ -23,6 +23,10 @@ AOS_APP_STOP="${AOS_APP_STOP:-$AOS_COMPOSE stop app}"
 AOS_MIGRATE="${AOS_MIGRATE:-$AOS_COMPOSE run --rm --no-deps migrate}"
 AOS_APP_START="${AOS_APP_START:-$AOS_COMPOSE up -d --no-build app}"
 AOS_BUILD="${AOS_BUILD:-$AOS_COMPOSE build}"
+# Analyse de l'image construite ($AOS_IMAGE_TAG) : échoue s'il reste une vulnérabilité haute ou
+# critique déjà corrigée en amont. AOS_SCAN=true pour passer outre (à éviter).
+AOS_GRYPE_IMAGE="${AOS_GRYPE_IMAGE:-anchore/grype:v0.121.0}"
+AOS_SCAN="${AOS_SCAN:-docker run --rm -v /var/run/docker.sock:/var/run/docker.sock $AOS_GRYPE_IMAGE agentic-os:\$AOS_IMAGE_TAG --only-fixed --fail-on high -q}"
 
 log() { printf '[%s] %s\n' "$(date -u +%H:%M:%SZ)" "$*" >&2; }
 die() { log "ERREUR : $*"; exit 1; }

@@ -24,6 +24,10 @@ git fetch origin && git switch -c release/1.0.0 origin/develop
 
 - [ ] CI verte (mêmes checks que §1).
 - [ ] Image construite localement : `make docker`, puis `docker run --rm agentic-os:dev version`.
+- [ ] Au déploiement, `upgrade.sh` reconstruit la couche des paquets Alpine (`PKG_REFRESH`) puis
+      analyse l'image avec Grype (`--only-fixed --fail-on high`) **avant** d'arrêter l'application :
+      une vulnérabilité haute ou critique corrigeable bloque le déploiement (`AOS_SCAN=true` pour
+      passer outre, en le justifiant dans la PR de release).
 - [ ] Scan ponctuel des paquets de l'image (aucun scanner tiers en CI) :
       `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock anchore/grype:<version épinglée> agentic-os:dev --only-fixed`
       → aucune vulnérabilité corrigeable ; les vulnérabilités sans correctif sont listées dans la PR de release.
