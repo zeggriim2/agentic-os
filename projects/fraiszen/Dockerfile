@@ -16,13 +16,21 @@ ARG PHP_IMAGE=dunglas/frankenphp:1-php8.5
 ARG NODE_IMAGE=node:22-bookworm-slim
 
 FROM ${NODE_IMAGE} AS node
+# npm livré avec Node 22 embarque des dépendances vulnérables (brace-expansion, pacote, sigstore…) :
+# version de npm fixée, mise à jour avec l'image.
+ARG NPM_VERSION=11.21.2
+RUN npm install -g --no-audit --no-fund "npm@${NPM_VERSION}" && npm cache clean --force
 
 FROM ${PHP_IMAGE}
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
+# Change à chaque construction (project-image.sh) : invalide le cache des couches suivantes pour
+# récupérer les correctifs de sécurité Debian publiés depuis la dernière construction.
+ARG AOS_PKG_REFRESH=0
 # hadolint ignore=DL3008
 RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
  && apt-get install -y --no-install-recommends ca-certificates file git make openssl python3 ripgrep unzip \
  && install-php-extensions @composer apcu intl opcache pcntl sockets zip pdo_mysql \
  && rm -rf /var/lib/apt/lists/*
