@@ -613,7 +613,10 @@ func (f *fakes) produce(rn *run) (string, error) {
 			"summary":             summary,
 			"user_stories":        []string{"En tant qu'opérateur, je veux un fichier de démonstration pour vérifier la chaîne complète."},
 			"acceptance_criteria": []string{"Un fichier de démonstration existe sur la branche du ticket."},
-			"open_questions":      []string{},
+			"open_questions": []map[string]any{{
+				"question": "Quel format pour le fichier de démonstration ?",
+				"options":  []string{"Markdown", "Texte brut"}, "recommended": 0,
+			}},
 		})
 	case "tech_lead":
 		title := "feature"

@@ -221,3 +221,51 @@ func TestDevelopNotesIsOptionalButStillTyped(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenQuestionsWithOptions(t *testing.T) {
+	ok := `{"summary":"s","user_stories":["u"],"acceptance_criteria":["a"],"open_questions":[` +
+		`{"question":"Week-end ?","options":["Lundi-vendredi","Tous les jours"],"recommended":0},` +
+		`{"question":"Ouverte ?"},"Ancien format ?"]}`
+	v, err := ParsePOSpec(ok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.OpenQuestions) != 3 || v.OpenQuestions[0].Recommended == nil || *v.OpenQuestions[0].Recommended != 0 ||
+		len(v.OpenQuestions[0].Options) != 2 || v.OpenQuestions[2].Question != "Ancien format ?" || v.OpenQuestions[1].Options != nil {
+		t.Fatalf("questions mal décodées : %+v", v.OpenQuestions)
+	}
+	bad := map[string]string{
+		"une seule option":     `{"question":"q","options":["a"]}`,
+		"trop d'options":       `{"question":"q","options":["a","b","c","d","e"]}`,
+		"recommandation hors":  `{"question":"q","options":["a","b"],"recommended":2}`,
+		"recommandation seule": `{"question":"q","recommended":0}`,
+		"question vide":        `{"question":" "}`,
+		"option vide":          `{"question":"q","options":["a",""]}`,
+		"clé inconnue":         `{"question":"q","why":"x"}`,
+		"null":                 `{"question":"q","options":null}`,
+	}
+	for name, q := range bad {
+		in := `{"summary":"s","user_stories":["u"],"acceptance_criteria":["a"],"open_questions":[` + q + `]}`
+		if _, err := ParsePOSpec(in); err == nil {
+			t.Errorf("%s : accepté à tort", name)
+		}
+	}
+	// Doublon de clé au premier niveau : toujours refusé, même avec l'ancien format à normaliser.
+	if _, err := ParsePOSpec(`{"summary":"s","summary":"t","user_stories":["u"],"acceptance_criteria":["a"],"open_questions":["q"]}`); err == nil {
+		t.Error("doublon accepté après normalisation")
+	}
+}
+
+func TestTechDesignOpenQuestionsOptional(t *testing.T) {
+	base := `{"summary":"s","decisions":[],"risks":[],"tickets":[{"title":"T","body":"b","acceptance_criteria":["c"]}]`
+	if _, err := ParseTechDesign(base + `}`); err != nil {
+		t.Fatalf("sans questions : %v", err)
+	}
+	v, err := ParseTechDesign(base + `,"open_questions":[{"question":"Table ?","options":["Dédiée","JSON"],"recommended":0}]}`)
+	if err != nil || len(v.OpenQuestions) != 1 {
+		t.Fatalf("avec questions : %v %+v", err, v)
+	}
+	if _, err := ParseTechDesign(base + `,"open_questions":[{"question":"q","options":["a"]}]}`); err == nil {
+		t.Fatal("option unique acceptée")
+	}
+}

@@ -126,7 +126,12 @@ listée est refusée. Chaque transition persistée écrit une entrée d'audit da
 | BLOCKED | `retry` (user) | état précédent | rejoue le job |
 
 `NEEDS_CLARIFICATION` : si le livrable PO contient `open_questions` non vides, la feature va en
-SPEC_REVIEW quand même ; l'approbation affiche les questions et le rejet avec commentaire sert de réponse.
+SPEC_REVIEW quand même. Depuis 1.13, la page de décision affiche chaque question avec ses réponses
+proposées ; « Envoyer mes réponses au PO » est un rejet dont le commentaire est un retour structuré
+(« n. question → réponse », remarques par critère), composé côté web (`web/src/lib/decision.ts`). En
+approuvant, ce même retour est transmis au tech lead (payload `feedback` du job `tech_design`). Les
+reprises gardent les constats un par un (`details.finding_items`) ; les constats écartés par l'humain
+sont listés dans le commentaire transmis au développeur.
 
 ### Ticket
 | Depuis | Événement | Vers | Effet |
@@ -196,8 +201,8 @@ Règles fail-closed :
   si les tokens nouveaux (`input_tokens - cache_read_tokens + output_tokens`) dépassent `max_tokens_per_run` → erreur `budget` (le livrable est quand même stocké mais rejeté). Depuis 1.5.1 ; avant, le total brut (cache compris) était compté.
 
 Livrables (schémas stricts, clés inconnues refusées) :
-- `po_spec` : `{"summary": str, "user_stories": [str], "acceptance_criteria": [str], "open_questions": [str]}`
-- `tech_design` : `{"summary": str, "decisions": [{"decision","rationale","rejected_alternatives":[str]}], "risks": [str], "tickets": [{"title","body","acceptance_criteria":[str]}]}` (1..5 tickets : développement séquentiel, une PR par ticket ; consignes de découpage minimal dans le prompt)
+- `po_spec` : `{"summary": str, "user_stories": [str], "acceptance_criteria": [str], "open_questions": [{"question": str, "options": [str], "recommended": int}]}` — `options` (0 ou 2 à 4) et `recommended` (index) facultatifs ; une question en simple chaîne (format < 1.13) est acceptée et normalisée.
+- `tech_design` : `{"summary": str, "decisions": [{"decision","rationale","rejected_alternatives":[str]}], "risks": [str], "tickets": [{"title","body","acceptance_criteria":[str]}], "open_questions"?: [...]}` (`open_questions` facultatif, même format que le PO ; 1..5 tickets : développement séquentiel, une PR par ticket ; consignes de découpage minimal dans le prompt)
 - `develop` : `{"summary": str, "files_changed": [str], "tests": [{"command","exit_code":int}], "notes": str}`
 - `review` : `{"verdict": "approved|changes_requested", "sha": str, "findings": [{"severity":"P0|P1|P2|P3","file","message"}], "summary": str}` — `approved` refusé s'il existe un finding P0/P1.
 - `qa` : `{"verdict": "passed|failed", "sha": str, "checks": [{"command","exit_code":int}], "acceptance": [{"criterion","status":"met|not_met","evidence"}], "summary": str}` — `passed` refusé si un check a `exit_code≠0` ou un critère `not_met`.

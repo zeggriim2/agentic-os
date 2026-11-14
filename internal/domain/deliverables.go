@@ -24,12 +24,23 @@ const (
 	maxListLen   = 200
 )
 
+// OpenQuestion est une question ouverte d'un agent (PO, tech lead) à l'humain, avec des réponses
+// proposées (2 à 4, facultatives) et l'index de celle que l'agent recommande (facultatif).
+type OpenQuestion struct {
+	Question    string   `json:"question"`
+	Options     []string `json:"options,omitempty"`
+	Recommended *int     `json:"recommended,omitempty"`
+}
+
+// MaxQuestionOptions borne les réponses proposées pour une question.
+const MaxQuestionOptions = 4
+
 // POSpec est le livrable du PO.
 type POSpec struct {
-	Summary            string   `json:"summary"`
-	UserStories        []string `json:"user_stories"`
-	AcceptanceCriteria []string `json:"acceptance_criteria"`
-	OpenQuestions      []string `json:"open_questions"`
+	Summary            string         `json:"summary"`
+	UserStories        []string       `json:"user_stories"`
+	AcceptanceCriteria []string       `json:"acceptance_criteria"`
+	OpenQuestions      []OpenQuestion `json:"open_questions"`
 }
 
 // Decision est une décision technique.
@@ -52,6 +63,8 @@ type TechDesign struct {
 	Decisions []Decision     `json:"decisions"`
 	Risks     []string       `json:"risks"`
 	Tickets   []DesignTicket `json:"tickets"`
+	// OpenQuestions : points à trancher par l'humain avant les issues (facultatif).
+	OpenQuestions []OpenQuestion `json:"open_questions,omitempty"`
 }
 
 // CommandResult est une commande exécutée avec son code retour.
@@ -132,10 +145,8 @@ func ExtractLastJSON(output string) ([]byte, error) {
 			bestStart, bestEnd = i, end
 			continue
 		}
-		if end <= bestStart {
-			// objet antérieur distinct : le dernier objet est trouvé.
-			break
-		}
+		// end < bestEnd : objet antérieur distinct, ou objet frère imbriqué (élément précédent d'un
+		// tableau d'objets) ; on continue pour trouver un éventuel objet englobant.
 	}
 	if bestStart < 0 {
 		return nil, invalid("aucun objet JSON trouvé dans la sortie")
@@ -281,14 +292,84 @@ func nonEmpty(s, field string) error {
 	return nil
 }
 
+// normalizeQuestions accepte les questions ouvertes écrites en simple chaîne (ancien format) en les
+// convertissant en {"question": …}, avant la validation stricte.
+func normalizeQuestions(raw []byte) []byte {
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) != nil {
+		return raw
+	}
+	qs, ok := obj["open_questions"]
+	if !ok {
+		return raw
+	}
+	var items []json.RawMessage
+	if json.Unmarshal(qs, &items) != nil {
+		return raw
+	}
+	changed := false
+	for i, it := range items {
+		t := bytes.TrimSpace(it)
+		if len(t) > 0 && t[0] == '"' {
+			var s string
+			if json.Unmarshal(t, &s) != nil {
+				return raw
+			}
+			b, _ := json.Marshal(map[string]string{"question": s})
+			items[i], changed = b, true
+		}
+	}
+	if !changed {
+		return raw
+	}
+	// Réécrit seulement open_questions ; les doublons de clés éventuels restent détectés plus loin
+	// car ils empêchent json.Unmarshal de produire un objet fidèle : on ne normalise alors pas.
+	if dup, _ := decodeObjectNoDup(bytes.TrimSpace(raw), "$"); dup == nil {
+		return raw
+	}
+	b, _ := json.Marshal(items)
+	obj["open_questions"] = b
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+// validQuestions vérifie les questions ouvertes : texte non vide, 0 ou 2 à MaxQuestionOptions
+// options non vides, recommandation dans les bornes.
+func validQuestions(qs []OpenQuestion) error {
+	for i, q := range qs {
+		if strings.TrimSpace(q.Question) == "" {
+			return invalid("open_questions[%d].question vide", i)
+		}
+		if len(q.Options) == 1 || len(q.Options) > MaxQuestionOptions {
+			return invalid("open_questions[%d].options : 0 ou 2 à %d réponses proposées", i, MaxQuestionOptions)
+		}
+		for j, o := range q.Options {
+			if strings.TrimSpace(o) == "" || len(o) > 300 {
+				return invalid("open_questions[%d].options[%d] vide ou trop longue", i, j)
+			}
+		}
+		if q.Recommended != nil && (*q.Recommended < 0 || *q.Recommended >= len(q.Options)) {
+			return invalid("open_questions[%d].recommended hors des réponses proposées", i)
+		}
+	}
+	return nil
+}
+
 // ParsePOSpec extrait et valide le livrable PO.
 func ParsePOSpec(output string) (*POSpec, error) {
 	raw, err := ExtractLastJSON(output)
 	if err != nil {
 		return nil, err
 	}
+	raw = normalizeQuestions(raw)
 	var v POSpec
 	if err := DecodeStrict(raw, &v); err != nil {
+		return nil, err
+	}
+	if err := validQuestions(v.OpenQuestions); err != nil {
 		return nil, err
 	}
 	if err := nonEmpty(v.Summary, "summary"); err != nil {
@@ -313,8 +394,12 @@ func ParseTechDesign(output string) (*TechDesign, error) {
 	if err != nil {
 		return nil, err
 	}
+	raw = normalizeQuestions(raw)
 	var v TechDesign
 	if err := DecodeStrict(raw, &v); err != nil {
+		return nil, err
+	}
+	if err := validQuestions(v.OpenQuestions); err != nil {
 		return nil, err
 	}
 	if err := nonEmpty(v.Summary, "summary"); err != nil {

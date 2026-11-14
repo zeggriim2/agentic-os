@@ -34,11 +34,17 @@ test("clavier seul : connexion puis décision d'approbation, focus visible", asy
   await expectVisibleFocus(skip);
   await expect(skip).toBeInViewport();
   await page.keyboard.press("Enter");
-  const comment = page.getByLabel("Commentaire");
+  // Réponse en un clic au clavier (Espace sur la réponse proposée), puis remarque libre.
+  const option = page.getByTestId("question-card").getByRole("button", { name: /Markdown/ });
+  await tabTo(page, option);
+  await expectVisibleFocus(option);
+  await page.keyboard.press("Space");
+  await expect(option).toHaveAttribute("aria-pressed", "true");
+  const comment = page.getByTestId("decision-comment");
   await tabTo(page, comment);
   await expectVisibleFocus(comment);
   await page.keyboard.type("Validé au clavier.");
-  const approve = page.getByRole("button", { name: "Approuver" });
+  const approve = page.getByRole("button", { name: "Approuver et lancer la conception" });
   await tabTo(page, approve);
   await expectVisibleFocus(approve);
   await page.keyboard.press("Enter");

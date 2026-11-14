@@ -212,7 +212,7 @@ func (e *Engine) TicketAction(ctx context.Context, id int64, action, login strin
 				return err
 			}
 			if to == domain.TicketChangesRequested {
-				return e.reworkApproval(ctx, tx, nt, "retry", "reprise après blocage", "", str(nt.HeadSHA))
+				return e.reworkApproval(ctx, tx, nt, "retry", "reprise après blocage", nil, str(nt.HeadSHA))
 			}
 			kind := map[domain.TicketState]string{domain.TicketReadyForDev: domain.JobDevelop, domain.TicketDev: domain.JobDevelop,
 				domain.TicketReview: domain.JobReview, domain.TicketQA: domain.JobQA, domain.TicketPROpened: domain.JobPublishPR}[to]

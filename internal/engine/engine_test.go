@@ -624,6 +624,12 @@ func TestWorkflowReworkPath(t *testing.T) {
 	if !strings.Contains(string(ap.Details), "contenu incorrect") {
 		t.Fatalf("findings absents: %s", ap.Details)
 	}
+	var det struct {
+		Items []string `json:"finding_items"`
+	}
+	if err := json.Unmarshal(ap.Details, &det); err != nil || len(det.Items) != 1 || det.Items[0] != "- [P1] hello.txt : contenu incorrect\n" {
+		t.Fatalf("finding_items: %v %q", err, det.Items)
+	}
 	ev.decide(domain.ApprovalRework, "approved", "corrige le contenu")
 	if did, err := ev.e.RunOnce(context.Background(), "approval-worker"); err != nil || !did {
 		t.Fatalf("exécution durable du rework: did=%v err=%v", did, err)
@@ -1769,5 +1775,29 @@ func TestReworkClaimingChangesWithoutCommitIsRefused(t *testing.T) {
 	expect(t, "bloqué", tk.State, "BLOCKED")
 	if !strings.Contains(tk.StateReason, "aucun nouveau commit depuis le dernier push") {
 		t.Fatalf("raison : %v", tk.StateReason)
+	}
+}
+
+// Les réponses données en approuvant la spec partent au tech lead (elles étaient perdues avant la 1.13).
+func TestSpecApprovalCommentReachesTechLead(t *testing.T) {
+	ev := newEnv(t)
+	ctx := context.Background()
+	p := ev.project()
+	f, err := store.CreateFeature(ctx, ev.s.Pool, p.ID, "Hello", "Dire bonjour")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ev.e.FeatureAction(ctx, f.ID, "start_spec", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	ev.drain()
+	ev.decide(domain.ApprovalSpecReview, "approved", "Réponses de l'humain à tes questions :\n1. Q\n   → A")
+	ev.drain()
+	var payload string
+	if err := ev.s.Pool.QueryRow(ctx, `SELECT payload::text FROM jobs WHERE kind=$1 AND subject_id=$2`, domain.JobTechDesign, f.ID).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(payload, "Réponses de l'humain") {
+		t.Fatalf("feedback absent du job tech lead : %s", payload)
 	}
 }
