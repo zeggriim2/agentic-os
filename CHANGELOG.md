@@ -4,6 +4,10 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 
 ## [Non publié]
 
+## [1.12.0] — 2026-11-13
+
+Discussion avec les agents depuis la page d'une feature (#72).
+
 ### Ajouté
 - **Discussion avec les agents** : la page d'une feature s'ouvre sur un **fil d'équipe** qui montre dans
   l'ordre les passages des agents (résumé, tokens), tes décisions et vos échanges.
