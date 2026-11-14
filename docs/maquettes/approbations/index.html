@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic OS — Maquette · Pages de décision</title>
+<style>
+  /* Mêmes couleurs que le cockpit (maquette D) : orange = agents et actions, bleu = tes décisions. */
+  :root, [data-theme="dark"] {
+    --bg: #12171e; --paper: #1a212b; --ink: #e8ecf1; --slate: #9aa6b4; --rule: #2b3542; --soft: #222b37;
+    --bar: #0d1218; --bar-2: #1f2833; --bar-text: #b8c2cd;
+    --acc: #f28c28; --acc-soft: rgba(242,140,40,.15); --acc-text: #f6a65a; --acc-ink: #1d1004;
+    --dec: #6cb4ee; --dec-soft: rgba(108,180,238,.12); --dec-line: rgba(108,180,238,.38); --dec-ink: #c4def4; --dec-on: #0c1a27;
+    --ok: #6fbf8e; --ok-soft: rgba(111,191,142,.14); --warn: #e6b450; --warn-soft: rgba(230,180,80,.13); --bad: #ef7a7a; --bad-soft: rgba(239,122,122,.12);
+    --r: 8px; color-scheme: dark;
+  }
+  [data-theme="light"] {
+    --bg: #eef1ef; --paper: #ffffff; --ink: #17202a; --slate: #5b6770; --rule: #d8dedb; --soft: #f1f3f2;
+    --bar: #17202a; --bar-2: #26313c; --bar-text: #c9d1d6;
+    --acc: #e0700f; --acc-soft: #fdeedf; --acc-text: #a94f06; --acc-ink: #ffffff;
+    --dec: #1f6fb2; --dec-soft: #e6f1fb; --dec-line: #b7d5ef; --dec-ink: #23496b; --dec-on: #ffffff;
+    --ok: #2f6f4a; --ok-soft: #e3f1e8; --warn: #8a5a00; --warn-soft: #fbf1db; --bad: #b42318; --bad-soft: #fdecea;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 14px/1.5 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; color: var(--ink); background: var(--bg);
+    height: 100vh; display: grid; grid-template-rows: 48px 1fr; overflow: hidden; }
+  button { font: inherit; cursor: pointer; color: inherit; }
+  textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 9px; width: 100%; resize: vertical; }
+  textarea:focus { border-color: var(--dec); outline: none; }
+  :focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+  header { display: flex; align-items: center; gap: 14px; padding: 0 16px; background: var(--bar); color: #fff; border-bottom: 1px solid var(--rule); }
+  header strong { font-size: 15px; }
+  header nav { display: flex; gap: 2px; margin-left: 10px; }
+  header nav button { background: none; border: 0; color: var(--bar-text); padding: 6px 10px; border-radius: var(--r); }
+  header nav button[aria-current="true"] { background: var(--bar-2); color: #fff; }
+  header .note { margin-left: auto; color: var(--bar-text); font-size: 12px; }
+  .theme { background: var(--bar-2); border: 0; color: var(--bar-text); border-radius: var(--r); padding: 5px 10px; }
+
+  .view { display: none; min-height: 0; overflow: hidden; }
+  .view.on { display: grid; grid-template-rows: auto 1fr auto; }
+
+  /* En-tête de la décision */
+  .head { padding: 14px 22px 12px; border-bottom: 1px solid var(--rule); background: var(--paper); }
+  .crumb { font-size: 12px; color: var(--slate); }
+  .head h1 { font-size: 19px; font-weight: 650; margin: 2px 0 6px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12.5px; color: var(--slate); }
+  .pill { border-radius: 99px; padding: 1px 9px; font-weight: 600; font-size: 12px; }
+  .pill.dec { background: var(--dec-soft); color: var(--dec); }
+  .pill.agent { background: var(--acc-soft); color: var(--acc-text); }
+  .effect { margin-top: 10px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .effect p { color: var(--slate); font-size: 13px; }
+  .effect p b { color: var(--ink); }
+  .progress { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 13px; }
+  .bar { width: 160px; height: 6px; background: var(--soft); border-radius: 3px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--dec); transition: width .3s; }
+  .saved { font-size: 12px; color: var(--ok); opacity: 0; transition: opacity .3s; }
+  .saved.on { opacity: 1; }
+
+  /* Corps : questions à gauche, document à droite */
+  .body { display: grid; grid-template-columns: minmax(0, 1fr) 440px; min-height: 0; }
+  .main { overflow: auto; padding: 16px 22px 24px; }
+  .side { overflow: auto; border-left: 1px solid var(--rule); background: var(--paper); padding: 16px 18px 24px; }
+  h2 { font-size: 14px; font-weight: 650; margin: 4px 0 10px; display: flex; align-items: center; gap: 8px; }
+  h2 small { font-weight: 400; color: var(--slate); }
+  .filters { display: flex; gap: 6px; margin-bottom: 10px; }
+  .filters button { background: var(--soft); border: 1px solid var(--rule); border-radius: 99px; padding: 2px 10px; font-size: 12.5px; color: var(--slate); }
+  .filters button[aria-pressed="true"] { background: var(--dec-soft); border-color: var(--dec-line); color: var(--dec); }
+
+  .q { background: var(--paper); border: 1px solid var(--rule); border-left: 3px solid var(--dec); border-radius: var(--r); padding: 12px 14px; margin-bottom: 10px; }
+  .q.done { border-left-color: var(--ok); }
+  .q.po { border-left-color: var(--acc); }
+  .q .top { display: flex; gap: 10px; align-items: flex-start; }
+  .q .num { flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--dec-soft); color: var(--dec); font-weight: 700; font-size: 12px; display: grid; place-items: center; }
+  .q.done .num { background: var(--ok-soft); color: var(--ok); }
+  .q .text { flex: 1; }
+  .q .state { font-size: 12px; color: var(--slate); white-space: nowrap; }
+  .q.done .state { color: var(--ok); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 8px 34px; }
+  .chip { border: 1px solid var(--rule); background: var(--bg); border-radius: 6px; padding: 4px 10px; font-size: 13px; }
+  .chip:hover { border-color: var(--dec-line); }
+  .chip[aria-pressed="true"] { background: var(--dec); border-color: var(--dec); color: var(--dec-on); font-weight: 600; }
+  .chip.po[aria-pressed="true"] { background: var(--acc); border-color: var(--acc); color: var(--acc-ink); }
+  .q .free { margin-left: 34px; }
+  .q .acts { display: flex; gap: 12px; margin: 6px 0 0 34px; font-size: 12.5px; }
+  .link { background: none; border: 0; color: var(--acc-text); padding: 0; text-decoration: underline; text-underline-offset: 2px; }
+  .reply { margin: 10px 0 0 34px; border-radius: 6px; background: var(--acc-soft); padding: 8px 10px; font-size: 13px; }
+  .reply b { color: var(--acc-text); }
+  .reply .typing { color: var(--slate); }
+  .reply .use { margin-top: 6px; }
+
+  .doc h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--slate); margin: 16px 0 6px; }
+  .doc h3:first-child { margin-top: 0; }
+  .doc p { font-size: 13.5px; }
+  .doc ul { list-style: none; }
+  .doc li { font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--rule); }
+  .doc li:last-child { border-bottom: 0; }
+  .crit { display: flex; gap: 8px; }
+  .crit .n { flex: none; color: var(--slate); font-size: 12px; width: 20px; }
+  .crit .c { flex: 1; }
+  .crit .cm { flex: none; background: none; border: 0; color: var(--slate); font-size: 12px; opacity: .65; }
+  .crit:hover .cm, .crit .cm.has { opacity: 1; color: var(--dec); }
+  .crit .note { margin-top: 6px; }
+  .crit .note p { background: var(--dec-soft); color: var(--dec-ink); border-radius: 6px; padding: 5px 8px; font-size: 12.5px; }
+  details > summary { cursor: pointer; color: var(--slate); font-size: 13px; padding: 4px 0; }
+  .fixed { background: var(--warn-soft); color: var(--warn); border-radius: 6px; padding: 7px 9px; font-size: 12.5px; margin-top: 8px; }
+
+  /* Pied : les deux décisions */
+  .foot { display: flex; align-items: center; gap: 10px; padding: 10px 22px; border-top: 1px solid var(--rule); background: var(--paper); }
+  .foot .sum { color: var(--slate); font-size: 13px; }
+  .foot .sum b { color: var(--ink); }
+  .btn { border-radius: var(--r); padding: 8px 14px; font-weight: 600; border: 1px solid var(--rule); background: var(--soft); }
+  .btn.send { margin-left: auto; background: var(--dec-soft); border-color: var(--dec-line); color: var(--dec); }
+  .btn.go { background: var(--acc); border-color: var(--acc); color: var(--acc-ink); }
+  .btn.quiet { margin-left: auto; }
+  .btn.bad { background: var(--bad-soft); border-color: transparent; color: var(--bad); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .ask { font-size: 12.5px; }
+
+  /* Conception / reprise */
+  .card { background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r); padding: 11px 13px; margin-bottom: 9px; }
+  .card .t { font-weight: 600; }
+  .card .s { color: var(--slate); font-size: 13px; margin-top: 2px; }
+  .card .alt { font-size: 12.5px; color: var(--slate); margin-top: 4px; }
+  .card .alt s { opacity: .8; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .sev { font-size: 11.5px; font-weight: 700; border-radius: 4px; padding: 0 6px; }
+  .sev.major { background: var(--bad-soft); color: var(--bad); }
+  .sev.minor { background: var(--warn-soft); color: var(--warn); }
+  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 10px; font-size: 13px; }
+  .kv dt { color: var(--slate); }
+  code { font: 12.5px ui-monospace, Menlo, Consolas, monospace; background: var(--soft); padding: 0 4px; border-radius: 3px; }
+
+  .toast { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--ink); color: var(--bg);
+    padding: 9px 14px; border-radius: var(--r); opacity: 0; transition: .25s; pointer-events: none; max-width: 640px; font-size: 13.5px; }
+  .toast.on { opacity: 1; transform: translateX(-50%); }
+  dialog { margin: auto; border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); color: var(--ink); padding: 18px 20px; max-width: 480px; }
+  dialog::backdrop { background: rgba(0,0,0,.5); }
+  dialog h3 { font-size: 16px; margin-bottom: 6px; }
+  dialog p { color: var(--slate); font-size: 13.5px; }
+  dialog .row { justify-content: flex-end; margin-top: 14px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <strong>Agentic OS</strong>
+  <nav aria-label="Écrans de la maquette">
+    <button data-go="spec" aria-current="true">Revue de spec (F7)</button>
+    <button data-go="design" aria-current="false">Revue de conception</button>
+    <button data-go="rework" aria-current="false">Reprise après revue</button>
+  </nav>
+  <span class="note">Maquette — rien n'est envoyé</span>
+  <button class="theme" id="theme">☀ Clair</button>
+</header>
+
+<!-- ===================== 1. Revue de spec ===================== -->
+<section class="view on" id="spec">
+  <div class="head">
+    <div class="crumb">À décider › Revue de spécification</div>
+    <h1>F7 · Semaine type persistée : compléter un mois en un clic</h1>
+    <div class="meta"><span class="pill dec">Attend ta décision</span><span>FraisZen</span><span>· spec rédigée par</span><span class="pill agent">PO</span><span>· le 30 octobre</span><span>· 11 user stories · 25 critères</span></div>
+    <div class="effect">
+      <p>Le PO a <b>13 questions</b>. Réponds à celles qui comptent ; pour les autres, laisse-le décider.</p>
+      <div class="progress"><span id="saved" class="saved">✓ enregistré</span><span id="count">0 / 13 traitées</span><div class="bar"><i id="pbar"></i></div></div>
+    </div>
+  </div>
+  <div class="body">
+    <div class="main">
+      <h2>Questions du PO <small>— un clic sur une réponse proposée, ou écris la tienne</small></h2>
+      <div class="filters" role="group" aria-label="Filtrer">
+        <button data-f="all" aria-pressed="true">Toutes</button>
+        <button data-f="todo" aria-pressed="false">À traiter</button>
+        <button data-f="done" aria-pressed="false">Traitées</button>
+      </div>
+      <div id="questions"></div>
+    </div>
+    <aside class="side doc" aria-label="Spécification">
+      <h3>Résumé</h3>
+      <p id="summary"></p>
+      <div class="fixed">⚠ Le PO a corrigé ton exemple d'octobre (aucun férié en octobre) : il propose octobre et novembre 2025 — question 1.</div>
+      <h3>User stories (11)</h3>
+      <details><summary>Afficher les 11 user stories</summary><ul id="stories"></ul></details>
+      <h3>Critères d'acceptation (25) <span style="text-transform:none;letter-spacing:0;font-weight:400">— survole un critère pour le commenter</span></h3>
+      <ul id="criteria"></ul>
+    </aside>
+  </div>
+  <div class="foot">
+    <span class="sum" id="sum">Aucune réponse pour l'instant.</span>
+    <button class="btn send" id="send" disabled>Envoyer mes réponses au PO</button>
+    <button class="btn go" id="approve">Approuver et lancer la conception</button>
+  </div>
+</section>
+
+<!-- ===================== 2. Revue de conception ===================== -->
+<section class="view" id="design">
+  <div class="head">
+    <div class="crumb">À décider › Revue de conception</div>
+    <h1>F7 · Conception technique (exemple)</h1>
+    <div class="meta"><span class="pill dec">Attend ta décision</span><span>FraisZen</span><span>· conception par</span><span class="pill agent">Tech lead</span><span>· 3 tickets proposés · 2 questions</span></div>
+    <div class="effect"><p>Approuver crée <b>3 issues</b> sur <code>zeggriim2/fraisZen</code>, puis te demande le feu vert du développement.</p></div>
+  </div>
+  <div class="body">
+    <div class="main">
+      <h2>Tickets proposés <small>— c'est ce qui sera développé, relu et mergé par toi</small></h2>
+      <div class="card"><div class="t">T1 · Semaine type et absences (domaine + API)</div><div class="s">Entités <code>WeekTemplate</code> et <code>Absence</code>, commandes, contrôle d'ownership, migrations. 8 critères.</div>
+        <div class="row"><button class="chip" data-tk>Commenter</button></div></div>
+      <div class="card"><div class="t">T2 · Compléter le mois (aperçu + application)</div><div class="s">Commande <code>CompleteMonthFromWeekTemplate</code> en modes preview / apply, idempotente, fériés et absences ignorés. 11 critères.</div>
+        <div class="row"><button class="chip" data-tk>Commenter</button></div></div>
+      <div class="card"><div class="t">T3 · Interface calendrier et éditeur</div><div class="s"><code>WeekTemplateEditor.vue</code>, bouton « Compléter le mois », marqueur Absence, modale d'aperçu. 6 critères.</div>
+        <div class="row"><button class="chip" data-tk>Commenter</button><button class="chip" data-merge>Fusionner avec T2</button></div></div>
+      <h2 style="margin-top:16px">Questions du tech lead</h2>
+      <div class="q"><div class="top"><span class="num">1</span><div class="text">Stocker la semaine type dans une table dédiée ou en JSON sur <code>Person</code> ? Je propose une table dédiée (requêtes et contraintes plus simples).</div></div>
+        <div class="chips"><button class="chip">Table dédiée</button><button class="chip">JSON sur Person</button><button class="chip po">Laisser le tech lead décider</button></div></div>
+      <div class="q"><div class="top"><span class="num">2</span><div class="text">Verrou contre le double-clic : contrainte d'unicité (personne, date, type) en base, ou verrou applicatif ?</div></div>
+        <div class="chips"><button class="chip">Contrainte en base</button><button class="chip">Verrou applicatif</button><button class="chip po">Laisser le tech lead décider</button></div></div>
+    </div>
+    <aside class="side doc" aria-label="Conception">
+      <h3>Résumé</h3><p>Deux nouveaux agrégats dans les contextes Person et Expense, une commande de complétion idempotente réutilisant BulkCreateTravelExpense, et l'interface dans le calendrier.</p>
+      <h3>Décisions (3)</h3>
+      <div class="card"><div class="t">Absence hors de la hiérarchie Expense</div><div class="s">Une absence n'a pas de montant.</div><div class="alt">Écartée : <s>type d'Expense à montant nul</s></div></div>
+      <div class="card"><div class="t">Aperçu et application dans la même commande</div><div class="s">Un seul calcul du plan, pas de divergence.</div><div class="alt">Écartée : <s>deux endpoints indépendants</s></div></div>
+      <div class="card"><div class="t">Fériés via PublicHolidayService</div><div class="s">Service existant, déjà testé.</div></div>
+      <h3>Risques (2)</h3>
+      <ul><li>Doublons en cas de double-clic → contrainte d'unicité (question 2).</li><li>Plafonds fiscaux : calculés dans le récapitulatif, comme aujourd'hui.</li></ul>
+    </aside>
+  </div>
+  <div class="foot">
+    <span class="sum">Ce qui part au tech lead : tes réponses, tes commentaires sur les tickets.</span>
+    <button class="btn send" data-toast="Le tech lead révise la conception avec tes remarques ; tu repasses ensuite.">Renvoyer au tech lead avec mes remarques</button>
+    <button class="btn go" data-toast="Conception approuvée : 3 issues créées sur zeggriim2/fraisZen, feu vert du développement demandé.">Approuver et créer les 3 issues</button>
+  </div>
+</section>
+
+<!-- ===================== 3. Reprise après revue ===================== -->
+<section class="view" id="rework">
+  <div class="head">
+    <div class="crumb">À décider › Reprise après revue</div>
+    <h1>fz-F6-T4 · Récapitulatif : forfait 10 % absent</h1>
+    <div class="meta"><span class="pill dec">Attend ta décision</span><span>FraisZen · correction de recette</span><span>· revue par</span><span class="pill agent">Reviewer</span><span>· tentative 1 / 3 · SHA <code>9c41e2a</code></span></div>
+    <div class="effect"><p>Le reviewer demande des changements. <b>Renvoyer</b> relance le développeur avec ses constats et tes remarques ; <b>Abandonner</b> arrête le ticket.</p></div>
+  </div>
+  <div class="body">
+    <div class="main">
+      <h2>Constats du reviewer <small>— dis si tu es d'accord ; le développeur ne traite que ceux que tu gardes</small></h2>
+      <div class="card"><div><span class="sev major">MAJEUR</span> <b>La condition teste l'absence de configuration au lieu de l'année.</b></div>
+        <div class="s"><code>src/Controller/SummaryController.php:84</code> — avec une configuration 2025 complète, le bloc reste masqué.</div>
+        <div class="row"><button class="chip" data-agree aria-pressed="true">D'accord</button><button class="chip" data-agree>Pas d'accord</button><button class="link ask" data-askrev>Demander au reviewer</button></div><div class="rv"></div></div>
+      <div class="card"><div><span class="sev minor">MINEUR</span> <b>Le test ne couvre pas l'année sans configuration.</b></div>
+        <div class="s"><code>tests/Http/SummaryTest.php</code> — ajouter le cas « configuration absente ».</div>
+        <div class="row"><button class="chip" data-agree aria-pressed="true">D'accord</button><button class="chip" data-agree>Pas d'accord</button><button class="link ask" data-askrev>Demander au reviewer</button></div><div class="rv"></div></div>
+      <div class="card"><div><span class="sev minor">MINEUR</span> <b>Renommer <code>$cfg</code> en <code>$taxConfig</code>.</b></div>
+        <div class="s">Lisibilité.</div>
+        <div class="row"><button class="chip" data-agree>D'accord</button><button class="chip" data-agree aria-pressed="true">Pas d'accord</button><button class="link ask" data-askrev>Demander au reviewer</button></div><div class="rv"></div></div>
+      <h2 style="margin-top:14px">Ta remarque au développeur <small>(facultatif)</small></h2>
+      <textarea rows="2">Garde le changement minimal : ne touche pas au template.</textarea>
+    </div>
+    <aside class="side doc" aria-label="Contexte">
+      <h3>Le ticket</h3>
+      <dl class="kv"><dt>Branche</dt><dd><code>aos/fz-F6-T4</code> → <code>feature/F6-…</code></dd><dt>Développeur</dt><dd>« Condition corrigée, test ajouté. » · 41 200 tokens</dd><dt>Fichiers</dt><dd>2 modifiés</dd></dl>
+      <h3>Critères</h3>
+      <ul><li>Le bloc forfait 10 % s'affiche quand la configuration fiscale de l'année est complète.</li><li>Aucune régression sur le récapitulatif annuel.</li></ul>
+      <h3>Historique</h3>
+      <ul><li>Tentative 1 : changements demandés (1 majeur, 2 mineurs).</li></ul>
+    </aside>
+  </div>
+  <div class="foot">
+    <span class="sum"><b>2</b> constats gardés sur 3 · 1 remarque</span>
+    <button class="btn bad quiet" data-toast="Ticket abandonné : la feature est notifiée.">Abandonner le ticket</button>
+    <button class="btn go" data-toast="Développeur relancé (tentative 2 / 3) avec 2 constats et ta remarque.">Renvoyer au développeur (tentative 2 / 3)</button>
+  </div>
+</section>
+
+<dialog id="confirm">
+  <h3>Approuver avec des questions ouvertes ?</h3>
+  <p id="confirmText"></p>
+  <div class="row"><button class="btn" id="back">Revenir aux questions</button><button class="btn go" id="force">Approuver quand même</button></div>
+</dialog>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+const SPEC = {"summary": "FraisZen : permettre à l'utilisateur de décrire une fois, pour chaque personne, une semaine type persistée (chaque jour du lundi au dimanche : Bureau avec un trajet favori obligatoire de la même personne, Télétravail ou Rien), de marquer des absences sans montant (jour ou plage), puis de compléter un mois depuis le calendrier en un clic. L'action affiche d'abord une prévisualisation chiffrée avec les motifs d'exclusion, puis attend une confirmation explicite. Elle crée des trajets (TravelExpense) à partir du trajet favori et des jours de télétravail (RemoteWorkExpense) avec l'indemnité journalière de la configuration fiscale de l'année. Sont ignorés : les week-ends, les jours fériés (service PublicHoliday), les absences, les jours ayant déjà un trajet ou un télétravail pour la personne et, par défaut, les jours à venir. L'opération est idempotente et n'écrase rien. L'assistant Trajets récurrents existant reste disponible et peut être pré-rempli par la semaine type. Hors périmètre V1 : plusieurs semaines types, demi-journées, horaires, génération planifiée, rappels, agenda externe, score de complétude. Incohérence relevée : le critère d'exemple d'octobre (23 jours ouvrés, 1 férié, 1er novembre) est impossible quelle que soit l'année, car octobre n'a aucun férié en France. Il est remplacé par deux mois de référence calculés : octobre 2025 et novembre 2025.", "user_stories": ["En tant qu'utilisateur, je veux définir pour une de mes personnes une semaine type (pour chaque jour du lundi au dimanche : Bureau avec un trajet favori, Télétravail ou Rien), afin de ne plus ressaisir mes habitudes chaque mois.", "En tant qu'utilisateur, je veux modifier cette semaine type depuis la fiche personne ou depuis le calendrier, afin de l'ajuster quand mon organisation change.", "En tant qu'utilisateur, je veux marquer un jour ou une plage de jours comme Absence (congé, maladie, RTT…) pour une personne, avec un libellé facultatif, afin que ces jours ne soient jamais complétés ni comptés dans les totaux.", "En tant qu'utilisateur, je veux voir mes absences dans le calendrier avec un style distinct et pouvoir les supprimer, afin de corriger une erreur de saisie.", "En tant qu'utilisateur, je veux cliquer sur « Compléter le mois » pour la personne sélectionnée et voir avant toute création combien de trajets et de jours de télétravail seront créés, et combien de jours seront ignorés et pourquoi, afin de garder le contrôle.", "En tant qu'utilisateur, je veux confirmer explicitement la complétion pour que les dépenses soient créées, et pouvoir annuler sans qu'aucune donnée ne soit écrite.", "En tant qu'utilisateur, je veux pouvoir relancer la complétion sur un mois déjà complété ou partiellement saisi sans créer de doublon ni modifier mes saisies manuelles.", "En tant qu'utilisateur, je veux que les dépenses générées aient exactement les mêmes montants qu'une saisie manuelle équivalente, afin que mon récapitulatif annuel reste juste.", "En tant qu'utilisateur, je veux pouvoir inclure, par une option décochée par défaut, les jours à venir du mois en cours, afin d'anticiper si je le souhaite.", "En tant qu'utilisateur, je veux que l'assistant Trajets récurrents soit pré-rempli à partir de ma semaine type (jours Bureau cochés, favori sélectionné), afin de traiter plus vite les cas ponctuels.", "En tant qu'utilisateur dont la personne n'a pas encore de semaine type, je veux être invité à la définir depuis le calendrier, afin de découvrir la fonctionnalité."], "open_questions": ["Le critère d'exemple d'octobre (« 23 jours ouvrés, 1 férié », « aucun le 1er novembre ») est impossible : octobre n'a aucun férié en France et le 1er novembre n'est pas en octobre. Faut-il valider les mois de référence proposés (octobre 2025 : 13 trajets et 10 télétravails ; novembre 2025 : 11 trajets, 9 télétravails et 1 férié), ou viser un autre mois ou une autre année ?", "La semaine type est configurable du lundi au dimanche, mais la règle d'application ignore toujours les week-ends. Faut-il honorer les samedis et dimanches marqués Bureau ou Télétravail (cas des personnes travaillant le week-end), ou limiter l'éditeur aux jours du lundi au vendredi ?", "Que faire d'un jour Bureau dont le trajet favori a été supprimé ou n'appartient plus à la personne : bloquer toute la complétion, ignorer ce jour avec un motif dédié, ou empêcher la suppression d'un favori utilisé par une semaine type ?", "L'assistant Trajets récurrents n'accepte qu'un seul favori. Si la semaine type utilise plusieurs favoris selon les jours, lequel pré-remplir : le plus fréquent, le premier, ou aucun ?", "Faut-il appliquer les éventuels plafonds fiscaux du télétravail (mensuel ou annuel) et les plafonds kilométriques lors de la génération, ou uniquement dans le récapitulatif, comme pour une saisie manuelle aujourd'hui ?", "Que faire lorsqu'on marque une absence sur un jour qui a déjà un trajet ou un télétravail : refuser, avertir sans rien supprimer, ou proposer de supprimer la dépense ?", "« Un bouton par mois et par personne sélectionnée » : quel comportement quand le calendrier affiche toutes les personnes ? Bouton désactivé, complétion de chaque personne ayant une semaine type, ou choix de la personne dans la modale ?", "Faut-il utiliser l'indemnité de télétravail et le barème kilométrique de l'année du jour généré ou de l'année du mois complété ? Les deux coïncident toujours pour un mois, mais confirmer qu'aucune ventilation particulière n'existe.", "Le service PublicHoliday gère-t-il les spécificités régionales (Alsace-Moselle : 26 décembre, Vendredi saint) ? Faut-il un réglage par personne ou par utilisateur ?", "Un jour Rien ou un jour d'absence doivent-ils compter comme « ignorés » dans la prévisualisation, ou seulement les jours où une création aurait eu lieu ?", "L'absence doit-elle avoir un type (congé, maladie, RTT, autre) ou seulement un libellé libre facultatif comme indiqué ? Une plage d'absence est-elle stockée comme une seule entité ou comme des jours individuels supprimables un par un ?", "Le type « Absence » dans ExpenseModal implique-t-il d'ajouter les absences aux listes de dépenses et aux exports (marquées sans montant), ou seulement au calendrier ?", "Supprimer une personne doit-il supprimer en cascade sa semaine type et ses absences ?"], "acceptance_criteria": ["Étant donné une personne sans semaine type, quand j'ouvre le calendrier avec cette personne sélectionnée, alors une invitation « Définir la semaine type » s'affiche et le bouton « Compléter le mois » est désactivé, avec une explication accessible (infobulle ou texte).", "Étant donné une semaine type avec un jour Bureau sans trajet favori, quand j'enregistre, alors l'enregistrement est refusé (erreur de validation côté API, 422 ou équivalent du projet) et le jour fautif est signalé en français dans l'éditeur.", "Étant donné un jour Bureau associé au trajet favori d'une autre personne (même si elle m'appartient), quand j'enregistre, alors l'API refuse avec une erreur de validation et rien n'est persisté.", "Étant donné une semaine type valide enregistrée, quand je recharge la page ou rouvre l'éditeur (depuis la fiche personne comme depuis le calendrier), alors les 7 jours sont restitués à l'identique. Une personne n'a jamais plus d'une semaine type, et un nouvel enregistrement remplace la précédente.", "Étant donné une personne appartenant à un autre utilisateur, quand j'appelle l'API de lecture ou d'écriture de la semaine type, d'ajout, de suppression ou de lecture d'absence, ou de prévisualisation et d'application de « Compléter le mois », alors la réponse suit la convention d'ownership existante du projet (403 ou 404) et aucune donnée n'est lue ni modifiée. Chaque endpoint est couvert par un test HTTP.", "Étant donné une personne, quand je marque une absence sur un jour ou sur une plage (date de début ≤ date de fin) avec un libellé facultatif, alors chaque jour concerné apparaît dans le calendrier avec un style Absence distinct, lisible en thème clair comme en thème sombre. Il est possible de supprimer une absence, et le jour redevient normal.", "Étant donné une absence, alors elle n'a aucun montant et n'apparaît dans aucun total : ni le récapitulatif mensuel, ni l'annuel, ni les exports existants.", "Étant donné une absence existante sur un jour pour une personne, quand je marque à nouveau ce jour en absence, alors aucun doublon n'est créé : la saisie est refusée ou fusionnée, sans erreur serveur.", "Étant donné octobre 2025 vide (23 jours ouvrés, aucun férié), une semaine type lundi/mardi/jeudi Bureau et mercredi/vendredi Télétravail, et l'option jours à venir sans effet (mois passé), quand je lance « Compléter le mois », alors la prévisualisation annonce 13 trajets et 10 jours de télétravail. Après confirmation, exactement ces 23 dépenses existent, aucune n'est créée un samedi ou un dimanche, et aucune ne déborde sur le 1er novembre.", "Étant donné novembre 2025 vide avec la même semaine type, quand je lance « Compléter le mois », alors la prévisualisation annonce 11 trajets, 9 jours de télétravail et 1 jour férié ignoré (mardi 11 novembre ; le 1er novembre tombe un samedi et compte comme week-end). Aucune dépense n'est créée le 11 novembre.", "La prévisualisation n'écrit rien en base. Elle affiche le nombre de trajets et de jours de télétravail à créer et le nombre de jours ignorés par motif : férié, absence, déjà renseigné, jour à venir, jour Rien. Annuler la modale ne crée aucune dépense.", "Étant donné un mois que je viens de compléter, quand je relance « Compléter le mois », alors la prévisualisation annonce 0 création avec un message explicite en français (ex. « Ce mois est déjà complet, aucune dépense à créer »). Une confirmation, si elle est possible, ne crée aucune dépense.", "Étant donné deux appels d'application simultanés ou un double-clic sur la confirmation, alors aucun doublon n'est créé pour un même jour et une même personne.", "Étant donné un jour marqué Absence, quand je complète le mois, alors aucune dépense n'est créée ce jour. Quand je supprime ensuite l'absence et recomplète, alors exactement la dépense prévue par la semaine type est créée ce jour-là, et seulement elle.", "Étant donné un jour ayant déjà un trajet saisi manuellement (même avec un autre trajet que le favori), quand je complète le mois, alors ce jour est compté comme déjà renseigné, aucune dépense n'est ajoutée et le trajet existant reste inchangé (montant, distance, véhicule, date). Il en va de même pour un jour ayant déjà un télétravail, et pour un jour Bureau ayant déjà un télétravail (et inversement).", "Étant donné un jour n'ayant que d'autres types de dépense (ni trajet ni télétravail), quand je complète le mois, alors la dépense prévue par la semaine type est bien créée ce jour-là.", "Étant donné le mois courant et l'option « inclure les jours à venir du mois » décochée (valeur par défaut), quand je complète, alors seuls les jours jusqu'au jour courant inclus (heure Europe/Paris) sont concernés et les jours suivants sont comptés comme jours à venir. Si l'option est cochée, tout le mois est concerné. Pour un mois entièrement futur avec l'option décochée, la prévisualisation annonce 0 création avec un message explicite.", "Chaque trajet créé reprend le trajet favori du jour (distance, départ, arrivée, véhicule, puissance fiscale, électrique, aller-retour) et la personne concernée. Chaque télétravail créé utilise l'indemnité journalière de la configuration fiscale de l'année du jour.", "Étant donné une année sans configuration fiscale, quand je prévisualise ou applique la complétion d'un mois de cette année, alors l'opération est bloquée avec un message français explicite et aucune dépense n'est créée.", "Étant donné un mois complété automatiquement et un mois équivalent saisi manuellement (mêmes jours, même favori, même indemnité), alors le récapitulatif annuel affiche des montants strictement identiques. Un test automatisé le vérifie.", "L'assistant Trajets récurrents existant reste accessible et fonctionne comme avant. S'il existe une semaine type, il s'ouvre pré-rempli (jours Bureau cochés, favori sélectionné) et toutes les valeurs restent modifiables avant génération.", "Aucune dépense n'est créée sans clic explicite de l'utilisateur sur une confirmation : ni l'enregistrement de la semaine type, ni l'ouverture du calendrier, ni la prévisualisation n'en créent.", "Les migrations Doctrine nécessaires sont ajoutées en nouveaux fichiers et aucune migration existante n'est modifiée.", "L'interface (éditeur de semaine type, marqueur Absence, modale de prévisualisation, messages) est en français et utilisable en thème clair et sombre, sur desktop et sur mobile.", "Des tests PHP (handlers et HTTP, y compris ownership et idempotence) et des tests frontend (éditeur, modale de prévisualisation, affichage des absences) sont ajoutés. make test, make analyse et npm test passent."]};
+// Réponses proposées par question (déduites des options citées par le PO) et réponse du PO à « Demander au PO ».
+const OPTIONS = [
+  { o: ["Valider octobre et novembre 2025", "Autre mois (préciser)"], a: "Octobre 2025 n'a aucun férié et donne 13 trajets + 10 télétravails ; novembre 2025 couvre le cas d'un férié (11 novembre). Je recommande de valider les deux." },
+  { o: ["Lundi → vendredi seulement", "Honorer samedi et dimanche"], a: "Aucun utilisateur actuel ne travaille le week-end. Limiter l'éditeur au lundi–vendredi simplifie l'UI et les tests ; on pourra l'ouvrir plus tard." },
+  { o: ["Ignorer ce jour (motif dédié)", "Bloquer toute la complétion", "Interdire la suppression du favori"], a: "Ignorer le jour avec un motif « favori supprimé » dans l'aperçu : l'utilisateur voit le problème sans être bloqué." },
+  { o: ["Le favori le plus fréquent", "Celui du premier jour Bureau", "Aucun"], a: "Le plus fréquent : c'est le cas courant (un seul trajet domicile-travail)." },
+  { o: ["Comme une saisie manuelle (récapitulatif)", "Appliquer à la génération"], a: "Comme aujourd'hui : les plafonds s'appliquent dans le récapitulatif. Générer = saisir à ta place, rien de plus." },
+  { o: ["Avertir sans rien supprimer", "Refuser", "Proposer de supprimer la dépense"], a: "Avertir sans supprimer : aucune donnée n'est perdue, et tu choisis ensuite." },
+  { o: ["Choisir la personne dans la modale", "Bouton désactivé", "Compléter chaque personne"], a: "Choisir la personne dans la modale : un seul bouton, aucune surprise." },
+  { o: ["Année du jour (confirmé)"], a: "C'est équivalent pour un mois ; j'écrirai « année du jour » pour être précis." },
+  { o: ["Hors périmètre V1", "Réglage par utilisateur"], a: "Le service ne gère que les fériés nationaux. Je propose de le noter hors périmètre V1." },
+  { o: ["Seulement les jours qui auraient créé une dépense", "Tous les jours, motif par motif"], a: "Seulement ceux qui auraient créé une dépense : l'aperçu reste court et lisible." },
+  { o: ["Libellé libre, plage en un seul bloc", "Type + libellé, jour par jour"], a: "Libellé libre et un bloc par plage : plus simple à saisir et à supprimer." },
+  { o: ["Calendrier seulement", "Aussi dans les listes et exports"], a: "Calendrier seulement en V1 : les exports restent des dépenses chiffrées." },
+  { o: ["Oui, en cascade", "Non, bloquer la suppression"], a: "En cascade : une semaine type ou une absence n'a pas de sens sans sa personne." },
+];
+const state = SPEC.open_questions.map(() => ({ choice: null, text: "", po: false, asked: false }));
+const notes = {};
+let filter = "all";
+
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const done = (s) => s.po || s.choice !== null || s.text.trim() !== "";
+
+function toast(t) { const el = $("#toast"); el.textContent = t; el.classList.add("on"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("on"), 3200); }
+function saved() { const s = $("#saved"); s.classList.add("on"); clearTimeout(s._t); s._t = setTimeout(() => s.classList.remove("on"), 1400); }
+
+function renderQuestions() {
+  const box = $("#questions");
+  box.innerHTML = "";
+  SPEC.open_questions.forEach((q, i) => {
+    const s = state[i];
+    if ((filter === "todo" && done(s)) || (filter === "done" && !done(s))) return;
+    const el = document.createElement("article");
+    el.className = "q" + (s.po ? " po" : done(s) ? " done" : "");
+    const status = s.po ? "le PO décide" : done(s) ? "✓ répondu" : "à traiter";
+    el.innerHTML = `<div class="top"><span class="num">${i + 1}</span><div class="text">${esc(q)}</div><span class="state">${status}</span></div>
+      <div class="chips" role="group" aria-label="Réponses proposées">${OPTIONS[i].o.map((o, k) => `<button class="chip" aria-pressed="${s.choice === k}" data-k="${k}">${esc(o)}</button>`).join("")}
+        <button class="chip po" aria-pressed="${s.po}" data-po>Laisser le PO décider</button></div>
+      <div class="free"><textarea rows="1" placeholder="Ta réponse ou une précision (facultatif)" aria-label="Réponse à la question ${i + 1}">${esc(s.text)}</textarea></div>
+      <div class="acts"><button class="link" data-ask>Demander au PO</button></div>
+      <div class="replybox"></div>`;
+    el.querySelectorAll("[data-k]").forEach((b) => b.onclick = () => { s.choice = s.choice === +b.dataset.k ? null : +b.dataset.k; s.po = false; update(); });
+    el.querySelector("[data-po]").onclick = () => { s.po = !s.po; if (s.po) s.choice = null; update(); };
+    el.querySelector("textarea").oninput = (e) => { s.text = e.target.value; s.po = false; refreshCount(); saved(); };
+    el.querySelector("textarea").onblur = () => renderQuestions();
+    el.querySelector("[data-ask]").onclick = () => { s.asked = true; renderReply(el, i, true); };
+    if (s.asked) renderReply(el, i, false);
+    box.appendChild(el);
+  });
+  if (!box.children.length) box.innerHTML = `<p style="color:var(--slate)">Rien ici.</p>`;
+}
+
+function renderReply(el, i, typing) {
+  const r = el.querySelector(".replybox");
+  r.innerHTML = `<div class="reply"><b>PO</b> <span class="typing">répond… (dans sa session sur F7, environ 3 000 tokens)</span></div>`;
+  setTimeout(() => {
+    r.innerHTML = `<div class="reply"><b>PO</b> — ${esc(OPTIONS[i].a)}<div class="use"><button class="link" data-use>Reprendre sa recommandation</button></div></div>`;
+    r.querySelector("[data-use]").onclick = () => { state[i].choice = 0; state[i].po = false; update(); };
+  }, typing ? 1300 : 0);
+}
+
+function refreshCount() {
+  const n = state.filter(done).length, total = state.length;
+  const answered = state.filter((s) => !s.po && done(s)).length, po = state.filter((s) => s.po).length, nc = Object.keys(notes).length;
+  $("#count").textContent = `${n} / ${total} traitées`;
+  $("#pbar").style.width = `${(n / total) * 100}%`;
+  const parts = [];
+  if (answered) parts.push(`<b>${answered}</b> réponse${answered > 1 ? "s" : ""}`);
+  if (po) parts.push(`<b>${po}</b> laissée${po > 1 ? "s" : ""} au PO`);
+  if (nc) parts.push(`<b>${nc}</b> remarque${nc > 1 ? "s" : ""} sur les critères`);
+  if (total - n) parts.push(`${total - n} sans réponse`);
+  $("#sum").innerHTML = parts.length ? parts.join(" · ") : "Aucune réponse pour l'instant.";
+  $("#send").disabled = !(n || nc);
+}
+function update() { renderQuestions(); refreshCount(); saved(); }
+
+function renderSpec() {
+  $("#summary").textContent = SPEC.summary.split(" Incohérence relevée")[0];
+  $("#stories").innerHTML = SPEC.user_stories.map((s) => `<li>${esc(s)}</li>`).join("");
+  const ul = $("#criteria");
+  ul.innerHTML = "";
+  SPEC.acceptance_criteria.forEach((c, i) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<div class="crit"><span class="n">${i + 1}.</span><div class="c">${esc(c)}<div class="note"></div></div><button class="cm${notes[i] ? " has" : ""}" aria-label="Commenter le critère ${i + 1}">💬</button></div>`;
+    const note = li.querySelector(".note");
+    if (notes[i]) note.innerHTML = `<p>Ta remarque : ${esc(notes[i])}</p>`;
+    li.querySelector(".cm").onclick = () => {
+      note.innerHTML = `<textarea rows="2" placeholder="Ta remarque sur ce critère">${esc(notes[i] || "")}</textarea>`;
+      const ta = note.querySelector("textarea"); ta.focus();
+      ta.onblur = () => { const v = ta.value.trim(); if (v) notes[i] = v; else delete notes[i]; renderSpec(); refreshCount(); saved(); };
+    };
+    ul.appendChild(li);
+  });
+}
+
+document.querySelectorAll("[data-f]").forEach((b) => b.onclick = () => {
+  filter = b.dataset.f; document.querySelectorAll("[data-f]").forEach((x) => x.setAttribute("aria-pressed", x === b)); renderQuestions();
+});
+$("#send").onclick = () => {
+  const n = state.filter(done).length;
+  toast(`Envoyé au PO : ${n} question${n > 1 ? "s" : ""} traitée${n > 1 ? "s" : ""}${Object.keys(notes).length ? " et tes remarques" : ""}. Il révise la spec ; tu repasses ensuite (fil d'équipe de F7).`);
+};
+$("#approve").onclick = () => {
+  const open = state.filter((s) => !done(s)).length;
+  if (!open) return toast("Spec approuvée : le tech lead démarre la conception.");
+  $("#confirmText").textContent = `${open} question${open > 1 ? "s" : ""} sans réponse. Si tu approuves, le PO les tranchera lui-même et la conception démarre tout de suite. Tu peux aussi les marquer « Laisser le PO décider ».`;
+  $("#confirm").showModal();
+};
+$("#back").onclick = () => { $("#confirm").close(); filter = "todo"; document.querySelectorAll("[data-f]").forEach((x) => x.setAttribute("aria-pressed", x.dataset.f === "todo")); renderQuestions(); };
+$("#force").onclick = () => { $("#confirm").close(); toast("Spec approuvée : le tech lead démarre la conception ; les questions restantes sont laissées au PO."); };
+
+// Conception et reprise : interactions simples.
+document.querySelectorAll("[data-toast]").forEach((b) => b.onclick = () => toast(b.dataset.toast));
+document.querySelectorAll("#design .q .chip").forEach((b) => b.onclick = () => { b.parentElement.querySelectorAll(".chip").forEach((x) => x.setAttribute("aria-pressed", x === b)); b.closest(".q").classList.add("done"); });
+document.querySelectorAll("[data-tk]").forEach((b) => b.onclick = () => { if (!b.parentElement.nextElementSibling) { const t = document.createElement("textarea"); t.rows = 2; t.placeholder = "Ta remarque sur ce ticket"; t.style.marginTop = "8px"; b.parentElement.after(t); t.focus(); } });
+document.querySelectorAll("[data-merge]").forEach((b) => b.onclick = () => { b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); toast("Noté : « fusionner T3 avec T2 » sera envoyé au tech lead."); });
+document.querySelectorAll("[data-agree]").forEach((b) => b.onclick = () => b.parentElement.querySelectorAll("[data-agree]").forEach((x) => x.setAttribute("aria-pressed", x === b)));
+document.querySelectorAll("[data-askrev]").forEach((b) => b.onclick = () => {
+  const rv = b.closest(".card").querySelector(".rv");
+  rv.innerHTML = `<div class="reply"><b>Reviewer</b> <span class="typing">répond…</span></div>`;
+  setTimeout(() => rv.innerHTML = `<div class="reply"><b>Reviewer</b> — C'est une préférence de lisibilité, pas un défaut : tu peux l'écarter sans risque.</div>`, 1300);
+});
+
+document.querySelectorAll("[data-go]").forEach((b) => b.onclick = () => {
+  document.querySelectorAll(".view").forEach((v) => v.classList.toggle("on", v.id === b.dataset.go));
+  document.querySelectorAll("[data-go]").forEach((x) => x.setAttribute("aria-current", x === b));
+});
+const root = document.documentElement;
+function setTheme(t) { root.dataset.theme = t; $("#theme").textContent = t === "dark" ? "☀ Clair" : "☾ Sombre"; try { localStorage.setItem("aos-maquette-theme", t); } catch (e) {} }
+$("#theme").onclick = () => setTheme(root.dataset.theme === "dark" ? "light" : "dark");
+try { const t = localStorage.getItem("aos-maquette-theme"); if (t) setTheme(t); } catch (e) {}
+
+renderSpec(); renderQuestions(); refreshCount();
+</script>
+</body>
+</html>
