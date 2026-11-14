@@ -158,7 +158,7 @@ func (e *Engine) executeApproval(ctx context.Context, tx pgx.Tx, ap *store.Appro
 		switch ap.Kind {
 		case domain.ApprovalSpecReview:
 			if approved {
-				return next(domain.FeatureEvSpecApproved, domain.JobTechDesign, "")
+				return next(domain.FeatureEvSpecApproved, domain.JobTechDesign, comment)
 			}
 			return next(domain.FeatureEvSpecRejected, domain.JobPOSpec, comment)
 		case domain.ApprovalDesignReview:

@@ -353,9 +353,10 @@ export function useRequestCorrection(featureId: number) {
   });
 }
 
-export const useFeatureThread = (id: number) =>
+export const useFeatureThread = (id: number, enabled = true) =>
   useQuery({
     queryKey: ["thread", id] as const,
+    enabled: enabled && id > 0,
     queryFn: async ({ signal }) => {
       const t = await api.get<FeatureThread>(`/api/features/${id}/thread`, signal);
       return { ...t, messages: t.messages ?? [], runs: t.runs ?? [], approvals: t.approvals ?? [], sessions: t.sessions ?? {} };

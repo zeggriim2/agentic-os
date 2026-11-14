@@ -4,6 +4,35 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 
 ## [Non publié]
 
+### Ajouté
+- **Pages de décision repensées** (maquette `docs/maquettes/approbations/`) : la page d'une approbation
+  s'adapte au type de décision.
+  - **Revue de spec** : chaque question du PO est une carte avec des **réponses proposées en un clic**
+    (celle que le PO recommande est signalée), un **champ libre toujours disponible**, « Laisser le PO
+    décider » et « Demander au PO » (question posée dans sa session via le fil d'équipe, réponse affichée
+    sous la question, recommandation reprenable en un clic). La spec est lisible à côté ; chaque critère
+    d'acceptation peut être commenté. Compteur « n / N traitées », filtre « À traiter ».
+  - Deux décisions explicites : **« Envoyer mes réponses au PO »** (remplace « Rejeter » : le PO reçoit
+    une liste question → réponse, sans en oublier) et **« Approuver et lancer la conception »**, qui
+    prévient s'il reste des questions sans réponse.
+  - **Revue de conception** : tickets, décisions (alternatives écartées) et risques lisibles, chacun
+    commentable ; questions du tech lead avec la même mécanique ; « Renvoyer au tech lead avec mes
+    remarques » ou « Approuver et créer N issues ».
+  - **Reprise après revue / QA** : « D'accord / Pas d'accord » par constat (le développeur ne traite que
+    ceux que tu gardes), « Demander au reviewer », remarque libre ; « Renvoyer au développeur
+    (tentative n / max) » ou « Abandonner le ticket ».
+  - Les autres décisions ont des boutons qui disent ce qu'ils font (« Donner le feu vert », « Publier la
+    PR », « Ouvrir la PR finale »…).
+  - Les réponses sont gardées en brouillon dans le navigateur au fil de la saisie.
+- Livrables PO et tech lead : `open_questions` devient `[{"question", "options", "recommended"}]`
+  (0 ou 2 à 4 réponses proposées, index recommandé facultatif) ; l'ancien format (chaînes) reste accepté.
+  Le tech lead peut désormais poser des questions (facultatif).
+
+### Corrigé
+- Les réponses données en **approuvant** une spec étaient perdues : elles sont transmises au tech lead.
+- Extraction du livrable en objet JSON brut (sans bloc ```json```) : un tableau d'objets imbriqués
+  (questions, tickets) pouvait faire retenir un objet interne au lieu du livrable complet.
+
 ## [1.12.0] — 2026-11-13
 
 Discussion avec les agents depuis la page d'une feature (#72).

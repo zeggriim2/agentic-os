@@ -4,6 +4,7 @@ import { AlertOctagon, Check, CheckCircle2, Clock, HelpCircle, Loader2, ShieldCh
 import { ApiError, errorMessage } from "@/api/client";
 import { useApproval, useDecideApproval } from "@/api/queries";
 import type { Approval } from "@/api/types";
+import { StructuredReview, hasStructuredReview } from "@/components/DecisionReview";
 import { SubjectLink } from "@/components/domain";
 import { Button } from "@/components/ui/Button";
 import { CodeBlock } from "@/components/ui/CodeBlock";
@@ -15,6 +16,7 @@ import { Time } from "@/components/ui/Time";
 import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/cn";
 import { formatParis } from "@/lib/format";
+import { parseQuestions } from "@/lib/decision";
 import { approvalKindLabel, approvalStatusLabel } from "@/lib/states";
 
 function asStringList(v: unknown): string[] | null {
@@ -25,7 +27,7 @@ function DetailsView({ details }: { details: Approval["details"] }) {
   if (!details || typeof details !== "object" || Object.keys(details).length === 0) {
     return <p className="text-sm text-fg-subtle">Aucun détail complémentaire.</p>;
   }
-  const questions = asStringList(details.open_questions);
+  const questions = parseQuestions(details.open_questions).map((q) => q.question);
   const rest = Object.entries(details).filter(([k]) => k !== "open_questions");
   return (
     <div className="space-y-4">
@@ -40,7 +42,6 @@ function DetailsView({ details }: { details: Approval["details"] }) {
               <li key={i}>{q}</li>
             ))}
           </ul>
-          <p className="mt-2 text-xs text-fg-muted">Pour y répondre, rejetez en mettant votre réponse en commentaire : elle est transmise à l'agent.</p>
         </div>
       )}
       {rest.length > 0 && (
@@ -124,7 +125,16 @@ function Outcome({ a }: { a: Approval }) {
   }
 }
 
+/** Libellés explicites des deux décisions selon le type d'approbation. */
+const DECISION_LABELS: Record<string, { approve: string; reject: string; rejectHint: string }> = {
+  dev_gate: { approve: "Donner le feu vert", reject: "Refuser et annuler les tickets", rejectHint: "obligatoire pour refuser" },
+  publish_pr: { approve: "Publier la PR", reject: "Ne pas publier", rejectHint: "obligatoire pour ne pas publier" },
+  publish_feature_pr: { approve: "Ouvrir la PR finale", reject: "Ne pas ouvrir", rejectHint: "obligatoire pour ne pas ouvrir" },
+};
+const DEFAULT_LABELS = { approve: "Approuver", reject: "Rejeter", rejectHint: "obligatoire pour rejeter" };
+
 function DecisionForm({ a }: { a: Approval }) {
+  const labels = DECISION_LABELS[a.kind] ?? DEFAULT_LABELS;
   const [comment, setComment] = useState("");
   const [error, setError] = useState<string | undefined>();
   const m = useDecideApproval(a.id);
@@ -133,7 +143,7 @@ function DecisionForm({ a }: { a: Approval }) {
   const decide = (decision: "approved" | "rejected") => {
     const c = comment.trim();
     if (decision === "rejected" && !c) {
-      setError("Un commentaire est obligatoire pour rejeter.");
+      setError(`Un commentaire est ${labels.rejectHint}.`);
       return;
     }
     setError(undefined);
@@ -152,8 +162,8 @@ function DecisionForm({ a }: { a: Approval }) {
 
   return (
     <form onSubmit={onSubmit} className="space-y-3" aria-label="Décision">
-      <Field label="Commentaire" error={error} hint="Facultatif pour approuver, obligatoire pour rejeter (il est transmis à l'agent comme feedback).">
-        {(p) => <Textarea {...p} value={comment} onChange={(e) => { setComment(e.target.value); if (error) setError(undefined); }} rows={4} />}
+      <Field label="Commentaire" error={error} hint={`Facultatif pour « ${labels.approve} », ${labels.rejectHint} (il est transmis à l'agent).`}>
+        {(p) => <Textarea data-testid="decision-comment" {...p} value={comment} onChange={(e) => { setComment(e.target.value); if (error) setError(undefined); }} rows={4} />}
       </Field>
       {m.isError && !(m.error instanceof ApiError && m.error.status === 409) && (
         <p role="alert" className="text-sm text-danger">
@@ -162,10 +172,10 @@ function DecisionForm({ a }: { a: Approval }) {
       )}
       <div className="flex flex-wrap justify-end gap-2">
         <Button variant="danger" onClick={() => decide("rejected")} disabled={m.isPending} loading={m.isPending && m.variables?.decision === "rejected"} icon={<X className="h-4 w-4" aria-hidden />}>
-          Rejeter
+          {labels.reject}
         </Button>
-        <Button variant="primary" onClick={() => decide("approved")} disabled={m.isPending} loading={m.isPending && m.variables?.decision === "approved"} icon={<Check className="h-4 w-4" aria-hidden />}>
-          Approuver
+        <Button variant="primary" data-testid="approve-button" onClick={() => decide("approved")} disabled={m.isPending} loading={m.isPending && m.variables?.decision === "approved"} icon={<Check className="h-4 w-4" aria-hidden />}>
+          {labels.approve}
         </Button>
       </div>
     </form>
@@ -217,6 +227,20 @@ export default function ApprovalDetailPage() {
           <DegradedBanner error={q.error} onRetry={() => void q.refetch()} />
         </div>
       )}
+      {hasStructuredReview(a) ? (
+        <div className="space-y-4">
+          <section aria-labelledby="effect-title" data-testid="approval-effect" className="rounded-lg border border-accent/40 bg-accent/5 px-4 py-2.5">
+            <p className="text-sm text-fg">
+              <span id="effect-title" className="label-caps mr-2 inline-flex items-center gap-1.5 text-accent">
+                <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
+                Ce que cette approbation autorise
+              </span>
+              {a.effect}
+            </p>
+          </section>
+          <StructuredReview a={a} />
+        </div>
+      ) : (
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         <div className="space-y-4">
           <section
@@ -250,6 +274,7 @@ export default function ApprovalDetailPage() {
           )}
         </div>
       </div>
+      )}
     </>
   );
 }

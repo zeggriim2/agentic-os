@@ -119,7 +119,7 @@ func (e *Engine) handlePOSpec(ctx context.Context, j *store.Job, owner string) e
 		}
 		effect := "Valider la spécification et lancer la conception technique (Tech Lead)."
 		if len(spec.OpenQuestions) > 0 {
-			effect += fmt.Sprintf(" %d question(s) ouverte(s) : rejeter avec un commentaire pour y répondre.", len(spec.OpenQuestions))
+			effect += fmt.Sprintf(" Le PO a %d question(s) : réponds-y et envoie-lui tes réponses, ou approuve en le laissant trancher.", len(spec.OpenQuestions))
 		}
 		_, err = e.createApproval(ctx, tx, store.NewApproval{Kind: domain.ApprovalSpecReview, SubjectType: "feature", SubjectID: f.ID,
 			Title: "Spécification : " + f.Title, Effect: effect,
@@ -574,7 +574,7 @@ func (e *Engine) handleReview(ctx context.Context, j *store.Job, owner string) e
 			return err
 		}
 		notice = fmt.Sprintf("🔁 Revue de %s : corrections demandées, décision de rework requise.", t.Key)
-		return e.reworkApproval(ctx, tx, lt, "review", rv.Summary, findingsText(rv.Findings), sha)
+		return e.reworkApproval(ctx, tx, lt, "review", rv.Summary, findingItems(rv.Findings), sha)
 	})
 	if err == nil && notice != "" {
 		e.notifyProject(ctx, t.ProjectID, notice)
@@ -583,39 +583,50 @@ func (e *Engine) handleReview(ctx context.Context, j *store.Job, owner string) e
 }
 
 func findingsText(fs []domain.Finding) string {
-	var b strings.Builder
+	return strings.Join(findingItems(fs), "")
+}
+
+// findingItems : une ligne par constat (« - [P1] fichier : message\n »), gardée aussi une à une dans
+// l'approbation de reprise pour que l'humain choisisse les constats à traiter.
+func findingItems(fs []domain.Finding) []string {
+	out := make([]string, 0, len(fs))
 	for _, f := range fs {
-		fmt.Fprintf(&b, "- [%s] %s : %s\n", f.Severity, f.File, f.Message)
+		out = append(out, fmt.Sprintf("- [%s] %s : %s\n", f.Severity, f.File, f.Message))
 	}
-	return b.String()
+	return out
 }
 
 func qaFindings(q *domain.QAResult) string {
-	var b strings.Builder
+	return strings.Join(qaFindingItems(q), "")
+}
+
+func qaFindingItems(q *domain.QAResult) []string {
+	var out []string
 	for _, c := range q.Checks {
 		if c.ExitCode != 0 {
-			fmt.Fprintf(&b, "- check en échec : %s (exit %d)\n", c.Command, c.ExitCode)
+			out = append(out, fmt.Sprintf("- check en échec : %s (exit %d)\n", c.Command, c.ExitCode))
 		}
 	}
 	for _, a := range q.Acceptance {
 		if a.Status != "met" {
-			fmt.Fprintf(&b, "- critère non satisfait : %s (%s)\n", a.Criterion, a.Evidence)
+			out = append(out, fmt.Sprintf("- critère non satisfait : %s (%s)\n", a.Criterion, a.Evidence))
 		}
 	}
-	if b.Len() == 0 {
-		b.WriteString(q.Summary)
+	if len(out) == 0 {
+		out = append(out, q.Summary)
 	}
-	return b.String()
+	return out
 }
 
-func (e *Engine) reworkApproval(ctx context.Context, tx pgx.Tx, t *store.Ticket, source, summary, findings, sha string) error {
+func (e *Engine) reworkApproval(ctx context.Context, tx pgx.Tx, t *store.Ticket, source, summary string, items []string, sha string) error {
 	effect := fmt.Sprintf("Relancer le développement de %s avec ces corrections (tentative %d/%d).", t.Key, t.Attempt+1, e.MaxRework)
 	if t.Attempt >= e.MaxRework {
 		effect = fmt.Sprintf("Nombre maximal de reworks atteint (%d) : approuver bloquera le ticket, rejeter l'annulera.", e.MaxRework)
 	}
 	_, err := e.createApproval(ctx, tx, store.NewApproval{Kind: domain.ApprovalRework, SubjectType: "ticket", SubjectID: t.ID,
 		Title: "Rework : " + t.Title, Effect: effect,
-		Details: map[string]any{"source": source, "summary": summary, "findings": findings, "sha": sha, "attempt": t.Attempt, "max_rework": e.MaxRework}})
+		Details: map[string]any{"source": source, "summary": summary, "findings": strings.Join(items, ""), "finding_items": items,
+			"sha": sha, "attempt": t.Attempt, "max_rework": e.MaxRework}})
 	return err
 }
 
@@ -676,7 +687,7 @@ func (e *Engine) handleQA(ctx context.Context, j *store.Job, owner string) error
 			return err
 		}
 		notice = fmt.Sprintf("🔁 QA de %s en échec : décision de rework requise.", t.Key)
-		return e.reworkApproval(ctx, tx, lt, "qa", qa.Summary, qaFindings(qa), sha)
+		return e.reworkApproval(ctx, tx, lt, "qa", qa.Summary, qaFindingItems(qa), sha)
 	})
 	if err == nil && notice != "" {
 		e.notifyProject(ctx, t.ProjectID, notice)

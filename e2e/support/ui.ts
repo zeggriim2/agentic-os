@@ -32,8 +32,13 @@ export async function openPendingApproval(page: Page, title: string, timeout = 1
 
 /** Approuve l'approbation affichée et attend son exécution par le moteur. */
 export async function approveCurrent(page: Page, comment = "") {
-  if (comment) await page.getByLabel("Commentaire").fill(comment);
-  await page.getByRole("button", { name: "Approuver" }).click();
+  if (comment) await page.getByTestId("decision-comment").fill(comment);
+  await page.getByTestId("approve-button").click();
+  // Pages structurées : confirmation si des questions restent sans réponse.
+  const confirm = page.getByRole("dialog");
+  if (await confirm.waitFor({ state: "visible", timeout: 1_500 }).then(() => true, () => false)) {
+    await confirm.getByRole("button", { name: /quand même/ }).click();
+  }
   const outcome = page.getByTestId("approval-outcome");
   await expect(outcome).toHaveAttribute("data-status", "executed", { timeout: 60_000 });
   await expect(outcome).toContainText("Exécutée");

@@ -10,9 +10,9 @@ quelque chose passe par votre approbation, et le merge reste toujours le vôtre.
 | --- | --- | --- |
 | **Idée** | vous | créer la feature (titre + description de l'idée) puis **Démarrer la spec** |
 | **Spécification** | agent PO | rien : suivre le run en direct si besoin |
-| **Revue spec** | vous | relire user stories, critères d'acceptation et questions ouvertes → **Approuver** ou **Rejeter** avec un commentaire (le PO repart de votre commentaire) |
+| **Revue spec** | vous | répondre aux questions du PO (un clic sur une réponse proposée, ou votre propre réponse ; « Laisser le PO décider » ; « Demander au PO »), commenter un critère → **Envoyer mes réponses au PO** (il révise la spec) ou **Approuver et lancer la conception** |
 | **Design technique** | agent Tech Lead | rien |
-| **Revue design** | vous | relire le découpage en tickets, risques et alternatives ; l'approbation affiche l'effet exact (« créer N issues sur owner/repo ») |
+| **Revue design** | vous | relire le découpage en tickets, décisions et risques, commenter un ticket ou une décision, répondre aux éventuelles questions du tech lead → **Renvoyer au tech lead avec mes remarques** ou **Approuver et créer N issues** (effet exact affiché) |
 | **Issues ouvertes** | Agentic OS | les issues GitHub sont créées (sans doublon) |
 | **Feu vert humain** | vous | donner le feu vert au développement |
 | **Tickets en cours** | agents Développeur → Reviewer → QA, ticket par ticket | intervenir seulement sur demande (voir ci-dessous) |
@@ -59,7 +59,8 @@ présenter des conflits à résoudre sur GitHub.
 2. **Revue de code** puis **QA** : vérifient exactement ce commit. La QA doit couvrir **chaque**
    critère d'acceptation du ticket, ni plus ni moins.
 3. **Changements demandés** : la revue ou la QA a trouvé un problème. Vous choisissez de relancer le
-   développeur avec ces retours (**Approuver** le rework) ou d'abandonner le ticket (**Rejeter**).
+   développeur (**Renvoyer au développeur**) en gardant seulement les constats avec lesquels vous êtes
+   d'accord (« D'accord / Pas d'accord », « Demander au reviewer » en cas de doute), ou d'**abandonner le ticket**.
 4. **PR à approuver** : vous autorisez l'ouverture de la PR draft (branche, base et commit affichés ;
    si quelque chose a changé depuis, l'approbation est invalidée et redemandée).
 5. **PR ouverte** puis **Merge humain** quand la CI est verte : relisez et mergez sur GitHub.
@@ -96,7 +97,10 @@ Thème **sombre par défaut** (bouton soleil/lune en bas du menu pour le thème 
   Une consigne ou une réponse ne change jamais l'état de la feature : les décisions restent les tiennes.
 - **Vue d'ensemble** : alertes, approbations en attente, éléments bloqués, runs actifs, tokens
   consommés, et le bouton **Mettre en pause** / **Reprendre** du dispatch.
-- **Approbations** : tout ce qui attend votre décision. Le rejet demande un commentaire.
+- **Approbations** : tout ce qui attend votre décision. Chaque page de décision s'adapte : questions des
+  agents en cartes (réponses proposées en un clic, champ libre toujours disponible, réponses gardées en
+  brouillon si vous revenez plus tard), document lisible à côté, et deux boutons qui disent ce qu'ils
+  font. Un renvoi à l'agent demande un retour (réponse, remarque ou commentaire).
 - **Features** et **Pipeline** : où en est chaque feature et chaque ticket. Le pipeline a deux onglets :
   - **Features** : le cycle de vie d'une demande, de l'idée au feu vert, puis « Tickets en cours » avec
     l'avancement (« 1/3 mergé · T2 : revue de code ») et un lien « Voir les tickets » ;

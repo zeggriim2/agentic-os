@@ -52,8 +52,12 @@ func jsonText(v any) string {
 func poPrompt(p *store.Project, f *store.Feature, feedback string) (string, string) {
 	instr := `Tu es le Product Owner d'Agentic OS. Rédige une spécification fonctionnelle claire et testable.
 ` + commonRules + `
-Livrable : {"summary": str, "user_stories": [str], "acceptance_criteria": [str], "open_questions": [str]}
-user_stories et acceptance_criteria non vides ; open_questions liste les points à clarifier (vide si aucun).`
+Livrable : {"summary": str, "user_stories": [str], "acceptance_criteria": [str],
+"open_questions": [{"question": str, "options": [str], "recommended": int}]}
+user_stories et acceptance_criteria non vides ; open_questions liste les points que l'humain doit trancher
+(vide si aucun). Pour chaque question, propose quand c'est possible 2 à 4 réponses courtes et concrètes
+dans options, et l'index (à partir de 0) de celle que tu recommandes dans recommended : l'humain répond en un
+clic ou écrit sa propre réponse. Question vraiment ouverte : omets options et recommended.`
 	var b strings.Builder
 	fmt.Fprintf(&b, "Projet : %s (%s), branche de base %s.\n\n", p.Name, p.Repository, p.BaseBranch)
 	b.WriteString(untrusted("feature", "Titre : "+f.Title+"\n\n"+f.Description))
@@ -79,7 +83,10 @@ Découpage (impératif) :
 - Les tests accompagnent le code qu'ils vérifient, dans le même ticket (pas de ticket « tests » séparé).
 `, domain.MaxTickets) + contextRules + `
 Livrable : {"summary": str, "decisions": [{"decision": str, "rationale": str, "rejected_alternatives": [str]}],
-"risks": [str], "tickets": [{"title": str, "body": str, "acceptance_criteria": [str]}]}`
+"risks": [str], "tickets": [{"title": str, "body": str, "acceptance_criteria": [str]}],
+"open_questions": [{"question": str, "options": [str], "recommended": int}]}
+open_questions est facultatif : seulement les choix que l'humain doit trancher (2 à 4 réponses proposées et
+l'index de ta recommandation). Ne pose pas de question dont tu peux décider seul.`
 	var b strings.Builder
 	fmt.Fprintf(&b, "Projet : %s (%s), base %s, commande de test indicative : %q.\n\n", p.Name, p.Repository, p.BaseBranch, p.TestCommand)
 	b.WriteString(untrusted("feature", "Titre : "+f.Title+"\n\n"+f.Description))

@@ -8,7 +8,7 @@ import { mockFetch, renderWithProviders } from "./utils";
 
 const base: Approval = {
   id: 7,
-  kind: "design_review",
+  kind: "publish_pr",
   subject_type: "feature",
   subject_id: 3,
   title: "Valider le design de « Export CSV »",
@@ -39,8 +39,8 @@ describe("Écran Approbation", () => {
     const { calls } = mockFetch({ "GET /api/approvals/7": { body: base } });
     renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Rejeter" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("Un commentaire est obligatoire pour rejeter.");
+    await user.click(await screen.findByRole("button", { name: "Ne pas publier" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Un commentaire est obligatoire pour ne pas publier.");
     expect(screen.getByLabelText("Commentaire")).toHaveAttribute("aria-invalid", "true");
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
   });
@@ -57,7 +57,7 @@ describe("Écran Approbation", () => {
     renderPage();
     const user = userEvent.setup();
     await user.type(await screen.findByLabelText("Commentaire"), "Découper autrement");
-    await user.click(screen.getByRole("button", { name: "Rejeter" }));
+    await user.click(screen.getByRole("button", { name: "Ne pas publier" }));
     const outcome = await screen.findByTestId("approval-outcome");
     expect(outcome).toHaveAttribute("data-status", "rejected");
     expect(outcome).toHaveTextContent("Décision enregistrée — rejetée");
@@ -80,7 +80,7 @@ describe("Écran Approbation", () => {
     });
     const { client } = renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Approuver" }));
+    await user.click(await screen.findByRole("button", { name: "Publier la PR" }));
     const recorded = await screen.findByTestId("approval-outcome");
     expect(recorded).toHaveAttribute("data-status", "approved");
     expect(recorded).toHaveTextContent("Décision enregistrée — exécution en cours");
@@ -99,7 +99,7 @@ describe("Écran Approbation", () => {
     const outcome = await screen.findByTestId("approval-outcome");
     expect(outcome).toHaveTextContent("Échec d'exécution");
     expect(outcome).toHaveTextContent("GitHub 502");
-    expect(screen.queryByRole("button", { name: "Approuver" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Publier la PR" })).not.toBeInTheDocument();
   });
 
   it("sur 409 (déjà décidée), recharge l'état réel", async () => {
@@ -110,7 +110,7 @@ describe("Écran Approbation", () => {
     });
     renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Approuver" }));
+    await user.click(await screen.findByRole("button", { name: "Publier la PR" }));
     await waitFor(() => expect(screen.getByTestId("approval-outcome")).toHaveAttribute("data-status", "executed"));
   });
 });
