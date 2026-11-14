@@ -101,6 +101,7 @@ func (e *Engine) runAgent(ctx context.Context, j *store.Job, p *store.Project, r
 	if run != nil && domain.RunTerminal(run.Status) && run.HermesRunID == nil {
 		run = nil
 	}
+	created := run == nil
 	if run == nil {
 		// Profil propre au projet s'il en définit un (image et montages du projet), sinon celui de l'agent.
 		if run, err = store.CreateRun(ctx, e.Store.Pool, j.ID, role, p.ProfileFor(role, agent.HermesProfile)); err != nil {
@@ -118,6 +119,13 @@ func (e *Engine) runAgent(ctx context.Context, j *store.Job, p *store.Project, r
 	profile := run.HermesProfile
 	requested := requestedOf(run)
 	if run.HermesRunID == nil {
+		// Consignes de l'humain (discussion) : celles en attente ne sont jointes qu'à un run créé ici,
+		// pour qu'une re-soumission garde le même corps sous la même clé d'idempotence.
+		extra, err := e.humanInstructions(ctx, j, run, role, created)
+		if err != nil {
+			return nil, err
+		}
+		req.Instructions += extra
 		key := idempotencyKey(j.ID, subjectAttempt)
 		if run.ModelFallback {
 			key = fallbackKey(j.ID, subjectAttempt)
@@ -157,7 +165,7 @@ func (e *Engine) runAgent(ctx context.Context, j *store.Job, p *store.Project, r
 			Status: st.NormalizedStatus(), InputTokens: st.Usage.InputTokens, OutputTokens: st.Usage.OutputTokens,
 			TotalTokens: st.Usage.TotalTokens, CacheReadTokens: st.Usage.CacheReadTokens,
 			CacheWriteTokens: st.Usage.CacheWriteTokens, Model: st.Runtime.Model, Provider: st.Runtime.Provider, Output: st.Output,
-			Error: st.Error,
+			Error: st.Error, SessionID: st.SessionID,
 		}
 		if err := store.FinishRun(ctx, e.Store.Pool, run.ID, res); err != nil {
 			return nil, err

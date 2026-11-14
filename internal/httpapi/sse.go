@@ -63,7 +63,7 @@ func (h *Hub) Subscribers() int {
 
 var allowedEvents = map[string]bool{
 	"job.updated": true, "run.updated": true, "run.event": true, "approval.updated": true,
-	"feature.updated": true, "ticket.updated": true, "overview.invalidate": true,
+	"feature.updated": true, "ticket.updated": true, "overview.invalidate": true, "feature.message": true,
 }
 
 // ListenPG relaie les NOTIFY PostgreSQL (émis au commit) vers le hub ; reconnexion automatique.

@@ -582,3 +582,30 @@ lease owner) et le ticket expose `worktree` relatif (`<slug>/<key>`).
   pages ; filtre par mots sans accents).
 - Thème : sombre ardoise par défaut, accent orange ; `review` (décision humaine) en bleu, `progress`
   (agent au travail) en orange ; contrastes vérifiés par axe (e2e) dans les deux thèmes.
+
+### Discussion avec les agents (1.12.0)
+
+Contrat Hermes vérifié en réel (profil reviewer FraisZen) : `POST /p/<profil>/v1/runs/{id}/steer`
+`{"input"}` injecte une consigne dans un run **en cours** (`accepted: true`, événement `run.steered` ;
+409 une fois terminé) ; `GET /v1/runs/{id}` expose `session_id` ; un `POST /v1/runs` avec `session_id`
+recharge l'historique de cette session.
+
+- Table `feature_messages` (migration 0012) : `instruction` (`delivered` | `pending` | `consumed`),
+  `question` (`answering` | `answered` | `failed`), `answer` (`reply_to` = question, `run_id`).
+  `runs.hermes_session_id` est relu en fin de run (`FinishRun`).
+- Consigne (`Engine.PostInstruction`) : run actif de la feature (hors `answer_question`) et du rôle visé
+  → `hermes.Steer` ; refus (409/404) ou Hermes injoignable → `pending`. `runAgent` joint les consignes
+  `pending` du rôle aux instructions **d'un run qu'il vient de créer** et les passe `consumed` ; une
+  re-soumission du même run ne joint que celles déjà rattachées (corps identique sous la même clé
+  d'idempotence).
+- Question (`Engine.AskQuestion`) : refusée (409 `agent_busy`) si un run du rôle est en cours ; job
+  `answer_question` (2 tentatives, hors créneau develop/review/qa). Session = dernier run terminé du rôle
+  sur la feature (relue chez Hermes pour les runs antérieurs) ; sans session, le contexte de la feature
+  (spec, conception) est fourni. Consignes : lecture seule, réponse en texte. Garde-fou : SHA distants
+  des branches de la feature relus avant/après ; un changement est noté sur la question et audité
+  (`message.question_side_effect`). Un échec ne bloque jamais la feature (`failQuestion`).
+- Audit : `message.instruction`, `message.question`, `message.answer`. NOTIFY `feature.message` →
+  invalidation `thread` côté web (aussi sur `run.updated` et `approval.updated`).
+- Web : `components/FeatureThread.tsx` (onglet par défaut de la feature), fil = runs (hors réponses),
+  approbations de la feature et de ses tickets, messages ; « Transformer en correction » préremplit
+  `CorrectionDialog`.

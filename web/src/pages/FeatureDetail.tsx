@@ -1,10 +1,11 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ExternalLink as ExtIcon, GitBranch, GitPullRequest, HelpCircle, MessageSquareWarning, Play, Plus, RotateCcw, Trash2, XCircle } from "lucide-react";
 import { errorMessage } from "@/api/client";
 import { useFeature, useFeatureAction, useFeatureIntegration, useProjects, useRequestCorrection } from "@/api/queries";
 import type { FeatureDetail, IntegrationMode, Ticket } from "@/api/types";
 import { ApprovalList, RunsTable, Timeline } from "@/components/domain";
+import { FeatureThread, type CorrectionDraft } from "@/components/FeatureThread";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -204,11 +205,18 @@ export function canRequestCorrection(f: FeatureDetail): boolean {
   return f.state === "ACCEPTANCE" || (f.state === "BLOCKED" && f.previous_state === "ACCEPTANCE");
 }
 
-export function CorrectionDialog({ f, open, onClose }: { f: FeatureDetail; open: boolean; onClose: () => void }) {
+export function CorrectionDialog({ f, open, onClose, draft }: { f: FeatureDetail; open: boolean; onClose: () => void; draft?: CorrectionDraft | null }) {
   const m = useRequestCorrection(f.id);
   const toast = useToast();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  // « Transformer en correction » depuis le fil : question et réponse préremplies, modifiables.
+  useEffect(() => {
+    if (open && draft) {
+      setTitle(draft.title.slice(0, LIMITS.featureTitle));
+      setDescription(draft.description);
+    }
+  }, [open, draft]);
   const [criteria, setCriteria] = useState<string[]>([""]);
   const [touched, setTouched] = useState(false);
   const filled = criteria.map((c) => c.trim()).filter(Boolean);
@@ -405,9 +413,10 @@ export default function FeatureDetailPage() {
   const projects = useProjects();
   const action = useFeatureAction(id);
   const toast = useToast();
-  const [tab, setTab] = useState("spec");
+  const [tab, setTab] = useState("thread");
   const [pending, setPending] = useState<Action | null>(null);
   const [correcting, setCorrecting] = useState(false);
+  const [draft, setDraft] = useState<CorrectionDraft | null>(null);
 
   const crumbs = [{ label: "Features", to: "/features" }];
   if (q.isPending)
@@ -503,7 +512,17 @@ export default function FeatureDetailPage() {
           )),
         ]}
       />
-      {correctable && <CorrectionDialog f={f} open={correcting} onClose={() => setCorrecting(false)} />}
+      {correctable && (
+        <CorrectionDialog
+          f={f}
+          open={correcting}
+          draft={draft}
+          onClose={() => {
+            setCorrecting(false);
+            setDraft(null);
+          }}
+        />
+      )}
       {f.state === "ACCEPTANCE" && (
         <p className="mb-4 rounded-md border border-review/40 bg-panel px-3 py-2 text-sm text-fg-muted" data-testid="acceptance-hint">
           <span className="font-medium text-fg">Recette : </span>
@@ -536,6 +555,7 @@ export default function FeatureDetailPage() {
             value={tab}
             onChange={setTab}
             tabs={[
+              { id: "thread", label: "Fil d'équipe" },
               { id: "spec", label: "Spec" },
               { id: "design", label: "Design" },
               { id: "tickets", label: "Tickets", count: f.tickets.length },
@@ -543,6 +563,19 @@ export default function FeatureDetailPage() {
               { id: "timeline", label: "Timeline", count: f.timeline.length },
             ]}
           >
+            {tab === "thread" && (
+              <FeatureThread
+                featureId={f.id}
+                onCorrect={
+                  correctable
+                    ? (d) => {
+                        setDraft(d);
+                        setCorrecting(true);
+                      }
+                    : undefined
+                }
+              />
+            )}
             {tab === "spec" && <SpecTab f={f} />}
             {tab === "design" && <DesignTab f={f} />}
             {tab === "tickets" && <TicketsTab f={f} />}

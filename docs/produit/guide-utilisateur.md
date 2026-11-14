@@ -81,6 +81,19 @@ Thème **sombre par défaut** (bouton soleil/lune en bas du menu pour le thème 
   (l'agent s'en sert) ; **Détails** ou **Ouvrir** pour aller voir avant de décider.
 - **Ctrl+K** (ou la barre « Aller à, rechercher… ») : tape quelques lettres d'une feature, d'un ticket,
   d'une décision ou d'une page, ↑/↓ puis Entrée. « Nouvelle feature » ouvre directement le formulaire.
+- **Fil d'équipe** (premier onglet de la page d'une feature) : les passages des agents (en orange, avec
+  leur résumé et leurs tokens), tes décisions (en bleu) et vos échanges, dans l'ordre. En bas, écris aux
+  agents (Ctrl+Entrée pour envoyer) :
+  - **Consigne** : « À » = l'agent en cours par défaut. Elle lui est transmise tout de suite, sans le
+    redémarrer. Si personne ne travaille (ou si tu vises un autre rôle), elle est gardée et donnée à
+    l'agent à son prochain passage. Exemple : « Pense au cas où la configuration 2025 est incomplète. »
+  - **Question** : choisis le rôle. Il répond dans sa session sur la feature, donc avec tout ce qu'il a
+    déjà lu et fait, **sans rien modifier** (quelques milliers de tokens). Pas de question à un agent qui
+    travaille : envoie-lui plutôt une consigne. Si une branche bouge pendant sa réponse, le fil le signale.
+  - Pendant la recette, **« Transformer en correction »** sous une réponse ouvre « Demander une
+    correction » déjà rempli avec la question et la réponse.
+
+  Une consigne ou une réponse ne change jamais l'état de la feature : les décisions restent les tiennes.
 - **Vue d'ensemble** : alertes, approbations en attente, éléments bloqués, runs actifs, tokens
   consommés, et le bouton **Mettre en pause** / **Reprendre** du dispatch.
 - **Approbations** : tout ce qui attend votre décision. Le rejet demande un commentaire.

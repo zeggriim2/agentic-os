@@ -1442,3 +1442,63 @@ func TestActivityRunningAndFeed(t *testing.T) {
 		t.Fatalf("ordre ou contenu : %s", r.raw)
 	}
 }
+
+func TestFeatureThreadAndMessages(t *testing.T) {
+	c := setup(t, nil)
+	ctx := context.Background()
+	expectStatus(t, "anonyme", c.do("GET", "/api/features/1/thread", nil, false), 401, "")
+	c.login()
+	r := c.do("POST", "/api/projects", map[string]any{"slug": "fz", "name": "FZ", "repository": "o/fz"}, true)
+	pid := int64(r.body["id"].(float64))
+	f, err := store.CreateFeature(ctx, c.s.Pool, pid, "Semaine type", "d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fid := itoa(f.ID)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var tid, j1, j2 int64
+	must(c.s.Pool.QueryRow(ctx, `INSERT INTO tickets (feature_id, project_id, key, seq, title, body, acceptance, state)
+		VALUES ($1,$2,'fz-F1-T1',1,'Semaine','b','["c"]','REVIEW') RETURNING id`, f.ID, pid).Scan(&tid))
+	must(c.s.Pool.QueryRow(ctx, `INSERT INTO jobs (kind, subject_type, subject_id, idempotency_key) VALUES ('po_spec','feature',$1,'k-po') RETURNING id`, f.ID).Scan(&j1))
+	must(c.s.Pool.QueryRow(ctx, `INSERT INTO jobs (kind, subject_type, subject_id, idempotency_key) VALUES ('develop','ticket',$1,'k-dev') RETURNING id`, tid).Scan(&j2))
+	_, err = c.s.Pool.Exec(ctx, `INSERT INTO runs (job_id, agent_role, hermes_profile, hermes_run_id, status, input_tokens, cache_read_tokens, output_tokens, artifact)
+		VALUES ($1,'po','aos-po','run_a','completed',10000,8000,500,'{"summary":"Spec : semaine type persistée."}'),
+		       ($2,'developer','aos-dev','run_b','running',0,0,0,NULL)`, j1, j2)
+	must(err)
+
+	url := "/api/features/" + fid + "/messages"
+	expectStatus(t, "sans CSRF", c.do("POST", url, map[string]any{"kind": "instruction", "body": "x"}, false), 403, "")
+	expectStatus(t, "type inconnu", c.do("POST", url, map[string]any{"kind": "chat", "body": "x"}, true), 422, "invalid_message")
+	expectStatus(t, "vide", c.do("POST", url, map[string]any{"kind": "question", "role": "po", "body": " "}, true), 422, "invalid_message")
+	expectStatus(t, "question sans rôle", c.do("POST", url, map[string]any{"kind": "question", "body": "?"}, true), 422, "invalid_role")
+	expectStatus(t, "agent au travail", c.do("POST", url, map[string]any{"kind": "question", "role": "developer", "body": "Ça avance ?"}, true), 409, "agent_busy")
+	r = c.do("POST", url, map[string]any{"kind": "instruction", "role": "reviewer", "body": "Vérifie les fuseaux horaires."}, true)
+	expectStatus(t, "consigne", r, 201, "")
+	if r.body["status"] != "pending" || r.body["author"] != "user:admin" {
+		t.Fatalf("consigne : %s", r.raw)
+	}
+	r = c.do("POST", url, map[string]any{"kind": "question", "role": "po", "body": "Pourquoi 5 jours ?"}, true)
+	expectStatus(t, "question", r, 201, "")
+	if r.body["status"] != "answering" {
+		t.Fatalf("question : %s", r.raw)
+	}
+	var jobs int
+	must(c.s.Pool.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE kind='answer_question' AND subject_id=$1`, f.ID).Scan(&jobs))
+	if jobs != 1 {
+		t.Fatalf("job de réponse : %d", jobs)
+	}
+
+	r = c.do("GET", "/api/features/"+fid+"/thread", nil, false)
+	expectStatus(t, "fil", r, 200, "")
+	for _, want := range []string{`"working":"developer"`, `"Spec : semaine type persistée."`, `"fresh_tokens":2500`, `"ticket_key":"fz-F1-T1"`,
+		`"Vérifie les fuseaux horaires."`, `"Pourquoi 5 jours ?"`, `"closed":false`, `"po":true`} {
+		if !strings.Contains(r.raw, want) {
+			t.Fatalf("fil sans %s : %s", want, r.raw)
+		}
+	}
+}

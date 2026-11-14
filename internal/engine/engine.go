@@ -29,6 +29,7 @@ type Hermes interface {
 	GetRun(ctx context.Context, profile, runID string) (hermes.RunStatus, error)
 	StreamEvents(ctx context.Context, profile, runID string, fn func(hermes.Event) error) error
 	StopRun(ctx context.Context, profile, runID string) error
+	Steer(ctx context.Context, profile, runID, text string) error
 	Capabilities(ctx context.Context, profile string) error
 	Models(ctx context.Context, profile string) ([]string, error)
 	ModelOptions(ctx context.Context, profile string) (hermes.ModelOptions, error)
@@ -379,6 +380,10 @@ func (e *Engine) process(ctx context.Context, j *store.Job, owner string) {
 
 // failJob marque le job failed et bloque le sujet, dans une transaction.
 func (e *Engine) failJob(ctx context.Context, j *store.Job, owner string, je *JobError) error {
+	if j.Kind == domain.JobAnswerQuestion {
+		// Une question sans réponse ne bloque jamais la feature : seul le message passe en échec.
+		return e.failQuestion(ctx, j, owner, je)
+	}
 	var notify string
 	err := e.Store.InTx(ctx, func(tx pgx.Tx) error {
 		if err := store.FailJob(ctx, tx, j.ID, owner, je.Class, je.Msg); err != nil {

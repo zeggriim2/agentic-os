@@ -17,6 +17,9 @@ import type {
   FeatureCreate,
   IntegrationMode,
   FeatureDetail,
+  FeatureMessage,
+  FeatureThread,
+  MessageInput,
   Health,
   Overview,
   Page,
@@ -347,6 +350,23 @@ export function useRequestCorrection(featureId: number) {
   return useMutation({
     mutationFn: (input: CorrectionInput) => api.post<Ticket>(`/api/features/${featureId}/corrections`, input),
     onSettled: () => invalidateMany(qc, ["feature", "features", "pipeline", "overview", "approvals", "approval"]),
+  });
+}
+
+export const useFeatureThread = (id: number) =>
+  useQuery({
+    queryKey: ["thread", id] as const,
+    queryFn: async ({ signal }) => {
+      const t = await api.get<FeatureThread>(`/api/features/${id}/thread`, signal);
+      return { ...t, messages: t.messages ?? [], runs: t.runs ?? [], approvals: t.approvals ?? [], sessions: t.sessions ?? {} };
+    },
+  });
+
+export function usePostMessage(featureId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: MessageInput) => api.post<FeatureMessage>(`/api/features/${featureId}/messages`, input),
+    onSettled: () => invalidateMany(qc, ["thread"]),
   });
 }
 

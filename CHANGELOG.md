@@ -4,6 +4,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions : [
 
 ## [Non publié]
 
+## [1.12.0] — 2026-11-13
+
+Discussion avec les agents depuis la page d'une feature (#72).
+
+### Ajouté
+- **Discussion avec les agents** : la page d'une feature s'ouvre sur un **fil d'équipe** qui montre dans
+  l'ordre les passages des agents (résumé, tokens), tes décisions et vos échanges.
+  - **Consigne** : transmise tout de suite à l'agent en cours, sans le redémarrer (steer Hermes). Si
+    aucun agent ne travaille, elle est ajoutée une fois aux instructions du prochain passage du rôle visé.
+  - **Question** à un rôle (PO, tech lead, développeur, reviewer, QA) : l'agent répond dans sa dernière
+    session sur la feature (tout son contexte), sans rien modifier ni changer d'état. Une branche qui
+    bouge pendant la réponse est signalée ; une question sans réponse ne bloque jamais la feature.
+  - **« Transformer en correction »** sur une réponse, pendant la recette : dialogue de correction prérempli.
+  - Tout est tracé dans l'audit ; une réponse est notifiée dans le sujet Telegram du projet.
+- API : `GET /api/features/{id}/thread`, `POST /api/features/{id}/messages` ; migration 0012
+  (`feature_messages`, `runs.hermes_session_id`, job `answer_question`).
+
 ## [1.11.1] — 2026-11-13
 
 ### Sécurité
